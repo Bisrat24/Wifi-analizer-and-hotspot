@@ -14,6 +14,7 @@
             <conv:BandActiveForegroundConverter x:Key="BandFgConv"/>
             <conv:HotspotStateToBrushConverter x:Key="HotspotBrushConv"/>
             <conv:BoolToVisibilityConverter x:Key="BoolVisConv"/>
+            <conv:BoolToVisibilityConverter x:Key="BoolToVisConv"/>
             <conv:InverseBooleanConverter x:Key="InverseBoolConv"/>
 
             <!-- Global Font and Styles -->

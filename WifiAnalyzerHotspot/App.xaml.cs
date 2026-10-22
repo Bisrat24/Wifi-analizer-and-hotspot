@@ -25,15 +25,25 @@ namespace WifiAnalyzerHotspot
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
         }
 
+        private static int _dispatcherExCount = 0;
         private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
         {
-            try
+            int count = System.Threading.Interlocked.Increment(ref _dispatcherExCount);
+            if (count <= 10)
             {
-                System.IO.File.AppendAllText("crash.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [Dispatcher] {e.Exception}\n");
+                try
+                {
+                    System.IO.File.AppendAllText("crash.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [Dispatcher] {e.Exception}\n");
+                }
+                catch { }
             }
-            catch { }
             Debug.WriteLine($"[Handled Dispatcher Exception] {e.Exception.GetType().Name}: {e.Exception.Message}");
             Debug.WriteLine(e.Exception.StackTrace);
+            if (count > 25)
+            {
+                e.Handled = false;
+                return;
+            }
             // Mark handled to prevent crash
             e.Handled = true;
         }

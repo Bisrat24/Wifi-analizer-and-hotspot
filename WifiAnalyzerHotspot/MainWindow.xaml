@@ -7,7 +7,7 @@
         xmlns:controls="clr-namespace:WifiAnalyzerHotspot.Controls"
         mc:Ignorable="d"
         Title="WiFi Analyzer &amp; Hotspot Pro"
-        Icon="pack://application:,,,/app.ico"
+        Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
         Height="780" Width="1220"
         MinHeight="650" MinWidth="1000"
         WindowStartupLocation="CenterScreen"
@@ -119,14 +119,14 @@
                 <StackPanel Grid.Row="0" Margin="4,0,4,20">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Width="36" Height="36" CornerRadius="8" Background="#1E2742" Margin="0,0,10,0" ClipToBounds="True">
-                            <Image Source="pack://application:,,,/app.png" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="WiFi Analyzer" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.0.2" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.0.3" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -386,7 +386,7 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0">
-                                            <TextBlock Text="&#x2605;" Foreground="#FFEA00" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisConv}}"/>
+                                            <TextBlock Text="&#x2605;" FontFamily="Segoe UI Emoji" Foreground="#FFEA00" Margin="0,0,6,0" VerticalAlignment="Center"
                                                        Visibility="{Binding IsConnected, Converter={StaticResource BoolVisConv}}"/>
                                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="#FFFFFF"
                                                        TextTrimming="CharacterEllipsis"/>
