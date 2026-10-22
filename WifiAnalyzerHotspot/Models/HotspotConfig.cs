@@ -1,0 +1,212 @@
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace WifiAnalyzerHotspot.Models
+{
+    public class HotspotClientInfo : INotifyPropertyChanged
+    {
+        private string _hostName = "Client Device";
+        private string _macAddress = string.Empty;
+        private string _ipAddress = string.Empty;
+        private string _status = "Connected";
+
+        public string HostName
+        {
+            get => _hostName;
+            set { _hostName = value; OnPropertyChanged(); }
+        }
+
+        public string MacAddress
+        {
+            get => _macAddress;
+            set { _macAddress = value; OnPropertyChanged(); }
+        }
+
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set { _ipAddress = value; OnPropertyChanged(); }
+        }
+
+        public string Status
+        {
+            get => _status;
+            set { _status = value; OnPropertyChanged(); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
+    public enum HotspotState
+    {
+        Off,
+        On,
+        InTransition,
+        Unknown
+    }
+
+    public class HotspotModel : INotifyPropertyChanged
+    {
+        private string _ssid = "MyHotspot";
+        private string _passphrase = "password123";
+        private string _band = "2.4 GHz";
+        private string _preferredChannel = "Auto (Recommended)";
+        private string _activeChannel = "Auto";
+        private string _activeBand = "2.4 GHz";
+        private string _channelDescription = "Broadcasting channel synchronizes with active Wi-Fi";
+        private HotspotState _state = HotspotState.Off;
+        private int _clientCount = 0;
+        private string _statusMessage = "Hotspot is stopped";
+        private bool _isBusy;
+
+        public string Ssid
+        {
+            get => _ssid;
+            set { _ssid = value; OnPropertyChanged(); }
+        }
+
+        public string Passphrase
+        {
+            get => _passphrase;
+            set { _passphrase = value; OnPropertyChanged(); }
+        }
+
+        public string Band
+        {
+            get => _band;
+            set { _band = value; OnPropertyChanged(); }
+        }
+
+        public string PreferredChannel
+        {
+            get => _preferredChannel;
+            set { _preferredChannel = value; OnPropertyChanged(); }
+        }
+
+        public string ActiveChannel
+        {
+            get => _activeChannel;
+            set { _activeChannel = value; OnPropertyChanged(); }
+        }
+
+        public string ActiveBand
+        {
+            get => _activeBand;
+            set { _activeBand = value; OnPropertyChanged(); }
+        }
+
+        public string ChannelDescription
+        {
+            get => _channelDescription;
+            set { _channelDescription = value; OnPropertyChanged(); }
+        }
+
+        public HotspotState State
+        {
+            get => _state;
+            set
+            {
+                _state = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsRunning));
+                OnPropertyChanged(nameof(StateText));
+                OnPropertyChanged(nameof(PowerButtonText));
+            }
+        }
+
+        public bool IsRunning => _state == HotspotState.On;
+
+        public string StateText => _state switch
+        {
+            HotspotState.On => "Active",
+            HotspotState.Off => "Stopped",
+            HotspotState.InTransition => "Switching...",
+            _ => "Unknown"
+        };
+
+        public string PowerButtonText => _state switch
+        {
+            HotspotState.On => "TURN OFF",
+            HotspotState.InTransition => "WAIT...",
+            _ => "TURN ON"
+        };
+
+        public int ClientCount
+        {
+            get => _clientCount;
+            set { _clientCount = value; OnPropertyChanged(); }
+        }
+
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            set { _statusMessage = value; OnPropertyChanged(); }
+        }
+
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set { _isBusy = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<HotspotClientInfo> Clients { get; set; } = new();
+        public ObservableCollection<BlockedClientInfo> BlockedClients { get; set; } = new();
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
+    public class BlockedClientInfo : INotifyPropertyChanged
+    {
+        private string _hostName = "Blocked Device";
+        private string _macAddress = string.Empty;
+        private string _ipAddress = string.Empty;
+        private string _blockedTime = string.Empty;
+        private string _reason = "Blocked by Administrator";
+
+        public string HostName
+        {
+            get => _hostName;
+            set { _hostName = value; OnPropertyChanged(); }
+        }
+
+        public string MacAddress
+        {
+            get => _macAddress;
+            set { _macAddress = value; OnPropertyChanged(); }
+        }
+
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set { _ipAddress = value; OnPropertyChanged(); }
+        }
+
+        public string BlockedTime
+        {
+            get => _blockedTime;
+            set { _blockedTime = value; OnPropertyChanged(); }
+        }
+
+        public string Reason
+        {
+            get => _reason;
+            set { _reason = value; OnPropertyChanged(); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+}

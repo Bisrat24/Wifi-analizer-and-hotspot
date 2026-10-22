@@ -1,0 +1,31 @@
+<Application x:Class="WifiAnalyzerHotspot.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:WifiAnalyzerHotspot"
+             xmlns:conv="clr-namespace:WifiAnalyzerHotspot.Converters"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <conv:TabVisibilityConverter x:Key="TabVisConv"/>
+            <conv:TabActiveBrushConverter x:Key="TabBrushConv"/>
+            <conv:TabActiveBorderBrushConverter x:Key="TabBorderBrushConv"/>
+            <conv:SignalToBrushConverter x:Key="SignalBrushConv"/>
+            <conv:BandActiveBrushConverter x:Key="BandBrushConv"/>
+            <conv:BandActiveForegroundConverter x:Key="BandFgConv"/>
+            <conv:HotspotStateToBrushConverter x:Key="HotspotBrushConv"/>
+            <conv:BoolToVisibilityConverter x:Key="BoolVisConv"/>
+            <conv:InverseBooleanConverter x:Key="InverseBoolConv"/>
+
+            <!-- Global Font and Styles -->
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI, Segoe UI Variable, sans-serif"/>
+            </Style>
+
+            <!-- ScrollBar Styling -->
+            <Style TargetType="ScrollBar">
+                <Setter Property="Background" Value="#131622"/>
+                <Setter Property="Foreground" Value="#2D344B"/>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

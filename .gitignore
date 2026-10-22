@@ -1,0 +1,20 @@
+## Build and Output directories
+bin/
+obj/
+publish/
+WifiAnalyzerHotspot/bin/
+WifiAnalyzerHotspot/obj/
+WifiAnalyzerHotspot/publish/
+
+## Visual Studio & IDE files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Temporary and diagnostic files
+*.log
+crash.log
+*.tmp
+*.bak
