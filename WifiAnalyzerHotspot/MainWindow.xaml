@@ -126,7 +126,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.0.5" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.0.6" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -924,8 +924,8 @@
                             <Border Background="#131B2A" BorderBrush="#1F2A3F" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
                                 <CheckBox IsChecked="{Binding Hotspot.IsHealthCheckEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
                                     <StackPanel Orientation="Vertical" Margin="4,0,0,0">
-                                        <TextBlock Text="Hotspot Health Watchdog (30s Stuck Reset)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
-                                        <TextBlock Text="Monitors tethering state. If Windows hangs in transition, provides a 30s countdown before auto-recovering." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Hotspot Health Watchdog (5s Stuck Detection)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                        <TextBlock Text="Monitors tethering state with 5s threshold. If Windows hangs in transition, provides a 30s cancellation countdown before auto-recovering." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </CheckBox>
                             </Border>
@@ -1047,9 +1047,21 @@
                                 </DataGrid.ColumnHeaderStyle>
 
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="DEVICE / HOST NAME" Binding="{Binding HostName}" FontWeight="SemiBold" Width="160"/>
-                                    <DataGridTextColumn Header="IP ADDRESS" Binding="{Binding IpAddress}" FontWeight="SemiBold" Foreground="#00E5FF" Width="130"/>
-                                    <DataGridTextColumn Header="MAC ADDRESS" Binding="{Binding MacAddress}" Width="150"/>
+                                    <DataGridTextColumn Header="DEVICE / HOST NAME" Binding="{Binding HostName}" FontWeight="SemiBold" Width="140"/>
+                                    <DataGridTemplateColumn Header="CONNECTION SPEED" Width="140">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#10253B" BorderBrush="#1C4066" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="11" Margin="0,0,4,0" Foreground="#00E5FF"/>
+                                                        <TextBlock Text="{Binding ConnectionSpeed}" FontWeight="SemiBold" FontSize="11" Foreground="#00E5FF"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="IP ADDRESS" Binding="{Binding IpAddress}" FontWeight="SemiBold" Foreground="#00E5FF" Width="110"/>
+                                    <DataGridTextColumn Header="MAC ADDRESS" Binding="{Binding MacAddress}" Width="130"/>
                                     <DataGridTextColumn Header="STATUS" Binding="{Binding Status}" Foreground="#00E676" Width="80"/>
                                     <DataGridTemplateColumn Header="ACTIONS" Width="*">
                                         <DataGridTemplateColumn.CellTemplate>

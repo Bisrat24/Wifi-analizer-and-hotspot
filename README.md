@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.0.5)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.0.6)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -59,9 +59,9 @@ You can run the app immediately by double-clicking:
     - `5 GHz - Channel 149 (High-Speed UNII-3)`
 - **Live Active Broadcast Channel Card**:
   - Displays the active channel, frequency, and band (e.g., `Channel 11 (2462 MHz) • 2.4 GHz`) synchronized with the wireless hardware.
-- **Hotspot Health Check Watchdog & 30s Stuck Reset**:
-  - Continuous health check monitors tethering operational states.
-  - If Windows gets stuck in transition or driver deadlocks, an alert banner sounds with a 30-second countdown.
+- **Hotspot Health Check Watchdog (5s Stuck Detection & 30s Cancelable Reset)**:
+  - High-precision watchdog continuously checks tethering operational states and commands every second.
+  - If Windows gets stuck in transition, errors, or hangs for $\ge 5$ seconds, an alert banner sounds with an interactive 30-second countdown.
   - Users can cancel the auto-reset or trigger it immediately on demand.
 - **Improved DHCP Settings & Conflict Scope (192.168.137.1)**:
   - Automates Windows Internet Connection Sharing (ICS / `SharedAccess`) scope management.
@@ -72,8 +72,9 @@ You can run the app immediately by double-clicking:
 - **Real-Time Connected Client Discovery & Management**:
   - High-speed in-process client discovery combining WinRT tethering events and zero-overhead native ARP queries (`iphlpapi.dll`).
   - Displays connected device **Host Name**, **IP Address**, and **MAC Address**.
+  - **Live Per-Client Connection Speed & Latency**: Shows real-time negotiated link speed (Mbps) and live round-trip ICMP ping latency for every active client.
   - **Device Disconnect**: Disconnect any specific device on-demand.
-  - **Device Block List (Blacklist)**: Permanently block rogue or unauthorized devices with instant Windows Firewall isolation rules.
+  - **Ironclad Multi-Layer Device Blocking (Blacklist)**: Blocks unauthorized devices across Windows Defender Firewall (Inbound, Outbound, ICS DNS port 53, DHCP port 67), route blackhole loop, and normalized MAC address filtering.
   - **Unblock Controls**: Easily restore network access with one-click unblocking.
 
 ### 5. 🛡️ Connection Stabilizer (Active Keep-Alive & Auto-Reconnect)

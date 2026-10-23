@@ -31,6 +31,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private bool _wasExplicitlyStarted = false;
         private int _inTransitionCountSeconds = 0;
         private int _unknownStateCountSeconds = 0;
+        private int _busyCountSeconds = 0;
         private int _resetCooldownSeconds = 0;
 
         private string _currentTab = "Analyzer";
@@ -241,8 +242,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.IsResetCountdownActive = false;
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
-                _resetCooldownSeconds = 90;
-                Hotspot.StatusMessage = "Auto-reset canceled by user. Cooldown active for 90s.";
+                _busyCountSeconds = 0;
+                _resetCooldownSeconds = 15;
+                Hotspot.StatusMessage = "Auto-reset canceled by user. Cooldown active for 15s.";
             });
 
             ResetHotspotNowCommand = new RelayCommand(async () =>
@@ -250,6 +252,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.IsResetCountdownActive = false;
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
+                _busyCountSeconds = 0;
                 await PerformHotspotResetAsync();
             });
 
@@ -276,8 +279,9 @@ namespace WifiAnalyzerHotspot.ViewModels
             BlockClientCommand = new RelayCommand<HotspotClientInfo>(async client =>
             {
                 if (client == null) return;
+                string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
                 var res = await _hotspotService.BlockClientAsync(client.MacAddress, client.IpAddress);
-                if (!Hotspot.BlockedClients.Any(b => b.MacAddress.Equals(client.MacAddress, StringComparison.OrdinalIgnoreCase)))
+                if (!Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == cleanMac))
                 {
                     Hotspot.BlockedClients.Add(new BlockedClientInfo
                     {
@@ -288,7 +292,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                         Reason = "Blocked by Administrator"
                     });
                 }
-                Hotspot.Clients.Remove(client);
+                var toRemove = Hotspot.Clients.Where(c => HotspotModel.NormalizeMac(c.MacAddress) == cleanMac).ToList();
+                foreach (var r in toRemove)
+                {
+                    Hotspot.Clients.Remove(r);
+                }
                 Hotspot.ClientCount = Hotspot.Clients.Count;
                 Hotspot.StatusMessage = res.message;
             });
@@ -296,8 +304,13 @@ namespace WifiAnalyzerHotspot.ViewModels
             UnblockClientCommand = new RelayCommand<BlockedClientInfo>(async blocked =>
             {
                 if (blocked == null) return;
+                string cleanMac = HotspotModel.NormalizeMac(blocked.MacAddress);
                 var res = await _hotspotService.UnblockClientAsync(blocked.MacAddress, blocked.IpAddress);
-                Hotspot.BlockedClients.Remove(blocked);
+                var toRemove = Hotspot.BlockedClients.Where(b => HotspotModel.NormalizeMac(b.MacAddress) == cleanMac).ToList();
+                foreach (var b in toRemove)
+                {
+                    Hotspot.BlockedClients.Remove(b);
+                }
                 Hotspot.StatusMessage = res.message;
                 await RefreshHotspotAsync();
             });
@@ -392,6 +405,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                             Hotspot.IsResetCountdownActive = false;
                             _inTransitionCountSeconds = 0;
                             _unknownStateCountSeconds = 0;
+                            _busyCountSeconds = 0;
                             await PerformHotspotResetAsync();
                         }
                         else
@@ -405,41 +419,56 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             _resetCooldownSeconds--;
                         }
-                        else if (Hotspot.IsHealthCheckEnabled && !Hotspot.IsBusy)
+                        else if (Hotspot.IsHealthCheckEnabled)
                         {
+                            // 5-second stuck watchdog threshold (per user requirement)
                             if (Hotspot.State == HotspotState.InTransition)
                             {
                                 _inTransitionCountSeconds++;
-                                if (_inTransitionCountSeconds >= 16) // Stuck switching for 16 seconds!
+                                if (_inTransitionCountSeconds >= 5) // Stuck switching for 5 seconds
                                 {
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot is stuck in transition. Auto-resetting in 30s to restore Wi-Fi Direct...";
+                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot is stuck in transition (5s threshold reached). Auto-resetting in 30s...";
                                     _inTransitionCountSeconds = 0;
                                 }
                             }
-                            else if (_wasExplicitlyStarted && Hotspot.State == HotspotState.Unknown)
+                            else if (Hotspot.State == HotspotState.Unknown && (_wasExplicitlyStarted || Hotspot.IsRunning))
                             {
                                 _unknownStateCountSeconds++;
-                                if (_unknownStateCountSeconds >= 10)
+                                if (_unknownStateCountSeconds >= 5) // Stuck in unknown state for 5 seconds
                                 {
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot service reported unrecoverable error. Auto-resetting in 30s...";
+                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot service reported unrecoverable error for 5s. Auto-resetting in 30s...";
                                     _unknownStateCountSeconds = 0;
+                                }
+                            }
+                            else if (Hotspot.IsBusy)
+                            {
+                                _busyCountSeconds++;
+                                if (_busyCountSeconds >= 5) // Stuck busy for 5 seconds
+                                {
+                                    Hotspot.IsResetCountdownActive = true;
+                                    Hotspot.ResetCountdownSeconds = 30;
+                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot operation timed out (busy for 5s). Auto-resetting in 30s...";
+                                    _busyCountSeconds = 0;
                                 }
                             }
                             else
                             {
                                 _inTransitionCountSeconds = 0;
                                 _unknownStateCountSeconds = 0;
+                                _busyCountSeconds = 0;
                             }
                         }
                     }
 
-                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (every 4 seconds)
+                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog
+                    // Poll more frequently (every 1s) when busy/transitioning/countdown, otherwise every 2s
                     _hotspotRefreshCounter++;
-                    if (_hotspotRefreshCounter >= 4)
+                    int refreshThreshold = (Hotspot.State == HotspotState.InTransition || Hotspot.IsBusy || Hotspot.IsResetCountdownActive) ? 1 : 2;
+                    if (_hotspotRefreshCounter >= refreshThreshold)
                     {
                         _hotspotRefreshCounter = 0;
 
@@ -769,7 +798,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.Clients.Clear();
                 foreach (var c in current.Clients)
                 {
-                    if (!Hotspot.BlockedClients.Any(b => b.MacAddress.Equals(c.MacAddress, StringComparison.OrdinalIgnoreCase)))
+                    string cMac = HotspotModel.NormalizeMac(c.MacAddress);
+                    if (!Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == cMac))
                     {
                         Hotspot.Clients.Add(c);
                     }
@@ -779,10 +809,6 @@ namespace WifiAnalyzerHotspot.ViewModels
             catch (Exception ex)
             {
                 Hotspot.StatusMessage = $"Hotspot check: {ex.Message}";
-            }
-            finally
-            {
-                Hotspot.IsBusy = false;
             }
         }
 

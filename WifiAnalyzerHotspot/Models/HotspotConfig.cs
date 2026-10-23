@@ -11,6 +11,10 @@ namespace WifiAnalyzerHotspot.Models
         private string _macAddress = string.Empty;
         private string _ipAddress = string.Empty;
         private string _status = "Connected";
+        private string _connectionSpeed = "Detecting...";
+        private string _linkSpeed = "-";
+        private string _latency = "-";
+        private string _trafficRate = "-";
 
         public string HostName
         {
@@ -34,6 +38,30 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _status;
             set { _status = value; OnPropertyChanged(); }
+        }
+
+        public string ConnectionSpeed
+        {
+            get => _connectionSpeed;
+            set { _connectionSpeed = value; OnPropertyChanged(); }
+        }
+
+        public string LinkSpeed
+        {
+            get => _linkSpeed;
+            set { _linkSpeed = value; OnPropertyChanged(); }
+        }
+
+        public string Latency
+        {
+            get => _latency;
+            set { _latency = value; OnPropertyChanged(); }
+        }
+
+        public string TrafficRate
+        {
+            get => _trafficRate;
+            set { _trafficRate = value; OnPropertyChanged(); }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -207,6 +235,12 @@ namespace WifiAnalyzerHotspot.Models
 
         public ObservableCollection<HotspotClientInfo> Clients { get; set; } = new();
         public ObservableCollection<BlockedClientInfo> BlockedClients { get; set; } = new();
+
+        public static string NormalizeMac(string? mac)
+        {
+            if (string.IsNullOrWhiteSpace(mac)) return string.Empty;
+            return mac.Replace(":", "").Replace("-", "").Replace(".", "").Trim().ToUpperInvariant();
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
