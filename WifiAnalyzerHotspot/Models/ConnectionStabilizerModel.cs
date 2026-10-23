@@ -196,6 +196,27 @@ namespace WifiAnalyzerHotspot.Models
             }
         }
 
+        private int _reconnectBufferSeconds = 10;
+        public int ReconnectBufferSeconds
+        {
+            get => _reconnectBufferSeconds;
+            set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
+        }
+
+        public string ReconnectBufferChoice
+        {
+            get => $"{_reconnectBufferSeconds} seconds";
+            set
+            {
+                if (string.IsNullOrEmpty(value)) return;
+                if (value.StartsWith("5")) ReconnectBufferSeconds = 5;
+                else if (value.StartsWith("10")) ReconnectBufferSeconds = 10;
+                else if (value.StartsWith("15")) ReconnectBufferSeconds = 15;
+                else if (value.StartsWith("25")) ReconnectBufferSeconds = 25;
+                OnPropertyChanged();
+            }
+        }
+
         public string ReconnectStrategy
         {
             get => _reconnectStrategy;

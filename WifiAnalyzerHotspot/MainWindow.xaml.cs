@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Interop;
 using WifiAnalyzerHotspot.Services;
 
 namespace WifiAnalyzerHotspot
@@ -20,6 +21,10 @@ namespace WifiAnalyzerHotspot
 
             Loaded += (s, e) =>
             {
+                var wih = new WindowInteropHelper(this);
+                var source = HwndSource.FromHwnd(wih.EnsureHandle());
+                source?.AddHook(WndProc);
+
                 _trayManager = new TrayIconManager(this);
                 _trayManager.Initialize();
                 _trayManager.OnOpenRequested += RestoreWindow;
@@ -28,6 +33,16 @@ namespace WifiAnalyzerHotspot
 
             StateChanged += MainWindow_StateChanged;
             Closing += MainWindow_Closing;
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == App.WM_SHOWME)
+            {
+                RestoreWindow();
+                handled = true;
+            }
+            return IntPtr.Zero;
         }
 
         private void MainWindow_StateChanged(object? sender, EventArgs e)

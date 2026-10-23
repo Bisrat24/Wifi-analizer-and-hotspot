@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -11,8 +13,28 @@ namespace WifiAnalyzerHotspot
     /// </summary>
     public partial class App : Application
     {
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern int RegisterWindowMessage(string lpString);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PostMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        private static readonly IntPtr HWND_BROADCAST = (IntPtr)0xffff;
+        public static readonly int WM_SHOWME = RegisterWindowMessage("WIFI_ANALYZER_AND_HOTSPOT_SHOWME");
+
+        private static Mutex? _singleInstanceMutex;
+
         protected override void OnStartup(StartupEventArgs e)
         {
+            _singleInstanceMutex = new Mutex(true, "WifiAnalyzerHotspot_SingleInstance_Mutex_Bisrat24", out bool isNewInstance);
+            if (!isNewInstance)
+            {
+                // Another instance is already running; wake it up and bring to front
+                PostMessage(HWND_BROADCAST, WM_SHOWME, IntPtr.Zero, IntPtr.Zero);
+                Shutdown();
+                return;
+            }
+
             base.OnStartup(e);
 
             // Trap UI dispatcher exceptions so transient UI/binding glitches don't terminate the process
@@ -23,6 +45,18 @@ namespace WifiAnalyzerHotspot
 
             // Trap unobserved background task exceptions
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            try
+            {
+                _singleInstanceMutex?.ReleaseMutex();
+                _singleInstanceMutex?.Dispose();
+                _singleInstanceMutex = null;
+            }
+            catch { }
+            base.OnExit(e);
         }
 
         private static int _dispatcherExCount = 0;

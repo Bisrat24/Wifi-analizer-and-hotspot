@@ -437,7 +437,10 @@ namespace WifiAnalyzerHotspot.Services
                 if (process == null) return string.Empty;
 
                 string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(4000);
+                if (!process.WaitForExit(4000))
+                {
+                    try { process.Kill(true); } catch { }
+                }
                 return output;
             }
             catch (Exception ex)

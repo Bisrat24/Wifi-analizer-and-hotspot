@@ -51,6 +51,9 @@ namespace WifiAnalyzerHotspot.Services
             public IntPtr hBalloonIcon;
         }
 
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern int RegisterWindowMessage(string lpString);
+
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern bool Shell_NotifyIcon(int dwMessage, ref NOTIFYICONDATA lpData);
 
@@ -67,6 +70,8 @@ namespace WifiAnalyzerHotspot.Services
         private IntPtr _hWnd;
         private IntPtr _hIcon = IntPtr.Zero;
         private bool _isCreated = false;
+        private int _wmTaskbarCreated = 0;
+        private System.Windows.Threading.DispatcherTimer? _healthCheckTimer;
         private ContextMenu? _trayMenu;
 
         public event Action? OnOpenRequested;
@@ -85,7 +90,30 @@ namespace WifiAnalyzerHotspot.Services
             var source = HwndSource.FromHwnd(_hWnd);
             source?.AddHook(WndProc);
 
-            // Load app icon
+            // Register TaskbarCreated message to handle Explorer.exe restarts
+            try
+            {
+                _wmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
+            }
+            catch { }
+
+            // Load app icon with robust fallbacks
+            LoadIconHandle();
+
+            CreateTrayIcon();
+            BuildContextMenu();
+
+            // Self-healing watchdog: runs every 45s to ensure the tray icon is still present
+            _healthCheckTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(45)
+            };
+            _healthCheckTimer.Tick += (s, e) => EnsureTrayIconAlive();
+            _healthCheckTimer.Start();
+        }
+
+        private void LoadIconHandle()
+        {
             try
             {
                 string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "";
@@ -96,12 +124,46 @@ namespace WifiAnalyzerHotspot.Services
             }
             catch { }
 
-            CreateTrayIcon();
-            BuildContextMenu();
+            if (_hIcon == IntPtr.Zero)
+            {
+                try
+                {
+                    if (File.Exists("app.ico"))
+                    {
+                        _hIcon = ExtractIcon(IntPtr.Zero, Path.GetFullPath("app.ico"), 0);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void EnsureTrayIconAlive()
+        {
+            if (!_isCreated || _hWnd == IntPtr.Zero) return;
+
+            var nid = new NOTIFYICONDATA
+            {
+                cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+                hWnd = _hWnd,
+                uID = 1,
+                uFlags = NIF_TIP,
+                szTip = "Wi-Fi Analyzer & Hotspot Pro"
+            };
+
+            // NIM_MODIFY returns false if the shell/taskbar lost the icon
+            if (!Shell_NotifyIcon(NIM_MODIFY, ref nid))
+            {
+                CreateTrayIcon();
+            }
         }
 
         private void CreateTrayIcon()
         {
+            if (_hIcon == IntPtr.Zero)
+            {
+                LoadIconHandle();
+            }
+
             var nid = new NOTIFYICONDATA
             {
                 cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
@@ -114,6 +176,11 @@ namespace WifiAnalyzerHotspot.Services
             };
 
             _isCreated = Shell_NotifyIcon(NIM_ADD, ref nid);
+            if (!_isCreated)
+            {
+                // Retry with NIM_MODIFY if it was already registered
+                Shell_NotifyIcon(NIM_MODIFY, ref nid);
+            }
         }
 
         public void ShowNotification(string title, string message)
@@ -167,6 +234,14 @@ namespace WifiAnalyzerHotspot.Services
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
+            {
+                // Taskbar was recreated (e.g. Explorer.exe restarted or resolution changed)
+                CreateTrayIcon();
+                handled = true;
+                return IntPtr.Zero;
+            }
+
             if (msg == WM_TRAYICON)
             {
                 int mouseMsg = lParam.ToInt32();
@@ -191,6 +266,13 @@ namespace WifiAnalyzerHotspot.Services
 
         public void Dispose()
         {
+            try
+            {
+                _healthCheckTimer?.Stop();
+                _healthCheckTimer = null;
+            }
+            catch { }
+
             if (_isCreated)
             {
                 var nid = new NOTIFYICONDATA

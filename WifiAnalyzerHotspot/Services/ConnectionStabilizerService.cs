@@ -188,6 +188,7 @@ namespace WifiAnalyzerHotspot.Services
                 using var ping   = new Ping();
                 int  fails       = 0;
                 int  checkCycle  = 0;
+                DateTime lastReconnectAttempt = DateTime.MinValue;
 
                 while (!token.IsCancellationRequested)
                 {
@@ -213,24 +214,38 @@ namespace WifiAnalyzerHotspot.Services
                     }
                     else
                     {
+                        // Check if we are still within the grace buffer from a previous reconnect attempt
+                        int bufferSec = Math.Max(5, model.ReconnectBufferSeconds);
+                        double elapsedSinceLast = (DateTime.UtcNow - lastReconnectAttempt).TotalSeconds;
+
+                        if (elapsedSinceLast < bufferSec)
+                        {
+                            int secRemaining = (int)Math.Ceiling(bufferSec - elapsedSinceLast);
+                            UI(() => model.ReconnectStatusText = $"Waiting for VPN / DHCP to negotiate ({secRemaining}s grace buffer)...");
+                            await Task.Delay(1500, token);
+                            continue;
+                        }
+
                         fails++;
                         UI(() => model.ReconnectStatusText = $"⚠ Stalled link – {fails}/{model.FailureThreshold} drops detected");
 
                         if (fails >= model.FailureThreshold)
                         {
+                            lastReconnectAttempt = DateTime.UtcNow;
+                            // Immediately reset failure count to prevent rapid re-triggering loops
+                            fails = 0;
+
                             UI(() =>
                             {
                                 model.TotalDropsDetected++;
-                                model.ReconnectStatusText = "🔄 DROP DETECTED! Attempting reconnect...";
+                                model.ReconnectStatusText = "🔄 DROP DETECTED! Initiating reconnect...";
                             });
 
                             string target = string.IsNullOrWhiteSpace(model.TargetSsid) ? "" : model.TargetSsid.Trim();
                             bool isEthLink = isEthernet || target.Contains("Ethernet", StringComparison.OrdinalIgnoreCase);
-                            Log(model, $"[DROP #{model.TotalDropsDetected}] {fails} consecutive probe failures on {(isEthLink ? "Ethernet" : "Wi-Fi")}. Strategy: {model.ReconnectStrategy}");
+                            Log(model, $"[DROP #{model.TotalDropsDetected}] {model.FailureThreshold} consecutive probe failures on {(isEthLink ? "Ethernet" : "Wi-Fi")}. Strategy: {model.ReconnectStrategy}");
 
-                            bool restored = false;
-
-                            // ── Recovery strategies ────────────────────────
+                            // ── Execute Recovery strategies ────────────────
                             if (isEthLink)
                             {
                                 // ==================== ETHERNET RECONNECTION ====================
@@ -245,7 +260,6 @@ namespace WifiAnalyzerHotspot.Services
                                         await Task.Delay(2500, token);
                                     }
                                     RunCmd("ipconfig", "/renew");
-                                    await Task.Delay(2000, token);
                                 }
                                 else if (model.ReconnectStrategy.Contains("DHCP"))
                                 {
@@ -254,21 +268,12 @@ namespace WifiAnalyzerHotspot.Services
                                     RunCmd("ipconfig", "/release");
                                     await Task.Delay(800, token);
                                     RunCmd("ipconfig", "/renew");
-                                    await Task.Delay(2500, token);
-                                }
-                                else if (model.ReconnectStrategy.Contains("Radio"))
-                                {
-                                    Log(model, "Flushing ARP cache & resetting Ethernet IP stack...");
-                                    RunCmd("netsh", "interface ip delete arpcache");
-                                    RunCmd("ipconfig", "/renew");
-                                    await Task.Delay(2000, token);
                                 }
                                 else // Fast Re-auth / Re-negotiate (default)
                                 {
                                     Log(model, "Re-negotiating Ethernet link & refreshing ARP cache...");
                                     RunCmd("netsh", "interface ip delete arpcache");
                                     RunCmd("ipconfig", "/renew");
-                                    await Task.Delay(2000, token);
                                 }
                             }
                             else
@@ -286,7 +291,6 @@ namespace WifiAnalyzerHotspot.Services
                                     }
                                     if (!string.IsNullOrEmpty(target))
                                         RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                    await Task.Delay(3000, token);
                                 }
                                 else if (model.ReconnectStrategy.Contains("DHCP"))
                                 {
@@ -297,7 +301,6 @@ namespace WifiAnalyzerHotspot.Services
                                     RunCmd("ipconfig", "/release");
                                     await Task.Delay(500, token);
                                     RunCmd("ipconfig", "/renew");
-                                    await Task.Delay(2500, token);
                                 }
                                 else if (model.ReconnectStrategy.Contains("Radio"))
                                 {
@@ -306,22 +309,39 @@ namespace WifiAnalyzerHotspot.Services
                                     await Task.Delay(1000, token);
                                     if (!string.IsNullOrEmpty(target))
                                         RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                    await Task.Delay(2500, token);
                                 }
                                 else // Fast Wi-Fi Re-auth (default)
                                 {
                                     Log(model, $"Sending fast re-auth to AP '{target}'...");
                                     if (!string.IsNullOrEmpty(target))
                                         RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                    await Task.Delay(2500, token);
                                 }
                             }
 
-                            // ── Verify restoration (up to 5 × 1s checks) ──
-                            for (int v = 0; v < 5 && !restored; v++)
+                            // ── Buffer / Grace Period (gives Cisco AnyConnect, VPN, DHCP handshake time to establish) ──
+                            Log(model, $"[BUFFER] Reconnect action executed. Holding {bufferSec}s stabilization buffer for VPN (Cisco AnyConnect) & DHCP...");
+                            UI(() => model.ReconnectStatusText = $"Stabilizing VPN / DHCP link ({bufferSec}s buffer)...");
+
+                            DateTime bufferEnd = DateTime.UtcNow.AddSeconds(bufferSec);
+                            bool restored = false;
+
+                            while (DateTime.UtcNow < bufferEnd && !token.IsCancellationRequested)
                             {
+                                int secLeft = (int)Math.Ceiling((bufferEnd - DateTime.UtcNow).TotalSeconds);
+                                if (secLeft > 0)
+                                {
+                                    UI(() => model.ReconnectStatusText = $"Waiting for VPN / DHCP ({secLeft}s buffer remaining)...");
+                                }
+
                                 restored = await IsInternetAliveAsync(ping);
-                                if (!restored) await Task.Delay(1000, token);
+                                if (restored)
+                                {
+                                    // Give AnyConnect or corporate VPN 2 extra seconds to stabilize routes
+                                    await Task.Delay(2000, token);
+                                    break;
+                                }
+
+                                await Task.Delay(1500, token);
                             }
 
                             if (restored)
@@ -332,12 +352,15 @@ namespace WifiAnalyzerHotspot.Services
                                     model.LastReconnectTime = DateTime.Now.ToString("HH:mm:ss");
                                     model.ReconnectStatusText = $"✓ Restored at {model.LastReconnectTime}";
                                 });
-                                Log(model, $"[SUCCESS] Connection restored for '{targetDisplay}' at {DateTime.Now:HH:mm:ss} (total: {model.TotalReconnected}).");
+                                Log(model, $"[SUCCESS] Connection successfully restored & stabilized for '{targetDisplay}' at {DateTime.Now:HH:mm:ss} (total: {model.TotalReconnected}).");
                                 fails = 0;
                             }
                             else
                             {
-                                Log(model, $"[WAITING] Recovery sent for '{targetDisplay}' — waiting for gateway/DHCP response...");
+                                Log(model, $"[BUFFER COMPLETE] Link is still handshaking. Enforcing 8s cooldown before resuming watchdog...");
+                                UI(() => model.ReconnectStatusText = "VPN / Gateway still establishing (cooling down)...");
+                                fails = 0; // Prevent immediate flapped re-trigger!
+                                await Task.Delay(8000, token);
                             }
                         }
                     }
@@ -487,17 +510,31 @@ namespace WifiAnalyzerHotspot.Services
                     RedirectStandardOutput = true
                 };
                 using var p = Process.Start(psi);
-                p?.WaitForExit(4000);
+                if (p != null)
+                {
+                    if (!p.WaitForExit(5000))
+                    {
+                        try { p.Kill(true); } catch { }
+                    }
+                }
             }
             catch { }
         }
 
         private static void UI(Action a)
         {
-            if (Application.Current != null)
-                Application.Current.Dispatcher.Invoke(a);
+            if (Application.Current != null && Application.Current.Dispatcher != null)
+            {
+                try
+                {
+                    Application.Current.Dispatcher.BeginInvoke(a);
+                }
+                catch { }
+            }
             else
-                a();
+            {
+                try { a(); } catch { }
+            }
         }
     }
 }

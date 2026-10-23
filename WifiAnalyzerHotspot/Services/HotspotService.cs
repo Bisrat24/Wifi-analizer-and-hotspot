@@ -62,7 +62,10 @@ namespace WifiAnalyzerHotspot.Services
                 using var process = Process.Start(psi);
                 if (process == null) return (0, "");
                 string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(3000);
+                if (!process.WaitForExit(3000))
+                {
+                    try { process.Kill(true); } catch { }
+                }
 
                 var blocks = Regex.Split(output, @"(?:\r?\n){2,}");
                 foreach (var block in blocks)
@@ -610,7 +613,10 @@ if ($connectionProfile) {
                 using var process = Process.Start(psi);
                 if (process == null) return string.Empty;
                 string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(3000);
+                if (!process.WaitForExit(3000))
+                {
+                    try { process.Kill(true); } catch { }
+                }
                 return output;
             }
             catch
@@ -642,7 +648,10 @@ if ($connectionProfile) {
                 process.StandardInput.Close();
 
                 string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(12000);
+                if (!process.WaitForExit(12000))
+                {
+                    try { process.Kill(true); } catch { }
+                }
                 return output.Trim();
             }
             catch (Exception ex)

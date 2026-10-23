@@ -64,6 +64,21 @@ namespace WifiAnalyzerHotspot.Models
         private int _clientCount = 0;
         private string _statusMessage = "Hotspot is stopped";
         private bool _isBusy;
+        private bool _keepHotspotAlive = true;
+        private string _uptimeText = "Stopped";
+        public DateTime? StartedAt { get; set; }
+
+        public bool KeepHotspotAlive
+        {
+            get => _keepHotspotAlive;
+            set { _keepHotspotAlive = value; OnPropertyChanged(); }
+        }
+
+        public string UptimeText
+        {
+            get => _uptimeText;
+            set { _uptimeText = value; OnPropertyChanged(); }
+        }
 
         public string Ssid
         {

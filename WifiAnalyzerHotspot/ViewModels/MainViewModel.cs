@@ -28,6 +28,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private readonly DispatcherTimer _trafficTimer;
         private CancellationTokenSource? _speedTestCts;
         private int _hotspotRefreshCounter = 0;
+        private bool _wasExplicitlyStarted = false;
 
         private string _currentTab = "Analyzer";
         private string _selectedBand = "2.4 GHz";
@@ -195,6 +196,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ToggleHotspotCommand { get; }
         public ICommand SaveHotspotConfigCommand { get; }
         public ICommand RefreshHotspotCommand { get; }
+        public ICommand CopyHotspotDetailsCommand { get; }
         public ICommand SetTabCommand { get; }
         public ICommand SetBandCommand { get; }
         public ICommand ToggleKeepAliveCommand { get; }
@@ -214,6 +216,19 @@ namespace WifiAnalyzerHotspot.ViewModels
             ToggleHotspotCommand = new RelayCommand(async () => await ToggleHotspotAsync());
             SaveHotspotConfigCommand = new RelayCommand(async () => await SaveHotspotConfigAsync());
             RefreshHotspotCommand = new RelayCommand(async () => await RefreshHotspotAsync());
+            CopyHotspotDetailsCommand = new RelayCommand(() =>
+            {
+                try
+                {
+                    string info = $"SSID: {Hotspot.Ssid}\nPassword: {Hotspot.Passphrase}\nBand: {Hotspot.Band}";
+                    Clipboard.SetText(info);
+                    Hotspot.StatusMessage = "✓ Hotspot credentials copied to clipboard!";
+                }
+                catch (Exception ex)
+                {
+                    Hotspot.StatusMessage = $"Copy failed: {ex.Message}";
+                }
+            });
             SetTabCommand = new RelayCommand(param => CurrentTab = param?.ToString() ?? "Analyzer");
             SetBandCommand = new RelayCommand(param => SelectedBand = param?.ToString() ?? "2.4 GHz");
 
@@ -318,12 +333,38 @@ namespace WifiAnalyzerHotspot.ViewModels
                     CurrentTraffic = _networkMonitorService.GetCurrentTraffic();
                     CheckFastWifiState();
 
-                    // Every 3 seconds, if hotspot is running or tab is Hotspot, auto-refresh clients
+                    // Update Hotspot live session uptime counter
+                    if (Hotspot.IsRunning && Hotspot.StartedAt.HasValue)
+                    {
+                        var span = DateTime.Now - Hotspot.StartedAt.Value;
+                        Hotspot.UptimeText = span.TotalHours >= 1
+                            ? $"{(int)span.TotalHours:D2}h {span.Minutes:D2}m {span.Seconds:D2}s"
+                            : $"{span.Minutes:D2}m {span.Seconds:D2}s";
+                    }
+                    else if (Hotspot.IsRunning)
+                    {
+                        Hotspot.StartedAt = DateTime.Now;
+                        Hotspot.UptimeText = "00m 01s";
+                    }
+                    else
+                    {
+                        Hotspot.UptimeText = "Stopped";
+                    }
+
+                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (every 4 seconds)
                     _hotspotRefreshCounter++;
-                    if (_hotspotRefreshCounter >= 3)
+                    if (_hotspotRefreshCounter >= 4)
                     {
                         _hotspotRefreshCounter = 0;
-                        if (Hotspot.IsRunning && !Hotspot.IsBusy)
+
+                        // Anti-Idle Keep-Alive: if Windows auto-stopped the hotspot while user intended it to run
+                        if (Hotspot.KeepHotspotAlive && _wasExplicitlyStarted && !Hotspot.IsBusy && Hotspot.State == HotspotState.Off)
+                        {
+                            Hotspot.StatusMessage = "⚡ Reactivating Hotspot (Prevented Windows Idle Shutdown)...";
+                            await _hotspotService.StartHotspotAsync();
+                            await RefreshHotspotAsync();
+                        }
+                        else if (Hotspot.IsRunning && !Hotspot.IsBusy)
                         {
                             await RefreshHotspotAsync();
                         }
@@ -666,6 +707,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (Hotspot.IsRunning)
                 {
+                    _wasExplicitlyStarted = false;
+                    Hotspot.StartedAt = null;
                     Hotspot.StatusMessage = "Stopping Hotspot...";
                     var res = await _hotspotService.StopHotspotAsync();
                     Hotspot.StatusMessage = res.message;
@@ -676,6 +719,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                     await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
                     var res = await _hotspotService.StartHotspotAsync();
                     Hotspot.StatusMessage = res.message;
+                    if (res.success)
+                    {
+                        _wasExplicitlyStarted = true;
+                        Hotspot.StartedAt = DateTime.Now;
+                    }
                 }
                 await RefreshHotspotAsync();
             }
