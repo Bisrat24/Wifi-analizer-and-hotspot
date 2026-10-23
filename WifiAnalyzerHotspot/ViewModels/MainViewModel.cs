@@ -29,6 +29,9 @@ namespace WifiAnalyzerHotspot.ViewModels
         private CancellationTokenSource? _speedTestCts;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
+        private int _inTransitionCountSeconds = 0;
+        private int _unknownStateCountSeconds = 0;
+        private int _resetCooldownSeconds = 0;
 
         private string _currentTab = "Analyzer";
         private string _selectedBand = "2.4 GHz";
@@ -197,6 +200,9 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand SaveHotspotConfigCommand { get; }
         public ICommand RefreshHotspotCommand { get; }
         public ICommand CopyHotspotDetailsCommand { get; }
+        public ICommand CancelHotspotResetCommand { get; }
+        public ICommand ResetHotspotNowCommand { get; }
+        public ICommand RepairDhcpCommand { get; }
         public ICommand SetTabCommand { get; }
         public ICommand SetBandCommand { get; }
         public ICommand ToggleKeepAliveCommand { get; }
@@ -229,6 +235,32 @@ namespace WifiAnalyzerHotspot.ViewModels
                     Hotspot.StatusMessage = $"Copy failed: {ex.Message}";
                 }
             });
+
+            CancelHotspotResetCommand = new RelayCommand(() =>
+            {
+                Hotspot.IsResetCountdownActive = false;
+                _inTransitionCountSeconds = 0;
+                _unknownStateCountSeconds = 0;
+                _resetCooldownSeconds = 90;
+                Hotspot.StatusMessage = "Auto-reset canceled by user. Cooldown active for 90s.";
+            });
+
+            ResetHotspotNowCommand = new RelayCommand(async () =>
+            {
+                Hotspot.IsResetCountdownActive = false;
+                _inTransitionCountSeconds = 0;
+                _unknownStateCountSeconds = 0;
+                await PerformHotspotResetAsync();
+            });
+
+            RepairDhcpCommand = new RelayCommand(async () =>
+            {
+                Hotspot.StatusMessage = "Optimizing DHCP scope (192.168.137.1) & restarting SharedAccess...";
+                var res = await _hotspotService.OptimizeHotspotDhcpAsync();
+                Hotspot.StatusMessage = res.message;
+                await RefreshHotspotAsync();
+            });
+
             SetTabCommand = new RelayCommand(param => CurrentTab = param?.ToString() ?? "Analyzer");
             SetBandCommand = new RelayCommand(param => SelectedBand = param?.ToString() ?? "2.4 GHz");
 
@@ -349,6 +381,60 @@ namespace WifiAnalyzerHotspot.ViewModels
                     else
                     {
                         Hotspot.UptimeText = "Stopped";
+                    }
+
+                    // --- Hotspot Health Check & 30s Stuck Reset Countdown ---
+                    if (Hotspot.IsResetCountdownActive)
+                    {
+                        Hotspot.ResetCountdownSeconds--;
+                        if (Hotspot.ResetCountdownSeconds <= 0)
+                        {
+                            Hotspot.IsResetCountdownActive = false;
+                            _inTransitionCountSeconds = 0;
+                            _unknownStateCountSeconds = 0;
+                            await PerformHotspotResetAsync();
+                        }
+                        else
+                        {
+                            Hotspot.ResetCountdownMessage = $"⚠️ Hotspot appears stuck or unresponsive. Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore connectivity...";
+                        }
+                    }
+                    else
+                    {
+                        if (_resetCooldownSeconds > 0)
+                        {
+                            _resetCooldownSeconds--;
+                        }
+                        else if (Hotspot.IsHealthCheckEnabled && !Hotspot.IsBusy)
+                        {
+                            if (Hotspot.State == HotspotState.InTransition)
+                            {
+                                _inTransitionCountSeconds++;
+                                if (_inTransitionCountSeconds >= 16) // Stuck switching for 16 seconds!
+                                {
+                                    Hotspot.IsResetCountdownActive = true;
+                                    Hotspot.ResetCountdownSeconds = 30;
+                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot is stuck in transition. Auto-resetting in 30s to restore Wi-Fi Direct...";
+                                    _inTransitionCountSeconds = 0;
+                                }
+                            }
+                            else if (_wasExplicitlyStarted && Hotspot.State == HotspotState.Unknown)
+                            {
+                                _unknownStateCountSeconds++;
+                                if (_unknownStateCountSeconds >= 10)
+                                {
+                                    Hotspot.IsResetCountdownActive = true;
+                                    Hotspot.ResetCountdownSeconds = 30;
+                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot service reported unrecoverable error. Auto-resetting in 30s...";
+                                    _unknownStateCountSeconds = 0;
+                                }
+                            }
+                            else
+                            {
+                                _inTransitionCountSeconds = 0;
+                                _unknownStateCountSeconds = 0;
+                            }
+                        }
                     }
 
                     // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (every 4 seconds)
@@ -715,8 +801,18 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 else
                 {
-                    Hotspot.StatusMessage = "Configuring & Starting Hotspot...";
+                    Hotspot.StatusMessage = "Creating fresh Hotspot & optimizing DHCP...";
+                    // Hotspot creation removes previous settings and creates it as new:
+                    Hotspot.Clients.Clear();
+                    Hotspot.ClientCount = 0;
+
+                    // Optimize DHCP scope (192.168.137.1)
+                    await _hotspotService.OptimizeHotspotDhcpAsync();
+
+                    // Configure fresh as new
                     await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
+
+                    // Start Hotspot
                     var res = await _hotspotService.StartHotspotAsync();
                     Hotspot.StatusMessage = res.message;
                     if (res.success)
@@ -742,7 +838,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             Hotspot.IsBusy = true;
             try
             {
-                Hotspot.StatusMessage = "Updating configuration...";
+                Hotspot.StatusMessage = "Wiping old settings & applying fresh configuration...";
+                await _hotspotService.OptimizeHotspotDhcpAsync();
                 var res = await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
                 Hotspot.StatusMessage = res.message;
                 await RefreshHotspotAsync();
@@ -750,6 +847,31 @@ namespace WifiAnalyzerHotspot.ViewModels
             catch (Exception ex)
             {
                 Hotspot.StatusMessage = $"Save error: {ex.Message}";
+            }
+            finally
+            {
+                Hotspot.IsBusy = false;
+            }
+        }
+
+        public async Task PerformHotspotResetAsync()
+        {
+            Hotspot.IsBusy = true;
+            try
+            {
+                Hotspot.StatusMessage = "🔄 Resetting Hotspot, DHCP, and virtual network adapter...";
+                var res = await _hotspotService.ResetAndRecreateHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
+                Hotspot.StatusMessage = res.message;
+                _wasExplicitlyStarted = res.success;
+                if (res.success)
+                {
+                    Hotspot.StartedAt = DateTime.Now;
+                }
+                await RefreshHotspotAsync();
+            }
+            catch (Exception ex)
+            {
+                Hotspot.StatusMessage = $"Reset error: {ex.Message}";
             }
             finally
             {

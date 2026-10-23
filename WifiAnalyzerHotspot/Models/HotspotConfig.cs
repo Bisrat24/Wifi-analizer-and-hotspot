@@ -66,6 +66,11 @@ namespace WifiAnalyzerHotspot.Models
         private bool _isBusy;
         private bool _keepHotspotAlive = true;
         private string _uptimeText = "Stopped";
+        private bool _isResetCountdownActive;
+        private int _resetCountdownSeconds = 30;
+        private string _resetCountdownMessage = string.Empty;
+        private bool _isHealthCheckEnabled = true;
+        private string _dhcpPoolInfo = "192.168.137.1 (ICS Subnet 255.255.255.0)";
         public DateTime? StartedAt { get; set; }
 
         public bool KeepHotspotAlive
@@ -78,6 +83,36 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _uptimeText;
             set { _uptimeText = value; OnPropertyChanged(); }
+        }
+
+        public bool IsResetCountdownActive
+        {
+            get => _isResetCountdownActive;
+            set { _isResetCountdownActive = value; OnPropertyChanged(); }
+        }
+
+        public int ResetCountdownSeconds
+        {
+            get => _resetCountdownSeconds;
+            set { _resetCountdownSeconds = value; OnPropertyChanged(); }
+        }
+
+        public string ResetCountdownMessage
+        {
+            get => _resetCountdownMessage;
+            set { _resetCountdownMessage = value; OnPropertyChanged(); }
+        }
+
+        public bool IsHealthCheckEnabled
+        {
+            get => _isHealthCheckEnabled;
+            set { _isHealthCheckEnabled = value; OnPropertyChanged(); }
+        }
+
+        public string DhcpPoolInfo
+        {
+            get => _dhcpPoolInfo;
+            set { _dhcpPoolInfo = value; OnPropertyChanged(); }
         }
 
         public string Ssid

@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.0.4)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.0.5)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -59,6 +59,16 @@ You can run the app immediately by double-clicking:
     - `5 GHz - Channel 149 (High-Speed UNII-3)`
 - **Live Active Broadcast Channel Card**:
   - Displays the active channel, frequency, and band (e.g., `Channel 11 (2462 MHz) • 2.4 GHz`) synchronized with the wireless hardware.
+- **Hotspot Health Check Watchdog & 30s Stuck Reset**:
+  - Continuous health check monitors tethering operational states.
+  - If Windows gets stuck in transition or driver deadlocks, an alert banner sounds with a 30-second countdown.
+  - Users can cancel the auto-reset or trigger it immediately on demand.
+- **Improved DHCP Settings & Conflict Scope (192.168.137.1)**:
+  - Automates Windows Internet Connection Sharing (ICS / `SharedAccess`) scope management.
+  - Automatically verifies service status and flushes stale subnet ARP caches to eliminate "Obtaining IP address..." hangs on phones.
+  - Dedicated "Repair DHCP" one-click diagnostic button.
+- **Clean-Slate Hotspot Creation**:
+  - Wipes previous tethering settings, cleans client cache, restarts `SharedAccess`, and initializes the virtual Wi-Fi Direct SoftAP as brand new.
 - **Real-Time Connected Client Discovery & Management**:
   - High-speed in-process client discovery combining WinRT tethering events and zero-overhead native ARP queries (`iphlpapi.dll`).
   - Displays connected device **Host Name**, **IP Address**, and **MAC Address**.

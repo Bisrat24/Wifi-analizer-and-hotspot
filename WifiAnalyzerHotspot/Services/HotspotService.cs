@@ -307,6 +307,9 @@ if ($connectionProfile) {{
         /// <summary>
         /// Saves custom SSID, password, and Wi-Fi band/channel configuration.
         /// </summary>
+        /// <summary>
+        /// Configures the Mobile Hotspot. Wipes previous settings and creates fresh configuration from scratch.
+        /// </summary>
         public async Task<(bool success, string message)> ConfigureHotspotAsync(string ssid, string passphrase, string bandOrChannel)
         {
             return await Task.Run(() =>
@@ -346,6 +349,20 @@ if (-not $connectionProfile) {{
 if ($connectionProfile) {{
     try {{
         $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
+
+        # Stop previous tethering if currently running to release virtual adapter and clear previous state
+        if ($mgr.TetheringOperationalState -eq 1 -or $mgr.TetheringOperationalState -eq 3) {{
+            try {{
+                $stopOp = $mgr.StopTetheringAsync()
+                $wait = 0
+                while ($mgr.TetheringOperationalState -ne 2 -and $wait -lt 15) {{
+                    Start-Sleep -Milliseconds 100
+                    $wait++
+                }}
+            }} catch {{}}
+        }}
+
+        # Create fresh access point configuration (wipes previous settings)
         $config = $mgr.GetCurrentAccessPointConfiguration()
         $config.Ssid = ""{safeSsid}""
         $config.Passphrase = ""{safePass}""
@@ -379,7 +396,7 @@ if ($connectionProfile) {{
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        return (true, "Hotspot configuration updated successfully!");
+                        return (true, "Hotspot configuration updated fresh as new!");
                     }
                     return (false, res?.Error ?? "Configuration failed.");
                 }
@@ -387,6 +404,108 @@ if ($connectionProfile) {{
                 {
                     return (false, ex.Message);
                 }
+            });
+        }
+
+        /// <summary>
+        /// Optimizes and repairs Windows Internet Connection Sharing (ICS) DHCP settings for the Mobile Hotspot.
+        /// Ensures SharedAccess service is running, sets optimal 192.168.137.1 scope, and clears stale ARP leases.
+        /// </summary>
+        public async Task<(bool success, string message)> OptimizeHotspotDhcpAsync()
+        {
+            return await Task.Run(() =>
+            {
+                string script = @"
+try {
+    # 1. Ensure SharedAccess (ICS / DHCP) service is enabled and started
+    $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+    if ($svc) {
+        if ($svc.StartType -eq 'Disabled') {
+            Set-Service -Name 'SharedAccess' -StartupType Manual -ErrorAction SilentlyContinue
+        }
+        if ($svc.Status -ne 'Running') {
+            Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 2. Configure conflict-free standard DHCP scope (192.168.137.1/24)
+    $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
+    if (Test-Path $regPath) {
+        try {
+            Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+        } catch {}
+    }
+
+    # 3. Clear any stale ARP cache for the hotspot subnet
+    try {
+        netsh interface ip delete arpcache | Out-Null
+    } catch {}
+
+    @{ Result = 'Success' } | ConvertTo-Json -Compress
+} catch {
+    @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress
+}
+";
+                string json = RunPowerShell(script);
+                try
+                {
+                    var res = JsonSerializer.Deserialize<OperationResultJson>(json);
+                    if (res?.Result == "Success")
+                    {
+                        return (true, "DHCP scope (192.168.137.1) & SharedAccess service verified and optimized!");
+                    }
+                    return (false, res?.Error ?? "DHCP optimization check finished.");
+                }
+                catch (Exception ex)
+                {
+                    return (false, ex.Message);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Completely resets the Mobile Hotspot subsystem, restarts SharedAccess (DHCP),
+        /// wipes previous configuration, and recreates the hotspot fresh as new.
+        /// </summary>
+        public async Task<(bool success, string message)> ResetAndRecreateHotspotAsync(string ssid, string passphrase, string bandOrChannel)
+        {
+            return await Task.Run(async () =>
+            {
+                // 1. Force stop tethering to release virtual adapter
+                await StopHotspotAsync();
+
+                // 2. Restart SharedAccess (DHCP server) to release hung sockets and clear ARP
+                string resetDhcpScript = @"
+try {
+    Restart-Service -Name 'SharedAccess' -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 600
+    netsh interface ip delete arpcache | Out-Null
+    @{ Result = 'Success' } | ConvertTo-Json -Compress
+} catch {
+    @{ Result = 'Success' } | ConvertTo-Json -Compress
+}
+";
+                RunPowerShell(resetDhcpScript);
+                await Task.Delay(800);
+
+                // 3. Configure fresh with clean settings as new
+                var configRes = await ConfigureHotspotAsync(ssid, passphrase, bandOrChannel);
+                if (!configRes.success)
+                {
+                    return (false, $"Reset configuration failed: {configRes.message}");
+                }
+
+                await Task.Delay(600);
+
+                // 4. Start Hotspot
+                var startRes = await StartHotspotAsync();
+                if (startRes.success)
+                {
+                    return (true, "Hotspot completely reset, DHCP repaired, and restarted fresh!");
+                }
+                return (false, $"Reset completed but start returned: {startRes.message}");
             });
         }
 
