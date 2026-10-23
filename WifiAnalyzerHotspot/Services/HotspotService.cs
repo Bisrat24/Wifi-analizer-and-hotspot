@@ -291,10 +291,28 @@ if ($connectionProfile) {{
                             model.ClientCount = model.Clients.Count;
                         }
 
-                        // Enrich each connected client with live connection speed & ping latency
+                        // Enrich each connected client with live connection speed, ping latency, and data flow health
                         if (model.Clients.Count > 0)
                         {
                             await EnrichClientSpeedAsync(model.Clients, model.ActiveBand);
+                            model.ActiveDataClientCount = model.Clients.Count(c => c.IsGettingData);
+                            if (model.ActiveDataClientCount == model.Clients.Count)
+                            {
+                                model.DataHealthStatus = $"All {model.Clients.Count} device(s) getting data";
+                            }
+                            else if (model.ActiveDataClientCount == 0)
+                            {
+                                model.DataHealthStatus = $"⚠️ 0/{model.Clients.Count} devices getting data (Stalled)";
+                            }
+                            else
+                            {
+                                model.DataHealthStatus = $"{model.ActiveDataClientCount}/{model.Clients.Count} device(s) getting data";
+                            }
+                        }
+                        else
+                        {
+                            model.ActiveDataClientCount = 0;
+                            model.DataHealthStatus = "No devices connected";
                         }
 
                         model.StatusMessage = model.IsRunning
@@ -634,12 +652,32 @@ if ($connectionProfile) {
             });
         }
 
+        private static long _lastDirectAdapterBytes = 0;
+
+        private static async Task<bool> CheckInternetAvailableAsync()
+        {
+            try
+            {
+                using var pinger = new Ping();
+                var reply = await pinger.SendPingAsync("8.8.8.8", 250);
+                if (reply.Status == IPStatus.Success) return true;
+                var reply2 = await pinger.SendPingAsync("1.1.1.1", 250);
+                return reply2.Status == IPStatus.Success;
+            }
+            catch
+            {
+                return NetworkInterface.GetIsNetworkAvailable();
+            }
+        }
+
         /// <summary>
-        /// Enriches connected client devices with real-time negotiated link speed and live ICMP latency metrics.
+        /// Enriches connected client devices with real-time negotiated link speed, live ICMP latency,
+        /// and data flow health (verifying whether clients are actively getting data).
         /// </summary>
         private static async Task EnrichClientSpeedAsync(IEnumerable<HotspotClientInfo> clients, string activeBand)
         {
             long negotiatedSpeedBps = 0;
+            long currentDirectBytes = 0;
             try
             {
                 foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
@@ -650,11 +688,12 @@ if ($connectionProfile) {
                             ni.Name.Contains("Wi-Fi Direct", StringComparison.OrdinalIgnoreCase) ||
                             ni.Name.Contains("Local Area Connection*", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (ni.Speed > 0)
+                            if (ni.Speed > 0 && negotiatedSpeedBps <= 0)
                             {
                                 negotiatedSpeedBps = ni.Speed;
-                                break;
                             }
+                            var stats = ni.GetIPv4Statistics();
+                            currentDirectBytes += (stats.BytesReceived + stats.BytesSent);
                         }
                     }
                 }
@@ -675,34 +714,75 @@ if ($connectionProfile) {
             }
             catch { }
 
+            bool adapterHasActiveData = false;
+            if (_lastDirectAdapterBytes > 0 && currentDirectBytes > _lastDirectAdapterBytes)
+            {
+                adapterHasActiveData = (currentDirectBytes - _lastDirectAdapterBytes) > 100;
+            }
+            _lastDirectAdapterBytes = currentDirectBytes;
+
+            bool hostHasInternet = await CheckInternetAvailableAsync();
+
             double speedMbps = negotiatedSpeedBps > 0 ? (negotiatedSpeedBps / 1_000_000.0) : (activeBand.Contains("5 GHz") ? 300.0 : 72.2);
             string linkText = $"{speedMbps:F0} Mbps";
 
             var tasks = clients.Select(async client =>
             {
                 client.LinkSpeed = linkText;
-                if (!string.IsNullOrEmpty(client.IpAddress) && client.IpAddress != "-")
+                bool hasIp = !string.IsNullOrEmpty(client.IpAddress) && client.IpAddress != "-";
+
+                if (!hasIp)
                 {
-                    try
+                    client.IsGettingData = false;
+                    client.DataStatusText = "No IP";
+                    client.Latency = "No DHCP Lease";
+                    client.ConnectionSpeed = "Awaiting IP";
+                    return;
+                }
+
+                if (!hostHasInternet)
+                {
+                    client.IsGettingData = false;
+                    client.DataStatusText = "No Internet";
+                    client.Latency = "-";
+                    client.ConnectionSpeed = "Host Offline";
+                    return;
+                }
+
+                bool pingSuccess = false;
+                long rtt = 0;
+                try
+                {
+                    using var pinger = new Ping();
+                    var reply = await pinger.SendPingAsync(client.IpAddress, 180);
+                    if (reply.Status == IPStatus.Success)
                     {
-                        using var pinger = new Ping();
-                        var reply = await pinger.SendPingAsync(client.IpAddress, 90);
-                        if (reply.Status == IPStatus.Success)
-                        {
-                            long rtt = Math.Max(1, reply.RoundtripTime);
-                            client.Latency = $"{rtt} ms";
-                            client.ConnectionSpeed = $"{linkText} • {rtt}ms";
-                            return;
-                        }
+                        pingSuccess = true;
+                        rtt = Math.Max(1, reply.RoundtripTime);
                     }
-                    catch { }
+                }
+                catch { }
+
+                if (pingSuccess)
+                {
+                    client.IsGettingData = true;
+                    client.DataStatusText = "● Getting Data";
+                    client.Latency = $"{rtt} ms";
+                    client.ConnectionSpeed = $"{linkText} • {rtt}ms";
+                }
+                else if (adapterHasActiveData)
+                {
+                    client.IsGettingData = true;
+                    client.DataStatusText = "● Getting Data";
                     client.Latency = "< 5 ms";
-                    client.ConnectionSpeed = $"{linkText} • Fast";
+                    client.ConnectionSpeed = $"{linkText} • Active Flow";
                 }
                 else
                 {
-                    client.Latency = "-";
-                    client.ConnectionSpeed = linkText;
+                    client.IsGettingData = false;
+                    client.DataStatusText = "⚠ No Data";
+                    client.Latency = "Timed Out";
+                    client.ConnectionSpeed = "No Data Flow";
                 }
             });
 

@@ -126,7 +126,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.0.7" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.0.8" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -924,8 +924,8 @@
                             <Border Background="#131B2A" BorderBrush="#1F2A3F" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
                                 <CheckBox IsChecked="{Binding Hotspot.IsHealthCheckEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
                                     <StackPanel Orientation="Vertical" Margin="4,0,0,0">
-                                        <TextBlock Text="Hotspot Health Watchdog (5s Stuck Detection)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
-                                        <TextBlock Text="Monitors tethering state with 5s threshold. If Windows hangs in transition, provides a 30s cancellation countdown before auto-recovering." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Hotspot Client Data Flow Watchdog (Auto-Reset)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                        <TextBlock Text="Monitors whether connected devices are getting data. If all devices are not working, gives a 30s cancellation countdown before auto-recovering the hotspot." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </CheckBox>
                             </Border>
@@ -1019,7 +1019,10 @@
                             <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="False">
                                 <StackPanel DockPanel.Dock="Left">
                                     <TextBlock Text="CONNECTED CLIENT DEVICES" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF"/>
-                                    <TextBlock Text="Live devices currently using this mobile hotspot" FontSize="11" Foreground="#7C88A8"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                        <TextBlock Text="Live clients &#x2022; " FontSize="11" Foreground="#7C88A8"/>
+                                        <TextBlock Text="{Binding Hotspot.DataHealthStatus}" FontSize="11" FontWeight="SemiBold" Foreground="#00E5FF"/>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -1072,7 +1075,39 @@
                                     </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="IP ADDRESS" Binding="{Binding IpAddress}" FontWeight="SemiBold" Foreground="#00E5FF" Width="110"/>
                                     <DataGridTextColumn Header="MAC ADDRESS" Binding="{Binding MacAddress}" Width="130"/>
-                                    <DataGridTextColumn Header="STATUS" Binding="{Binding Status}" Foreground="#00E676" Width="80"/>
+                                    <DataGridTemplateColumn Header="DATA FLOW" Width="115">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="#132B1A"/>
+                                                            <Setter Property="BorderBrush" Value="#00E676"/>
+                                                            <Setter Property="BorderThickness" Value="1"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsGettingData}" Value="False">
+                                                                    <Setter Property="Background" Value="#2D1418"/>
+                                                                    <Setter Property="BorderBrush" Value="#FF5252"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding DataStatusText}" FontSize="10" FontWeight="Bold">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#00E676"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsGettingData}" Value="False">
+                                                                        <Setter Property="Foreground" Value="#FF5252"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTemplateColumn Header="ACTIONS" Width="*">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>

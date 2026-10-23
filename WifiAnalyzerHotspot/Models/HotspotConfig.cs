@@ -15,6 +15,8 @@ namespace WifiAnalyzerHotspot.Models
         private string _linkSpeed = "-";
         private string _latency = "-";
         private string _trafficRate = "-";
+        private bool _isGettingData = true;
+        private string _dataStatusText = "Checking Data...";
 
         public string HostName
         {
@@ -38,6 +40,18 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _status;
             set { _status = value; OnPropertyChanged(); }
+        }
+
+        public bool IsGettingData
+        {
+            get => _isGettingData;
+            set { _isGettingData = value; OnPropertyChanged(); }
+        }
+
+        public string DataStatusText
+        {
+            get => _dataStatusText;
+            set { _dataStatusText = value; OnPropertyChanged(); }
         }
 
         public string ConnectionSpeed
@@ -99,6 +113,8 @@ namespace WifiAnalyzerHotspot.Models
         private string _resetCountdownMessage = string.Empty;
         private bool _isHealthCheckEnabled = true;
         private string _dhcpPoolInfo = "192.168.137.1 (ICS Subnet 255.255.255.0)";
+        private int _activeDataClientCount = 0;
+        private string _dataHealthStatus = "Ready";
         public DateTime? StartedAt { get; set; }
 
         public bool KeepHotspotAlive
@@ -141,6 +157,18 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _dhcpPoolInfo;
             set { _dhcpPoolInfo = value; OnPropertyChanged(); }
+        }
+
+        public int ActiveDataClientCount
+        {
+            get => _activeDataClientCount;
+            set { _activeDataClientCount = value; OnPropertyChanged(); }
+        }
+
+        public string DataHealthStatus
+        {
+            get => _dataHealthStatus;
+            set { _dataHealthStatus = value; OnPropertyChanged(); }
         }
 
         public string Ssid

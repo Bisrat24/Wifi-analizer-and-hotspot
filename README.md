@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.0.7)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.0.8)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -59,11 +59,11 @@ You can run the app immediately by double-clicking:
     - `5 GHz - Channel 149 (High-Speed UNII-3)`
 - **Live Active Broadcast Channel Card**:
   - Displays the active channel, frequency, and band (e.g., `Channel 11 (2462 MHz) • 2.4 GHz`) synchronized with the wireless hardware.
-- **Hotspot Health Check Watchdog (5s Stuck Detection & 30s Cancelable Reset)**:
-  - High-precision watchdog continuously monitors tethering operational states every second.
-  - If Windows gets stuck in transition or driver error states for $\ge 5$ seconds outside of normal user operations, an amber alert banner triggers with an interactive 30-second cancellation countdown.
-  - **Loop-Free Reset Execution**: During resets and user actions, the watchdog is strictly suspended to prevent recursive auto-reset suggestions while resetting.
-  - Dedicated **`[Test Watchdog]`** diagnostic button to simulate stuck states and verify countdown/reset behavior on demand.
+- **Connected Client Data Flow Health Check & Auto-Reset**:
+  - Continuously monitors whether devices connected to the hotspot are actively getting data (ICMP response, Wi-Fi Direct virtual adapter packet throughput, and upstream gateway connectivity).
+  - If all devices connected to the hotspot are not working / getting no data for $\ge 5$ seconds, an amber alert banner triggers with an interactive 30-second cancellation countdown before auto-recovering the hotspot.
+  - **Complete Suspension During Reset**: While resetting, the health check and all monitoring completely stop to guarantee a clean slate without recursion.
+  - Dedicated **`[Test Watchdog]`** diagnostic button to simulate no-data states and verify countdown/reset behavior on demand.
   - Users can cancel the auto-reset or trigger it immediately on demand.
 - **Improved DHCP Settings & Conflict Scope (192.168.137.1)**:
   - Automates Windows Internet Connection Sharing (ICS / `SharedAccess`) scope management.
