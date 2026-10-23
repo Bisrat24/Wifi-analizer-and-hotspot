@@ -29,9 +29,10 @@ namespace WifiAnalyzerHotspot.ViewModels
         private CancellationTokenSource? _speedTestCts;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
+        private bool _isResettingInProgress = false;
+        private bool _isUserActionInProgress = false;
         private int _inTransitionCountSeconds = 0;
         private int _unknownStateCountSeconds = 0;
-        private int _busyCountSeconds = 0;
         private int _resetCooldownSeconds = 0;
 
         private string _currentTab = "Analyzer";
@@ -203,6 +204,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand CopyHotspotDetailsCommand { get; }
         public ICommand CancelHotspotResetCommand { get; }
         public ICommand ResetHotspotNowCommand { get; }
+        public ICommand TestWatchdogCommand { get; }
         public ICommand RepairDhcpCommand { get; }
         public ICommand SetTabCommand { get; }
         public ICommand SetBandCommand { get; }
@@ -242,7 +244,6 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.IsResetCountdownActive = false;
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
-                _busyCountSeconds = 0;
                 _resetCooldownSeconds = 15;
                 Hotspot.StatusMessage = "Auto-reset canceled by user. Cooldown active for 15s.";
             });
@@ -252,8 +253,18 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.IsResetCountdownActive = false;
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
-                _busyCountSeconds = 0;
                 await PerformHotspotResetAsync();
+            });
+
+            TestWatchdogCommand = new RelayCommand(() =>
+            {
+                if (_isResettingInProgress) return;
+                _resetCooldownSeconds = 0;
+                _inTransitionCountSeconds = 0;
+                _unknownStateCountSeconds = 0;
+                Hotspot.IsResetCountdownActive = true;
+                Hotspot.ResetCountdownSeconds = 30;
+                Hotspot.ResetCountdownMessage = "⚠️ Health Watchdog Test: Simulated stuck hotspot. Auto-resetting in 30s (click Cancel to dismiss)...";
             });
 
             RepairDhcpCommand = new RelayCommand(async () =>
@@ -396,6 +407,13 @@ namespace WifiAnalyzerHotspot.ViewModels
                         Hotspot.UptimeText = "Stopped";
                     }
 
+                    // If a reset is actively executing, completely suspend watchdog and refresh
+                    if (_isResettingInProgress)
+                    {
+                        Hotspot.IsResetCountdownActive = false;
+                        return;
+                    }
+
                     // --- Hotspot Health Check & 30s Stuck Reset Countdown ---
                     if (Hotspot.IsResetCountdownActive)
                     {
@@ -405,7 +423,6 @@ namespace WifiAnalyzerHotspot.ViewModels
                             Hotspot.IsResetCountdownActive = false;
                             _inTransitionCountSeconds = 0;
                             _unknownStateCountSeconds = 0;
-                            _busyCountSeconds = 0;
                             await PerformHotspotResetAsync();
                         }
                         else
@@ -419,7 +436,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             _resetCooldownSeconds--;
                         }
-                        else if (Hotspot.IsHealthCheckEnabled)
+                        else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && !Hotspot.IsBusy)
                         {
                             // 5-second stuck watchdog threshold (per user requirement)
                             if (Hotspot.State == HotspotState.InTransition)
@@ -444,23 +461,16 @@ namespace WifiAnalyzerHotspot.ViewModels
                                     _unknownStateCountSeconds = 0;
                                 }
                             }
-                            else if (Hotspot.IsBusy)
-                            {
-                                _busyCountSeconds++;
-                                if (_busyCountSeconds >= 5) // Stuck busy for 5 seconds
-                                {
-                                    Hotspot.IsResetCountdownActive = true;
-                                    Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot operation timed out (busy for 5s). Auto-resetting in 30s...";
-                                    _busyCountSeconds = 0;
-                                }
-                            }
                             else
                             {
                                 _inTransitionCountSeconds = 0;
                                 _unknownStateCountSeconds = 0;
-                                _busyCountSeconds = 0;
                             }
+                        }
+                        else
+                        {
+                            _inTransitionCountSeconds = 0;
+                            _unknownStateCountSeconds = 0;
                         }
                     }
 
@@ -815,6 +825,8 @@ namespace WifiAnalyzerHotspot.ViewModels
         private async Task ToggleHotspotAsync()
         {
             Hotspot.IsBusy = true;
+            _isUserActionInProgress = true;
+            _inTransitionCountSeconds = 0;
             try
             {
                 if (Hotspot.IsRunning)
@@ -856,12 +868,16 @@ namespace WifiAnalyzerHotspot.ViewModels
             finally
             {
                 Hotspot.IsBusy = false;
+                _isUserActionInProgress = false;
+                _inTransitionCountSeconds = 0;
             }
         }
 
         private async Task SaveHotspotConfigAsync()
         {
             Hotspot.IsBusy = true;
+            _isUserActionInProgress = true;
+            _inTransitionCountSeconds = 0;
             try
             {
                 Hotspot.StatusMessage = "Wiping old settings & applying fresh configuration...";
@@ -877,11 +893,18 @@ namespace WifiAnalyzerHotspot.ViewModels
             finally
             {
                 Hotspot.IsBusy = false;
+                _isUserActionInProgress = false;
+                _inTransitionCountSeconds = 0;
             }
         }
 
         public async Task PerformHotspotResetAsync()
         {
+            if (_isResettingInProgress) return; // Prevent duplicate reset loops
+            _isResettingInProgress = true;
+            Hotspot.IsResetCountdownActive = false; // Guarantee no reset suggestion banner appears during reset
+            _inTransitionCountSeconds = 0;
+            _unknownStateCountSeconds = 0;
             Hotspot.IsBusy = true;
             try
             {
@@ -902,6 +925,11 @@ namespace WifiAnalyzerHotspot.ViewModels
             finally
             {
                 Hotspot.IsBusy = false;
+                _isResettingInProgress = false;
+                _resetCooldownSeconds = 12; // 12 seconds cooldown after reset completes
+                _inTransitionCountSeconds = 0;
+                _unknownStateCountSeconds = 0;
+                Hotspot.IsResetCountdownActive = false;
             }
         }
 
