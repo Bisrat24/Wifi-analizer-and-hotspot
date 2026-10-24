@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.0.8)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.0.9)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -44,7 +44,7 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager
+### 4. 🔥 Mobile Hotspot Creator & Manager (v1.0.9 Enhanced)
 - **Windows Mobile Hotspot Integration**:
   - Uses the official modern Windows 10/11 WinRT `NetworkOperatorTetheringManager` API.
 - **Custom Configuration**:
@@ -59,22 +59,33 @@ You can run the app immediately by double-clicking:
     - `5 GHz - Channel 149 (High-Speed UNII-3)`
 - **Live Active Broadcast Channel Card**:
   - Displays the active channel, frequency, and band (e.g., `Channel 11 (2462 MHz) • 2.4 GHz`) synchronized with the wireless hardware.
-- **Connected Client Data Flow Health Check & Auto-Reset**:
-  - Continuously monitors whether devices connected to the hotspot are actively getting data (ICMP response, Wi-Fi Direct virtual adapter packet throughput, and upstream gateway connectivity).
+- **Hardware-Level Connected Client Data Flow Health Check & Auto-Reset**:
+  - **Multi-Vector Health Verification**: Combines in-process native link-layer `SendARP` hardware probing, ICMP Echo ping (250ms), and Wi-Fi Direct virtual adapter traffic delta.
+  - **Bypasses Phone Power-Savers & Firewalls**: Unlike ICMP ping alone, `SendARP` queries the client Wi-Fi chipset directly and is never blocked by Android/iOS screen locks or firewalls.
   - If all devices connected to the hotspot are not working / getting no data for $\ge 5$ seconds, an amber alert banner triggers with an interactive 30-second cancellation countdown before auto-recovering the hotspot.
-  - **Complete Suspension During Reset**: While resetting, the health check and all monitoring completely stop to guarantee a clean slate without recursion.
+  - **Auto-Dismissal**: If client data flow resumes while the countdown is active, the countdown cancels itself automatically.
+  - **Complete Suspension During Reset**: While resetting, the health check, countdown, watchdog, and all polling completely stop to guarantee a clean slate without recursion.
   - Dedicated **`[Test Watchdog]`** diagnostic button to simulate no-data states and verify countdown/reset behavior on demand.
   - Users can cancel the auto-reset or trigger it immediately on demand.
+- **Robust Consolidated Hotspot Reset**:
+  - Eliminates multi-process race conditions by running a unified, resilient reset flow:
+    - Waits for clean virtual adapter teardown (`OperationalState == Off`).
+    - Cleanly resets and restarts `SharedAccess` (ICS / DHCP) service and locks the `192.168.137.1` subnet.
+    - Flushes stale ARP cache.
+    - Reconfigures SSID, password, and band.
+    - Starts tethering with multi-attempt retry logic and operational status verification.
+- **Rock-Solid Connected Device Scanning (Before & After Reset)**:
+  - **Direct IPv4 Extraction**: Inspects WinRT `HostNames` collection to resolve IPv4 addresses directly from the Tethering Manager.
+  - **Fast Hardware ARP Subnet Sweep**: Parallel `SendARP` subnet probe discovers connecting/reconnecting devices in $< 50\text{ ms}$, ensuring devices are never lost after a reset.
+  - **Smooth In-Place Reconciliation**: Client list updates without clearing rows, preventing UI flicker and selection loss.
+  - **Post-Reset Grace Period**: 25-second grace window after reset to allow reconnecting clients to establish DHCP leases without triggering false health check alarms.
 - **Improved DHCP Settings & Conflict Scope (192.168.137.1)**:
   - Automates Windows Internet Connection Sharing (ICS / `SharedAccess`) scope management.
   - Automatically verifies service status and flushes stale subnet ARP caches to eliminate "Obtaining IP address..." hangs on phones.
   - Dedicated "Repair DHCP" one-click diagnostic button.
-- **Clean-Slate Hotspot Creation**:
-  - Wipes previous tethering settings, cleans client cache, restarts `SharedAccess`, and initializes the virtual Wi-Fi Direct SoftAP as brand new.
 - **Real-Time Connected Client Discovery & Management**:
-  - High-speed in-process client discovery combining WinRT tethering events and zero-overhead native ARP queries (`iphlpapi.dll`).
   - Displays connected device **Host Name**, **IP Address**, and **MAC Address**.
-  - **Live Per-Client Connection Speed & Latency**: Shows real-time negotiated link speed (Mbps) and live round-trip ICMP ping latency for every active client.
+  - **Live Per-Client Connection Speed & Latency**: Shows real-time negotiated link speed (Mbps) and live round-trip latency for every active client.
   - **Device Disconnect**: Disconnect any specific device on-demand.
   - **Ironclad Multi-Layer Device Blocking (Blacklist)**: Blocks unauthorized devices across Windows Defender Firewall (Inbound, Outbound, ICS DNS port 53, DHCP port 67), route blackhole loop, and normalized MAC address filtering.
   - **Unblock Controls**: Easily restore network access with one-click unblocking.

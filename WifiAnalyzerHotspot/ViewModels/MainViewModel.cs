@@ -246,8 +246,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
                 _noDataCountSeconds = 0;
-                _resetCooldownSeconds = 20;
-                Hotspot.StatusMessage = "Auto-reset canceled by user. Cooldown active for 20s.";
+                _resetCooldownSeconds = 25;
+                Hotspot.StatusMessage = "Auto-reset canceled by user. Monitoring paused for 25s.";
             });
 
             ResetHotspotNowCommand = new RelayCommand(async () =>
@@ -424,18 +424,29 @@ namespace WifiAnalyzerHotspot.ViewModels
                     // --- Hotspot Health Check & 30s Stuck Reset Countdown ---
                     if (Hotspot.IsResetCountdownActive)
                     {
-                        Hotspot.ResetCountdownSeconds--;
-                        if (Hotspot.ResetCountdownSeconds <= 0)
+                        // If data flow is restored on any device during countdown, dismiss countdown automatically
+                        if (Hotspot.Clients.Count > 0 && Hotspot.Clients.Any(c => c.IsGettingData))
                         {
                             Hotspot.IsResetCountdownActive = false;
-                            _inTransitionCountSeconds = 0;
-                            _unknownStateCountSeconds = 0;
                             _noDataCountSeconds = 0;
-                            await PerformHotspotResetAsync();
+                            Hotspot.StatusMessage = $"✓ Data flow restored ({Hotspot.Clients.Count(c => c.IsGettingData)}/{Hotspot.Clients.Count} devices active). Auto-reset dismissed.";
                         }
                         else
                         {
-                            Hotspot.ResetCountdownMessage = $"⚠️ All devices connected to the hotspot are not getting data. Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore data flow...";
+                            Hotspot.ResetCountdownSeconds--;
+                            if (Hotspot.ResetCountdownSeconds <= 0)
+                            {
+                                Hotspot.IsResetCountdownActive = false;
+                                _inTransitionCountSeconds = 0;
+                                _unknownStateCountSeconds = 0;
+                                _noDataCountSeconds = 0;
+                                await PerformHotspotResetAsync();
+                            }
+                            else
+                            {
+                                int totalDevs = Hotspot.Clients.Count;
+                                Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevs} device(s) connected to the hotspot are not getting data. Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore data flow (Click 'Cancel Reset' to dismiss)...";
+                            }
                         }
                     }
                     else
@@ -444,11 +455,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             _resetCooldownSeconds--;
                         }
-                        else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && !Hotspot.IsBusy)
+                        else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && !Hotspot.IsBusy && Hotspot.IsRunning && Hotspot.State == HotspotState.On)
                         {
                             // 1. Check whether devices connected to the hotspot are getting data
                             int totalDevices = Hotspot.Clients.Count;
-                            if (totalDevices > 0 && Hotspot.IsRunning)
+                            if (totalDevices > 0)
                             {
                                 int workingCount = Hotspot.Clients.Count(c => c.IsGettingData);
                                 Hotspot.ActiveDataClientCount = workingCount;
@@ -461,7 +472,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                     {
                                         Hotspot.IsResetCountdownActive = true;
                                         Hotspot.ResetCountdownSeconds = 30;
-                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data. Auto-resetting Hotspot in 30s to restore data flow...";
+                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data. Auto-resetting Hotspot in 30s to restore data flow (Click 'Cancel Reset' to dismiss)...";
                                         _noDataCountSeconds = 0;
                                     }
                                 }
@@ -820,7 +831,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         public async Task RefreshHotspotAsync()
         {
-            if (Hotspot.IsBusy) return;
+            if (Hotspot.IsBusy || _isResettingInProgress) return;
             Hotspot.IsBusy = true;
             try
             {
@@ -833,7 +844,6 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.ActiveChannel = current.ActiveChannel;
                 Hotspot.ActiveBand = current.ActiveBand;
                 Hotspot.ChannelDescription = current.ChannelDescription;
-                Hotspot.ClientCount = current.ClientCount;
                 Hotspot.StatusMessage = current.StatusMessage;
 
                 if (string.IsNullOrEmpty(HotspotSsidInput) || HotspotSsidInput == "Wifi_Hotspot")
@@ -843,20 +853,62 @@ namespace WifiAnalyzerHotspot.ViewModels
                     HotspotBandInput = current.Band;
                 }
 
-                Hotspot.Clients.Clear();
-                foreach (var c in current.Clients)
+                var currentAllowed = current.Clients
+                    .Where(c => !Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == HotspotModel.NormalizeMac(c.MacAddress)))
+                    .ToList();
+
+                // In-place reconciliation to prevent UI flicker & selection loss
+                foreach (var fresh in currentAllowed)
                 {
-                    string cMac = HotspotModel.NormalizeMac(c.MacAddress);
-                    if (!Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == cMac))
+                    string freshMac = HotspotModel.NormalizeMac(fresh.MacAddress);
+                    var existing = Hotspot.Clients.FirstOrDefault(c => HotspotModel.NormalizeMac(c.MacAddress) == freshMac);
+                    if (existing != null)
                     {
-                        Hotspot.Clients.Add(c);
+                        if (!string.IsNullOrEmpty(fresh.HostName) && fresh.HostName != "Client Device") existing.HostName = fresh.HostName;
+                        if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-") existing.IpAddress = fresh.IpAddress;
+                        existing.Status = fresh.Status;
+                        existing.ConnectionSpeed = fresh.ConnectionSpeed;
+                        existing.LinkSpeed = fresh.LinkSpeed;
+                        existing.Latency = fresh.Latency;
+                        existing.IsGettingData = fresh.IsGettingData;
+                        existing.DataStatusText = fresh.DataStatusText;
+                    }
+                    else
+                    {
+                        Hotspot.Clients.Add(fresh);
                     }
                 }
+
+                var freshMacs = new HashSet<string>(currentAllowed.Select(c => HotspotModel.NormalizeMac(c.MacAddress)));
+                var toRemove = Hotspot.Clients.Where(c => !freshMacs.Contains(HotspotModel.NormalizeMac(c.MacAddress))).ToList();
+                foreach (var stale in toRemove)
+                {
+                    Hotspot.Clients.Remove(stale);
+                }
+
                 Hotspot.ClientCount = Hotspot.Clients.Count;
+                Hotspot.ActiveDataClientCount = Hotspot.Clients.Count(c => c.IsGettingData);
+                if (Hotspot.ClientCount > 0)
+                {
+                    if (Hotspot.ActiveDataClientCount == Hotspot.ClientCount)
+                        Hotspot.DataHealthStatus = $"All {Hotspot.ClientCount} device(s) getting data";
+                    else if (Hotspot.ActiveDataClientCount == 0)
+                        Hotspot.DataHealthStatus = $"⚠️ 0/{Hotspot.ClientCount} devices getting data (Stalled)";
+                    else
+                        Hotspot.DataHealthStatus = $"{Hotspot.ActiveDataClientCount}/{Hotspot.ClientCount} device(s) getting data";
+                }
+                else
+                {
+                    Hotspot.DataHealthStatus = "No devices connected";
+                }
             }
             catch (Exception ex)
             {
                 Hotspot.StatusMessage = $"Hotspot check: {ex.Message}";
+            }
+            finally
+            {
+                Hotspot.IsBusy = false;
             }
         }
 
@@ -947,7 +999,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             Hotspot.IsBusy = true;
             try
             {
-                Hotspot.StatusMessage = "🔄 Resetting Hotspot, DHCP, and virtual network adapter...";
+                Hotspot.StatusMessage = "🔄 Resetting Hotspot, repairing DHCP scope (192.168.137.1), and virtual adapter...";
                 var res = await _hotspotService.ResetAndRecreateHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
                 Hotspot.StatusMessage = res.message;
                 _wasExplicitlyStarted = res.success;
@@ -955,7 +1007,6 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     Hotspot.StartedAt = DateTime.Now;
                 }
-                await RefreshHotspotAsync();
             }
             catch (Exception ex)
             {
@@ -965,11 +1016,12 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 Hotspot.IsBusy = false;
                 _isResettingInProgress = false;
-                _resetCooldownSeconds = 15; // 15 seconds cooldown after reset completes
+                _resetCooldownSeconds = 25; // 25s post-reset grace period for reconnecting clients
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
                 _noDataCountSeconds = 0;
                 Hotspot.IsResetCountdownActive = false;
+                await RefreshHotspotAsync();
             }
         }
 

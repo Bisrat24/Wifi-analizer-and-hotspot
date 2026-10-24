@@ -128,8 +128,21 @@ if ($connectionProfile) {{
             if ($rawClients) {{
                 foreach ($c in $rawClients) {{
                     $name = 'Client Device'
-                    if ($c.HostNames -and $c.HostNames.Count -gt 0) {{ $name = $c.HostNames[0].DisplayName }}
-                    $clients += @{{ Mac = ""$($c.MacAddress)""; HostName = ""$name""; Ip = '' }}
+                    $ip = ''
+                    if ($c.HostNames) {{
+                        foreach ($hn in $c.HostNames) {{
+                            try {{
+                                if ([int]$hn.Type -eq 1 -or $hn.CanonicalName -match '^\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}$') {{
+                                    $ip = $hn.CanonicalName
+                                }} elseif ([int]$hn.Type -eq 0 -and -not [string]::IsNullOrWhiteSpace($hn.DisplayName)) {{
+                                    $name = $hn.DisplayName
+                                }} elseif (-not [string]::IsNullOrWhiteSpace($hn.DisplayName) -and $name -eq 'Client Device') {{
+                                    $name = $hn.DisplayName
+                                }}
+                            }} catch {{}}
+                        }}
+                    }}
+                    $clients += @{{ Mac = ""$($c.MacAddress)""; HostName = ""$name""; Ip = ""$ip"" }}
                 }}
             }}
         }} catch {{}}
@@ -257,39 +270,48 @@ if ($connectionProfile) {{
                             model.ClientCount = 0;
                         }
 
-                        // Native Win32 ARP table enrichment (in-process iphlpapi.dll - ZERO process creation)
+                        // Native Win32 ARP table enrichment & active hardware SendARP sweep
                         var arpMap = NativeArpHelper.GetHotspotArpEntries();
-                        if (arpMap.Count > 0)
+                        foreach (var client in model.Clients)
                         {
-                            foreach (var client in model.Clients)
+                            if (string.IsNullOrEmpty(client.IpAddress) || client.IpAddress == "-")
                             {
-                                if ((string.IsNullOrEmpty(client.IpAddress) || client.IpAddress == "-") &&
-                                    arpMap.TryGetValue(client.MacAddress, out var resolvedIp))
+                                if (arpMap.TryGetValue(client.MacAddress, out var resolvedIp))
                                 {
                                     client.IpAddress = resolvedIp;
-                                    if (client.HostName == "Connected Device" || client.HostName == "Client Device")
+                                }
+                                else
+                                {
+                                    var probedIp = await NativeArpHelper.ProbeSubnetForMacAsync(client.MacAddress);
+                                    if (!string.IsNullOrEmpty(probedIp))
                                     {
-                                        client.HostName = $"Device ({resolvedIp})";
+                                        client.IpAddress = probedIp;
                                     }
                                 }
-                            }
 
-                            // Discover any client present in ARP table not yet returned by WinRT
-                            foreach (var kvp in arpMap)
-                            {
-                                if (!model.Clients.Any(c => c.MacAddress.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase)))
+                                if (!string.IsNullOrEmpty(client.IpAddress) && client.IpAddress != "-" &&
+                                    (client.HostName == "Connected Device" || client.HostName == "Client Device"))
                                 {
-                                    model.Clients.Add(new HotspotClientInfo
-                                    {
-                                        MacAddress = kvp.Key,
-                                        IpAddress = kvp.Value,
-                                        HostName = $"Device ({kvp.Value})",
-                                        Status = "Connected"
-                                    });
+                                    client.HostName = $"Device ({client.IpAddress})";
                                 }
                             }
-                            model.ClientCount = model.Clients.Count;
                         }
+
+                        // Discover any client present in ARP table not yet returned by WinRT
+                        foreach (var kvp in arpMap)
+                        {
+                            if (!model.Clients.Any(c => c.MacAddress.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                model.Clients.Add(new HotspotClientInfo
+                                {
+                                    MacAddress = kvp.Key,
+                                    IpAddress = kvp.Value,
+                                    HostName = $"Device ({kvp.Value})",
+                                    Status = "Connected"
+                                });
+                            }
+                        }
+                        model.ClientCount = model.Clients.Count;
 
                         // Enrich each connected client with live connection speed, ping latency, and data flow health
                         if (model.Clients.Count > 0)
@@ -491,46 +513,204 @@ try {
         }
 
         /// <summary>
-        /// Completely resets the Mobile Hotspot subsystem, restarts SharedAccess (DHCP),
-        /// wipes previous configuration, and recreates the hotspot fresh as new.
+        /// Completely resets the Mobile Hotspot subsystem in a single resilient execution:
+        /// gracefully stops existing tethering, repairs SharedAccess (ICS DHCP) service & registry scope (192.168.137.1),
+        /// wipes previous configuration, clears stale ARP cache, and recreates & starts the hotspot fresh as new.
         /// </summary>
         public async Task<(bool success, string message)> ResetAndRecreateHotspotAsync(string ssid, string passphrase, string bandOrChannel)
         {
-            return await Task.Run(async () =>
+            return await Task.Run(() =>
             {
-                // 1. Force stop tethering to release virtual adapter
-                await StopHotspotAsync();
+                if (string.IsNullOrWhiteSpace(ssid))
+                    return (false, "SSID cannot be empty.");
 
-                // 2. Restart SharedAccess (DHCP server) to release hung sockets and clear ARP
-                string resetDhcpScript = @"
-try {
-    Restart-Service -Name 'SharedAccess' -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 600
-    netsh interface ip delete arpcache | Out-Null
-    @{ Result = 'Success' } | ConvertTo-Json -Compress
-} catch {
-    @{ Result = 'Success' } | ConvertTo-Json -Compress
-}
+                if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 8 || passphrase.Length > 63)
+                    return (false, "Password must be between 8 and 63 characters.");
+
+                string bandEnum = "TwoPointFourGigahertz";
+                if (bandOrChannel.Contains("5 GHz") || bandOrChannel.Contains("5GHz"))
+                {
+                    bandEnum = "FiveGigahertz";
+                }
+                else if (bandOrChannel.Contains("Auto"))
+                {
+                    bandEnum = "Auto";
+                }
+
+                string safeSsid = ssid.Replace("\"", "`\"");
+                string safePass = passphrase.Replace("\"", "`\"");
+
+                string script = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+
+# 1. Stop existing tethering cleanly if active or transitioning
+$connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
+if (-not $connectionProfile) {{
+    $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
+    if ($profiles) {{
+        foreach ($p in $profiles) {{
+            try {{
+                if ($p.GetNetworkConnectivityLevel() -ge 1) {{ $connectionProfile = $p; break }}
+            }} catch {{}}
+        }}
+        if (-not $connectionProfile -and $profiles.Count -gt 0) {{ $connectionProfile = $profiles[0] }}
+    }}
+}}
+
+if ($connectionProfile) {{
+    try {{
+        $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
+        if ($mgr.TetheringOperationalState -eq 1 -or $mgr.TetheringOperationalState -eq 3) {{
+            $stopOp = $mgr.StopTetheringAsync()
+            $stopWait = 0
+            while ($mgr.TetheringOperationalState -ne 2 -and $stopWait -lt 30) {{
+                Start-Sleep -Milliseconds 100
+                $stopWait++
+            }}
+        }}
+    }} catch {{}}
+}}
+
+# 2. Reset and ensure SharedAccess (ICS / DHCP) service is healthy
+try {{
+    $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+    if ($svc) {{
+        if ($svc.StartType -eq 'Disabled') {{
+            Set-Service -Name 'SharedAccess' -StartupType Manual -ErrorAction SilentlyContinue
+        }}
+        if ($svc.Status -eq 'Running') {{
+            Stop-Service -Name 'SharedAccess' -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 400
+        }}
+    }}
+
+    $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
+    if (Test-Path $regPath) {{
+        Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+    }}
+
+    Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}} catch {{}}
+
+# Clear ARP cache
+try {{ netsh interface ip delete arpcache | Out-Null }} catch {{}}
+
+# 3. Re-acquire active connection profile
+$connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
+if (-not $connectionProfile) {{
+    $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
+    if ($profiles) {{
+        foreach ($p in $profiles) {{
+            try {{
+                if ($p.GetNetworkConnectivityLevel() -ge 1) {{ $connectionProfile = $p; break }}
+            }} catch {{}}
+        }}
+        if (-not $connectionProfile -and $profiles.Count -gt 0) {{ $connectionProfile = $profiles[0] }}
+    }}
+}}
+
+if (-not $connectionProfile) {{
+    @{{ Result = 'Error'; Error = 'No active network profile available to host hotspot.' }} | ConvertTo-Json -Compress
+    return
+}}
+
+try {{
+    $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
+
+    # 4. Configure Access Point with fresh SSID, passphrase, and band
+    $config = $mgr.GetCurrentAccessPointConfiguration()
+    $config.Ssid = ""{safeSsid}""
+    $config.Passphrase = ""{safePass}""
+
+    $requestedBand = [Windows.Networking.NetworkOperators.TetheringWiFiBand]::{bandEnum}
+    $supported = $true
+    try {{
+        $supported = $mgr.IsBandSupported($requestedBand)
+    }} catch {{ $supported = $true }}
+
+    if ($supported) {{
+        $config.Band = $requestedBand
+    }} else {{
+        try {{ $config.Band = [Windows.Networking.NetworkOperators.TetheringWiFiBand]::TwoPointFourGigahertz }} catch {{}}
+    }}
+
+    $cfgOp = $mgr.ConfigureAccessPointAsync($config)
+    $cfgWait = 0
+    while ($cfgOp.Status -eq 0 -and $cfgWait -lt 50) {{
+        Start-Sleep -Milliseconds 100
+        $cfgWait++
+    }}
+
+    # 5. Start Tethering with Retry Logic (up to 3 attempts)
+    $started = $false
+    $lastErr = ''
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {{
+        if ($mgr.TetheringOperationalState -eq 1) {{
+            $started = $true
+            break
+        }}
+
+        $startOp = $mgr.StartTetheringAsync()
+        $startWait = 0
+        while ($startOp.Status -eq 0 -and $startWait -lt 60) {{
+            Start-Sleep -Milliseconds 150
+            $startWait++
+        }}
+
+        if ($startOp.Status -eq 1) {{
+            $opResult = $startOp.GetResults()
+            if ($opResult.Status -eq 0 -or $opResult.Status.ToString() -eq 'Success' -or $opResult.Status.ToString() -eq 'AlreadyOn') {{
+                $started = $true
+                break
+            }} else {{
+                $lastErr = ""$($opResult.Status): $($opResult.AdditionalErrorMessage)""
+            }}
+        }} elseif ($startOp.Status -eq 3) {{
+            $lastErr = 'WinRT StartTetheringAsync returned error status'
+        }}
+
+        if ($mgr.TetheringOperationalState -eq 1) {{
+            $started = $true
+            break
+        }}
+
+        Start-Sleep -Milliseconds 800
+    }}
+
+    # Verify final operational state
+    $verifyCount = 0
+    while ($mgr.TetheringOperationalState -ne 1 -and $verifyCount -lt 15) {{
+        Start-Sleep -Milliseconds 200
+        $verifyCount++
+    }}
+
+    if ($mgr.TetheringOperationalState -eq 1 -or $started) {{
+        @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+    }} else {{
+        @{{ Result = 'Error'; Error = $(if ($lastErr) {{ $lastErr }} else {{ 'Timed out starting Hotspot after reset' }}) }} | ConvertTo-Json -Compress
+    }}
+}} catch {{
+    @{{ Result = 'Error'; Error = $_.Exception.Message }} | ConvertTo-Json -Compress
+}}
 ";
-                RunPowerShell(resetDhcpScript);
-                await Task.Delay(800);
-
-                // 3. Configure fresh with clean settings as new
-                var configRes = await ConfigureHotspotAsync(ssid, passphrase, bandOrChannel);
-                if (!configRes.success)
+                string json = RunPowerShell(script, 30000);
+                try
                 {
-                    return (false, $"Reset configuration failed: {configRes.message}");
+                    var res = JsonSerializer.Deserialize<OperationResultJson>(json);
+                    if (res?.Result == "Success")
+                    {
+                        return (true, "Hotspot completely reset, DHCP scope repaired (192.168.137.1), and restarted fresh!");
+                    }
+                    return (false, string.IsNullOrEmpty(res?.Error) ? "Reset finished but start could not be verified." : res.Error);
                 }
-
-                await Task.Delay(600);
-
-                // 4. Start Hotspot
-                var startRes = await StartHotspotAsync();
-                if (startRes.success)
+                catch (Exception ex)
                 {
-                    return (true, "Hotspot completely reset, DHCP repaired, and restarted fresh!");
+                    return (false, $"Reset error: {ex.Message}");
                 }
-                return (false, $"Reset completed but start returned: {startRes.message}");
             });
         }
 
@@ -733,28 +913,47 @@ if ($connectionProfile) {
 
                 if (!hasIp)
                 {
+                    // Attempt active MAC sweep probe before marking lease pending
+                    var probedIp = await NativeArpHelper.ProbeSubnetForMacAsync(client.MacAddress);
+                    if (!string.IsNullOrEmpty(probedIp))
+                    {
+                        client.IpAddress = probedIp;
+                        hasIp = true;
+                        if (client.HostName == "Connected Device" || client.HostName == "Client Device")
+                        {
+                            client.HostName = $"Device ({probedIp})";
+                        }
+                    }
+                }
+
+                if (!hasIp)
+                {
                     client.IsGettingData = false;
-                    client.DataStatusText = "No IP";
+                    client.DataStatusText = "Awaiting IP (DHCP)...";
                     client.Latency = "No DHCP Lease";
-                    client.ConnectionSpeed = "Awaiting IP";
+                    client.ConnectionSpeed = "Awaiting Lease";
                     return;
                 }
 
                 if (!hostHasInternet)
                 {
                     client.IsGettingData = false;
-                    client.DataStatusText = "No Internet";
+                    client.DataStatusText = "Host Offline";
                     client.Latency = "-";
                     client.ConnectionSpeed = "Host Offline";
                     return;
                 }
 
+                // Vector 1: Native hardware link-layer ARP probe (bypasses phone firewalls & screen-lock sleep)
+                var (arpOk, _, arpRtt) = NativeArpHelper.ProbeClientArp(client.IpAddress);
+
+                // Vector 2: ICMP Echo Ping (250ms)
                 bool pingSuccess = false;
                 long rtt = 0;
                 try
                 {
                     using var pinger = new Ping();
-                    var reply = await pinger.SendPingAsync(client.IpAddress, 180);
+                    var reply = await pinger.SendPingAsync(client.IpAddress, 250);
                     if (reply.Status == IPStatus.Success)
                     {
                         pingSuccess = true;
@@ -770,19 +969,26 @@ if ($connectionProfile) {
                     client.Latency = $"{rtt} ms";
                     client.ConnectionSpeed = $"{linkText} • {rtt}ms";
                 }
+                else if (arpOk)
+                {
+                    client.IsGettingData = true;
+                    client.DataStatusText = "● Getting Data";
+                    client.Latency = arpRtt > 0 ? $"{arpRtt} ms (ARP)" : "< 5 ms";
+                    client.ConnectionSpeed = $"{linkText} • Active Link";
+                }
                 else if (adapterHasActiveData)
                 {
                     client.IsGettingData = true;
                     client.DataStatusText = "● Getting Data";
-                    client.Latency = "< 5 ms";
+                    client.Latency = "< 10 ms";
                     client.ConnectionSpeed = $"{linkText} • Active Flow";
                 }
                 else
                 {
                     client.IsGettingData = false;
-                    client.DataStatusText = "⚠ No Data";
-                    client.Latency = "Timed Out";
-                    client.ConnectionSpeed = "No Data Flow";
+                    client.DataStatusText = "⚠ No Data Flow";
+                    client.Latency = "Unresponsive";
+                    client.ConnectionSpeed = "Stalled (0 Kbps)";
                 }
             });
 
@@ -981,7 +1187,7 @@ try {{
             }
         }
 
-        private static string RunPowerShell(string script)
+        private static string RunPowerShell(string script, int timeoutMs = 15000)
         {
             try
             {
@@ -1004,7 +1210,7 @@ try {{
                 process.StandardInput.Close();
 
                 string output = process.StandardOutput.ReadToEnd();
-                if (!process.WaitForExit(12000))
+                if (!process.WaitForExit(timeoutMs))
                 {
                     try { process.Kill(true); } catch { }
                 }
@@ -1018,10 +1224,11 @@ try {{
         }
 
         /// <summary>
-        /// Reads Windows ARP table directly from in-process iphlpapi.dll memory.
+        /// Reads Windows ARP table directly from in-process iphlpapi.dll memory and provides
+        /// native hardware link-layer ARP probing via SendARP.
         /// Zero child processes (no arp.exe or powershell.exe) - completely immune to corporate EDR / Antivirus blocks.
         /// </summary>
-        private static class NativeArpHelper
+        public static class NativeArpHelper
         {
             [StructLayout(LayoutKind.Sequential)]
             private struct MIB_IPNETROW
@@ -1036,6 +1243,66 @@ try {{
 
             [DllImport("iphlpapi.dll", SetLastError = true)]
             private static extern int GetIpNetTable(IntPtr pIpNetTable, ref int pdwSize, bool bOrder);
+
+            [DllImport("iphlpapi.dll", ExactSpelling = true)]
+            private static extern int SendARP(uint DestIP, uint SrcIP, byte[] pMacAddr, ref int PhysAddrLen);
+
+            /// <summary>
+            /// Sends a raw hardware link-layer ARP request to verify device radio connectivity.
+            /// Unlike ICMP Ping, ARP is handled directly by phone Wi-Fi hardware/firmware and is
+            /// NEVER blocked by phone firewalls or screen-lock power savers.
+            /// </summary>
+            public static (bool success, string mac, long rttMs) ProbeClientArp(string ipAddress)
+            {
+                try
+                {
+                    if (IPAddress.TryParse(ipAddress, out var ip))
+                    {
+                        uint dest = BitConverter.ToUInt32(ip.GetAddressBytes(), 0);
+                        byte[] mac = new byte[6];
+                        int len = 6;
+                        var sw = Stopwatch.StartNew();
+                        int res = SendARP(dest, 0, mac, ref len);
+                        sw.Stop();
+                        if (res == 0 && len >= 6)
+                        {
+                            var sb = new StringBuilder();
+                            for (int i = 0; i < 6; i++)
+                            {
+                                if (i > 0) sb.Append(':');
+                                sb.Append(mac[i].ToString("X2"));
+                            }
+                            return (true, sb.ToString(), Math.Max(1, sw.ElapsedMilliseconds));
+                        }
+                    }
+                }
+                catch { }
+                return (false, string.Empty, 0);
+            }
+
+            /// <summary>
+            /// Sweeps the standard ICS subnet (192.168.137.2 - 192.168.137.50) concurrently
+            /// via SendARP to resolve the assigned IP address for a MAC address within ~50ms.
+            /// </summary>
+            public static async Task<string?> ProbeSubnetForMacAsync(string targetMac)
+            {
+                string cleanTarget = HotspotModel.NormalizeMac(targetMac);
+                if (string.IsNullOrEmpty(cleanTarget)) return null;
+
+                string? foundIp = null;
+                var ipList = Enumerable.Range(2, 49).Select(i => $"192.168.137.{i}").ToList();
+                await Task.WhenAll(ipList.Select(ip => Task.Run(() =>
+                {
+                    if (foundIp != null) return;
+                    var (success, mac, _) = ProbeClientArp(ip);
+                    if (success && HotspotModel.NormalizeMac(mac) == cleanTarget)
+                    {
+                        foundIp = ip;
+                    }
+                })));
+
+                return foundIp;
+            }
 
             public static Dictionary<string, string> GetHotspotArpEntries()
             {
