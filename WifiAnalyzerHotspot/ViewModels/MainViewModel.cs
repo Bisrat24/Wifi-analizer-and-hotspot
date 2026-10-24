@@ -455,9 +455,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             _resetCooldownSeconds--;
                         }
-                        else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && !Hotspot.IsBusy && Hotspot.IsRunning && Hotspot.State == HotspotState.On)
+                        else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && Hotspot.IsRunning && Hotspot.State == HotspotState.On)
                         {
-                            // 1. Check whether devices connected to the hotspot are getting data
+                            // 1. Continuous Connected Client Data Flow Watchdog
                             int totalDevices = Hotspot.Clients.Count;
                             if (totalDevices > 0)
                             {
@@ -466,7 +466,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                                 if (workingCount == 0)
                                 {
-                                    // All devices connected to the hotspot are NOT working / NOT getting data!
+                                    // All devices connected to the hotspot have 0 data flow!
                                     _noDataCountSeconds++;
                                     if (_noDataCountSeconds >= 5) // 5 seconds threshold
                                     {
@@ -515,7 +515,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _unknownStateCountSeconds = 0;
                             }
                         }
-                        else
+                        else if (!Hotspot.IsRunning || !Hotspot.IsHealthCheckEnabled)
                         {
                             _inTransitionCountSeconds = 0;
                             _unknownStateCountSeconds = 0;

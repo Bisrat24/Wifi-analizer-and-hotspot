@@ -1020,21 +1020,7 @@ if ($connectionProfile) {
                     return;
                 }
 
-                // Vector 1: Native hardware link-layer ARP probe (verifies physical Wi-Fi radio association)
-                var (arpOk, _, arpRtt) = NativeArpHelper.ProbeClientArp(client.IpAddress);
-
-                // Vector 2: Active TCP connections from/to this client
-                bool hasActiveTcp = false;
-                try
-                {
-                    var tcpConns = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
-                    hasActiveTcp = tcpConns.Any(t =>
-                        (t.RemoteEndPoint.Address.ToString() == client.IpAddress || t.LocalEndPoint.Address.ToString() == client.IpAddress) &&
-                        (t.State == TcpState.Established || t.State == TcpState.CloseWait || t.State == TcpState.SynSent));
-                }
-                catch { }
-
-                // Vector 3: ICMP Echo Ping (250ms timeout)
+                // Vector 1: ICMP Echo Ping (250ms timeout)
                 bool pingSuccess = false;
                 long rtt = 0;
                 try
@@ -1049,6 +1035,26 @@ if ($connectionProfile) {
                 }
                 catch { }
 
+                // Vector 2: Fast TCP probe on port 80/443 for devices that block ICMP (e.g. iOS/iPadOS)
+                bool tcpSuccess = false;
+                long tcpRtt = 0;
+                if (!pingSuccess)
+                {
+                    var (tAlive, tRtt) = await NativeArpHelper.ProbeClientTcpAsync(client.IpAddress, 80, 200);
+                    if (!tAlive)
+                    {
+                        (tAlive, tRtt) = await NativeArpHelper.ProbeClientTcpAsync(client.IpAddress, 443, 200);
+                    }
+                    if (tAlive)
+                    {
+                        tcpSuccess = true;
+                        tcpRtt = tRtt;
+                    }
+                }
+
+                // Vector 3: Native hardware link-layer ARP probe (verifies active physical radio link)
+                var (arpOk, _, arpRtt) = NativeArpHelper.ProbeClientArp(client.IpAddress);
+
                 if (pingSuccess)
                 {
                     client.IsGettingData = true;
@@ -1056,23 +1062,24 @@ if ($connectionProfile) {
                     client.Latency = $"{rtt} ms";
                     client.ConnectionSpeed = $"Online • {rtt}ms";
                 }
-                else if (hasActiveTcp)
+                else if (tcpSuccess)
                 {
                     client.IsGettingData = true;
                     client.DataStatusText = "● Getting Data";
-                    client.Latency = "< 10 ms";
-                    client.ConnectionSpeed = "Active Flow";
+                    client.Latency = tcpRtt > 0 ? $"{tcpRtt} ms" : "< 10 ms";
+                    client.ConnectionSpeed = $"Online • {client.Latency}";
                 }
-                else if (arpOk)
+                else if (arpOk && hostHasInternet)
                 {
-                    // Device is linked at Wi-Fi layer 2, but has no active data flow and does not respond to ping
-                    client.IsGettingData = false;
-                    client.DataStatusText = "⚠ No Data";
-                    client.Latency = arpRtt > 0 ? $"{arpRtt} ms (No Flow)" : "Standby";
-                    client.ConnectionSpeed = "Standby (No Flow)";
+                    // Device is actively responsive over Wi-Fi link, host internet is operational
+                    client.IsGettingData = true;
+                    client.DataStatusText = "● Getting Data";
+                    client.Latency = arpRtt > 0 ? $"{arpRtt} ms" : "< 5 ms";
+                    client.ConnectionSpeed = $"Online • {client.Latency}";
                 }
                 else
                 {
+                    // All vectors failed (no ping, no TCP response, no ARP link) -> device disconnected or stalled
                     client.IsGettingData = false;
                     client.DataStatusText = "⚠ No Data";
                     client.Latency = "Timed Out";
@@ -1366,6 +1373,41 @@ try {{
                 }
                 catch { }
                 return (false, string.Empty, 0);
+            }
+
+            public static async Task<(bool alive, long rttMs)> ProbeClientTcpAsync(string ipAddress, int port = 80, int timeoutMs = 250)
+            {
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    using var tcp = new System.Net.Sockets.TcpClient();
+                    using var cts = new CancellationTokenSource(timeoutMs);
+                    try
+                    {
+                        await tcp.ConnectAsync(ipAddress, port, cts.Token);
+                        sw.Stop();
+                        return (true, sw.ElapsedMilliseconds);
+                    }
+                    catch (System.Net.Sockets.SocketException ex)
+                    {
+                        sw.Stop();
+                        // ConnectionRefused or AccessDenied means the device's IP stack received the packet and actively replied with RST/ACK
+                        if (ex.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionRefused ||
+                            ex.SocketErrorCode == System.Net.Sockets.SocketError.AccessDenied)
+                        {
+                            return (true, sw.ElapsedMilliseconds);
+                        }
+                        return (false, 0);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return (false, 0);
+                    }
+                }
+                catch
+                {
+                    return (false, 0);
+                }
             }
 
             /// <summary>

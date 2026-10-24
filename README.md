@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.0)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.1)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -33,7 +33,7 @@ You can run the app immediately by double-clicking:
 - **Smart Hotspot / Router Recommendation**:
   - Automatically identifies the cleanest, non-overlapping channels (e.g. Channel 1, 6, or 11 on 2.4 GHz; clean channels on 5 GHz) to give you the fastest speed with zero packet drops.
 
-### 3. ⚡ Internet Speed Test & Live Traffic Monitor (v1.1.0 Multi-CDN Engine)
+### 3. ⚡ Internet Speed Test & Live Traffic Monitor (v1.1.1 Multi-CDN Engine)
 - **Multi-CDN Resilient Engine**:
   - Automatically probes and benchmarks across a pool of tier-1 global CDNs and speed test servers (OVH Telecom, Microsoft Azure CDN, jsDelivr, Hetzner, httpbin).
   - **Pre-flight Endpoint Selection**: Automatically tests latency and selects the fastest responsive endpoints, completely bypassing regional ISP blocks or Cloudflare throttling.
@@ -45,17 +45,23 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager (v1.1.0 Enhanced)
+### 4. 🔥 Mobile Hotspot Creator & Manager (v1.1.1 Enhanced)
 - **Windows Mobile Hotspot Integration**:
   - Uses the official modern Windows 10/11 WinRT `NetworkOperatorTetheringManager` API.
 - **Guaranteed Restart Reliability**:
   - `StopHotspotAsync` cleanly waits for virtual adapter teardown (`OperationalState == Off`) and settling delay before returning.
   - `StartHotspotAsync` verifies `SharedAccess` (ICS / DHCP) service status, gracefully handles `InTransition` state, awaits WinRT operation results, and retries up to 3 times with backoff.
   - Eliminates `OperationInProgress` errors when toggling off/on or restarting.
-- **Accurate Client Data Flow Health Check**:
-  - Resolved "stuck on getting data" issue by checking actual data-plane IP responsiveness (ICMP Echo ping + active TCP connection tracking).
+- **Multi-Vector Client Data Flow Health Check**:
+  - Multi-vector verification eliminating false "No Data" flags:
+    1. **ICMP Ping**: Fast echo request.
+    2. **Layer 4 TCP Probe (Port 80/443)**: For devices that drop ICMP packets by default (e.g. iOS/iPadOS, firewalled phones), listens for TCP RST/ACK confirming active IP stack communication.
+    3. **Hardware ARP Link Verification**: Confirms active L2 Wi-Fi association when host internet is operational.
   - Correctly marks clients as `● Getting Data` when active and `⚠ No Data` when data is stalled or cut.
-  - Watchdog 30-second cancellation countdown triggers if all devices stop getting data, and dismisses automatically once data resumes.
+- **Continuous 1-Second Watchdog Timer**:
+  - Decoupled from routine refresh cycles; continuously evaluates hotspot health every 1 second.
+  - 30-second cancellation countdown triggers if 100% of connected devices experience zero data flow for 5 continuous seconds.
+  - Countdown cancels immediately if any connected client resumes active data flow.
 - **Authentic Client Connection Speed**:
   - Displays real-time live responsiveness (`Online • {latency}`, `Active Flow`, or `Standby`) alongside the negotiated hardware PHY link speed.
 - **Custom Configuration & Broadcast Card**:

@@ -126,7 +126,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.1.0" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.1.1" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
