@@ -715,13 +715,31 @@ try {{
         }
 
         /// <summary>
-        /// Starts the Windows Mobile Hotspot.
+        /// Starts the Windows Mobile Hotspot with robust retry logic, virtual adapter readiness check,
+        /// and SharedAccess service verification.
         /// </summary>
         public async Task<(bool success, string message)> StartHotspotAsync()
         {
             return await Task.Run(() =>
             {
                 string script = @"
+$ErrorActionPreference = 'SilentlyContinue'
+
+# 1. Ensure SharedAccess service is running
+try {
+    $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+    if ($svc) {
+        if ($svc.StartType -eq 'Disabled') {
+            Set-Service -Name 'SharedAccess' -StartupType Manual -ErrorAction SilentlyContinue
+        }
+        if ($svc.Status -ne 'Running') {
+            Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 400
+        }
+    }
+} catch {}
+
+# 2. Acquire active Internet connection profile
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -734,31 +752,82 @@ if (-not $connectionProfile) {
         if (-not $connectionProfile -and $profiles.Count -gt 0) { $connectionProfile = $profiles[0] }
     }
 }
-if ($connectionProfile) {
-    try {
-        $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
-        $op = $mgr.StartTetheringAsync()
-        
-        # Poll state until On (1)
-        $count = 0
-        while ($mgr.TetheringOperationalState -ne 1 -and $count -lt 35) {
-            Start-Sleep -Milliseconds 200
-            $count++
+
+if (-not $connectionProfile) {
+    @{ Result = 'Error'; Error = 'No active network connection profile found.' } | ConvertTo-Json -Compress
+    return
+}
+
+try {
+    $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
+    
+    # If already running, return success immediately
+    if ($mgr.TetheringOperationalState -eq 1) {
+        @{ Result = 'Success' } | ConvertTo-Json -Compress
+        return
+    }
+
+    # If in transition, wait for it to settle into Off (2) before starting
+    if ($mgr.TetheringOperationalState -eq 3) {
+        $waitSettle = 0
+        while ($mgr.TetheringOperationalState -eq 3 -and $waitSettle -lt 20) {
+            Start-Sleep -Milliseconds 150
+            $waitSettle++
+        }
+    }
+
+    # Start tethering with retry logic (up to 3 attempts)
+    $started = $false
+    $lastErr = ''
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        if ($mgr.TetheringOperationalState -eq 1) {
+            $started = $true
+            break
+        }
+
+        $startOp = $mgr.StartTetheringAsync()
+        $startWait = 0
+        while ($startOp.Status -eq 0 -and $startWait -lt 60) {
+            Start-Sleep -Milliseconds 150
+            $startWait++
+        }
+
+        if ($startOp.Status -eq 1) {
+            $opResult = $startOp.GetResults()
+            if ($opResult.Status -eq 0 -or $opResult.Status.ToString() -eq 'Success' -or $opResult.Status.ToString() -eq 'AlreadyOn') {
+                $started = $true
+                break
+            } else {
+                $lastErr = ""$($opResult.Status): $($opResult.AdditionalErrorMessage)""
+            }
         }
 
         if ($mgr.TetheringOperationalState -eq 1) {
-            @{ Result = 'Success' } | ConvertTo-Json -Compress
-        } else {
-            @{ Result = 'Error'; Error = 'Timed out starting Mobile Hotspot.' } | ConvertTo-Json -Compress
+            $started = $true
+            break
         }
-    } catch {
-        @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress
+
+        Start-Sleep -Milliseconds 600
     }
-} else {
-    @{ Result = 'Error'; Error = 'No active network connection profile found' } | ConvertTo-Json -Compress
+
+    # Final verification of operational state
+    $verifyCount = 0
+    while ($mgr.TetheringOperationalState -ne 1 -and $verifyCount -lt 15) {
+        Start-Sleep -Milliseconds 200
+        $verifyCount++
+    }
+
+    if ($mgr.TetheringOperationalState -eq 1 -or $started) {
+        @{ Result = 'Success' } | ConvertTo-Json -Compress
+    } else {
+        @{ Result = 'Error'; Error = $(if ($lastErr) { $lastErr } else { 'Timed out starting Mobile Hotspot.' }) } | ConvertTo-Json -Compress
+    }
+} catch {
+    @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress
 }
 ";
-                string json = RunPowerShell(script);
+                string json = RunPowerShell(script, 25000);
                 try
                 {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
@@ -776,13 +845,14 @@ if ($connectionProfile) {
         }
 
         /// <summary>
-        /// Stops the Windows Mobile Hotspot.
+        /// Stops the Windows Mobile Hotspot and waits until virtual adapter is completely released.
         /// </summary>
         public async Task<(bool success, string message)> StopHotspotAsync()
         {
             return await Task.Run(() =>
             {
                 string script = @"
+$ErrorActionPreference = 'SilentlyContinue'
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -798,15 +868,21 @@ if (-not $connectionProfile) {
 if ($connectionProfile) {
     try {
         $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
-        $op = $mgr.StopTetheringAsync()
-
-        # Poll state until Off (2)
-        $count = 0
-        while ($mgr.TetheringOperationalState -eq 1 -and $count -lt 25) {
-            Start-Sleep -Milliseconds 200
-            $count++
+        
+        # Stop tethering if active or in transition
+        if ($mgr.TetheringOperationalState -eq 1 -or $mgr.TetheringOperationalState -eq 3) {
+            $op = $mgr.StopTetheringAsync()
+            
+            # Poll state until Off (2)
+            $count = 0
+            while ($mgr.TetheringOperationalState -ne 2 -and $count -lt 40) {
+                Start-Sleep -Milliseconds 150
+                $count++
+            }
         }
-
+        
+        # Settle delay so virtual adapter unbinds cleanly
+        Start-Sleep -Milliseconds 300
         @{ Result = 'Success' } | ConvertTo-Json -Compress
     } catch {
         @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress
@@ -815,7 +891,7 @@ if ($connectionProfile) {
     @{ Result = 'Error'; Error = 'No active network connection profile found' } | ConvertTo-Json -Compress
 }
 ";
-                string json = RunPowerShell(script);
+                string json = RunPowerShell(script, 15000);
                 try
                 {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
@@ -944,10 +1020,21 @@ if ($connectionProfile) {
                     return;
                 }
 
-                // Vector 1: Native hardware link-layer ARP probe (bypasses phone firewalls & screen-lock sleep)
+                // Vector 1: Native hardware link-layer ARP probe (verifies physical Wi-Fi radio association)
                 var (arpOk, _, arpRtt) = NativeArpHelper.ProbeClientArp(client.IpAddress);
 
-                // Vector 2: ICMP Echo Ping (250ms)
+                // Vector 2: Active TCP connections from/to this client
+                bool hasActiveTcp = false;
+                try
+                {
+                    var tcpConns = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
+                    hasActiveTcp = tcpConns.Any(t =>
+                        (t.RemoteEndPoint.Address.ToString() == client.IpAddress || t.LocalEndPoint.Address.ToString() == client.IpAddress) &&
+                        (t.State == TcpState.Established || t.State == TcpState.CloseWait || t.State == TcpState.SynSent));
+                }
+                catch { }
+
+                // Vector 3: ICMP Echo Ping (250ms timeout)
                 bool pingSuccess = false;
                 long rtt = 0;
                 try
@@ -967,28 +1054,29 @@ if ($connectionProfile) {
                     client.IsGettingData = true;
                     client.DataStatusText = "● Getting Data";
                     client.Latency = $"{rtt} ms";
-                    client.ConnectionSpeed = $"{linkText} • {rtt}ms";
+                    client.ConnectionSpeed = $"Online • {rtt}ms";
                 }
-                else if (arpOk)
-                {
-                    client.IsGettingData = true;
-                    client.DataStatusText = "● Getting Data";
-                    client.Latency = arpRtt > 0 ? $"{arpRtt} ms (ARP)" : "< 5 ms";
-                    client.ConnectionSpeed = $"{linkText} • Active Link";
-                }
-                else if (adapterHasActiveData)
+                else if (hasActiveTcp)
                 {
                     client.IsGettingData = true;
                     client.DataStatusText = "● Getting Data";
                     client.Latency = "< 10 ms";
-                    client.ConnectionSpeed = $"{linkText} • Active Flow";
+                    client.ConnectionSpeed = "Active Flow";
+                }
+                else if (arpOk)
+                {
+                    // Device is linked at Wi-Fi layer 2, but has no active data flow and does not respond to ping
+                    client.IsGettingData = false;
+                    client.DataStatusText = "⚠ No Data";
+                    client.Latency = arpRtt > 0 ? $"{arpRtt} ms (No Flow)" : "Standby";
+                    client.ConnectionSpeed = "Standby (No Flow)";
                 }
                 else
                 {
                     client.IsGettingData = false;
-                    client.DataStatusText = "⚠ No Data Flow";
-                    client.Latency = "Unresponsive";
-                    client.ConnectionSpeed = "Stalled (0 Kbps)";
+                    client.DataStatusText = "⚠ No Data";
+                    client.Latency = "Timed Out";
+                    client.ConnectionSpeed = "Unresponsive";
                 }
             });
 
