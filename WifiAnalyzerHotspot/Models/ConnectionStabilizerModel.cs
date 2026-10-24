@@ -146,6 +146,29 @@ namespace WifiAnalyzerHotspot.Models
 
         public ObservableCollection<HeartbeatEntry> HeartbeatHistory { get; set; } = new();
 
+        // ==================== CAPTIVE PORTAL DETECTION ====================
+        private bool _isCaptivePortalDetected;
+        private string _captivePortalRedirectUrl = string.Empty;
+        private string _captivePortalNotice = string.Empty;
+
+        public bool IsCaptivePortalDetected
+        {
+            get => _isCaptivePortalDetected;
+            set { _isCaptivePortalDetected = value; OnPropertyChanged(); }
+        }
+
+        public string CaptivePortalRedirectUrl
+        {
+            get => _captivePortalRedirectUrl;
+            set { _captivePortalRedirectUrl = value; OnPropertyChanged(); }
+        }
+
+        public string CaptivePortalNotice
+        {
+            get => _captivePortalNotice;
+            set { _captivePortalNotice = value; OnPropertyChanged(); }
+        }
+
         // ==================== ACTIVE RECONNECT ====================
         private bool _isReconnectActive;
         private string _targetSsid = "Africa";

@@ -126,7 +126,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.1.1" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.1.2" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -294,6 +294,13 @@
                                 <TextBlock Text="&#x1F504;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
                                 <TextBlock Text="Scan Now" FontWeight="SemiBold"/>
                             </StackPanel>
+                        </Button>
+
+                        <!-- Settings Gear Button -->
+                        <Button Style="{StaticResource ModernBtn}" Command="{Binding ToggleSettingsCommand}"
+                                ToolTip="Network &amp; Connection Settings (Secure DNS, Captive Portal, Proxy)"
+                                Width="36" Height="34" Padding="0" Margin="8,0,0,0">
+                            <TextBlock Text="&#x2699;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
                     </StackPanel>
                 </DockPanel>
@@ -1280,7 +1287,28 @@
             <!-- ==================== TAB 6: CONNECTION STABILIZER ==================== -->
             <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=Stabilizer}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Grid Margin="0,0,0,16">
+                    <StackPanel>
+                        <!-- Captive Portal Detected Alert Banner -->
+                        <Border Background="#2A1E14" BorderBrush="#FF9100" BorderThickness="1.5" CornerRadius="8" Padding="14" Margin="0,0,0,14"
+                                Visibility="{Binding Stabilizer.IsCaptivePortalDetected, Converter={StaticResource BoolVisConv}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="&#x1F310;" FontFamily="Segoe UI Emoji" FontSize="22" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="CAPTIVE PORTAL LOGIN REQUIRED" FontSize="11" FontWeight="Bold" Foreground="#FFB300"/>
+                                    <TextBlock Text="{Binding Stabilizer.CaptivePortalNotice}" FontSize="12" Foreground="#FFE082" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <Button Grid.Column="2" Command="{Binding OpenCaptiveBrowserCommand}" Style="{StaticResource PrimaryCyanBtn}" Height="32" Padding="14,4" Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Open In Browser" FontWeight="Bold"/>
+                                </Button>
+                            </Grid>
+                        </Border>
+
+                        <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
@@ -1646,9 +1674,268 @@
                             </Grid>
                         </Border>
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </Grid>
 
+        </Grid>
+
+        <!-- ==================== NETWORK & CONNECTION SETTINGS MODAL ==================== -->
+        <Grid Grid.Column="0" Grid.ColumnSpan="2" Background="#DD080A12"
+              Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolVisConv}}"
+              Panel.ZIndex="100">
+            <Border Width="820" MaxHeight="680" Background="#131622" BorderBrush="#2D354D" BorderThickness="1.5" CornerRadius="12" Padding="22"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Modal Header -->
+                    <DockPanel Grid.Row="0" Margin="0,0,0,16">
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#x2699;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="22" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Network &amp; Connection Settings" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                <TextBlock Text="Secure DNS (DoH), HTTP HEAD Captive Portal Keep-Alive, Proxy &amp; Conditions" FontSize="11" Foreground="#8F9EBC" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Close Button -->
+                        <Button DockPanel.Dock="Right" Command="{Binding CloseSettingsCommand}" Style="{StaticResource ModernBtn}"
+                                Width="32" Height="32" Padding="0" VerticalAlignment="Center" ToolTip="Close Settings">
+                            <TextBlock Text="&#x2715;" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                    </DockPanel>
+
+                    <!-- Scrollable Settings Body -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+                        <StackPanel Margin="0,0,8,0">
+
+                            <!-- ==================== SECTION 1: SECURE DNS (DoH) ==================== -->
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,14" Background="#171C2B">
+                                <StackPanel>
+                                    <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x1F512; SECURE DNS (DNS-OVER-HTTPS)" FontSize="13" FontWeight="Bold" Foreground="#00E5FF"/>
+                                            <TextBlock Text="Encrypts domain name queries over HTTPS to bypass ISP DNS filtering and prevent spoofing." FontSize="11" Foreground="#8F9EBC" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Settings.IsSecureDnsEnabled}"
+                                                  Content="Enable Secure DNS" FontWeight="Bold" Foreground="#00E676" VerticalAlignment="Center" Cursor="Hand"/>
+                                    </DockPanel>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="DoH Provider:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.SelectedDnsProvider}" SelectedValuePath="Content"
+                                                  Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
+                                            <ComboBoxItem Content="Cloudflare (1.1.1.1)" IsSelected="True"/>
+                                            <ComboBoxItem Content="Google Public DNS (8.8.8.8)"/>
+                                            <ComboBoxItem Content="Quad9 Secure DNS (9.9.9.9)"/>
+                                            <ComboBoxItem Content="AdGuard DNS (Ad &amp; Malware Block)"/>
+                                            <ComboBoxItem Content="Custom DoH Provider URL"/>
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="DoH Endpoint URL:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.CustomDohUrl, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5"/>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding TestDohCommand}" Margin="0,0,8,0" Padding="12,6" Height="30">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F50D;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Test DoH Resolution" FontWeight="SemiBold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding ApplyDohToAdapterCommand}" Margin="0,0,8,0" Padding="12,6" Height="30">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F4BE;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Apply DNS to Adapter" FontWeight="SemiBold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding RestoreDhcpDnsCommand}" Padding="12,6" Height="30">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x21BA;" FontSize="11" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Restore DHCP DNS" FontWeight="SemiBold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <Border Background="#10131E" CornerRadius="6" Padding="10,6">
+                                        <TextBlock Text="{Binding Settings.DnsStatusMessage}" FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ==================== SECTION 2: CAPTIVE PORTAL & KEEP-ALIVE ==================== -->
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,14" Background="#171C2B">
+                                <StackPanel>
+                                    <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x1F310; ACTIVE KEEP-ALIVE &amp; CAPTIVE PORTAL (HTTP HEAD)" FontSize="13" FontWeight="Bold" Foreground="#00E5FF"/>
+                                            <TextBlock Text="Uses HTTP HEAD probes to prevent captive portal timeouts on hotels, airports, and Cisco AnyConnect." FontSize="11" Foreground="#8F9EBC" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Settings.UseHttpHeadCaptivePortal}"
+                                                  Content="Enable HTTP HEAD Mode" FontWeight="Bold" Foreground="#00E676" VerticalAlignment="Center" Cursor="Hand"/>
+                                    </DockPanel>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Captive Portal Probe URL:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.SelectedCaptivePortalPreset}" SelectedValuePath="Content"
+                                                  Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
+                                            <ComboBoxItem Content="Microsoft Connect Test" IsSelected="True"/>
+                                            <ComboBoxItem Content="Google Connectivity Check"/>
+                                            <ComboBoxItem Content="Mozilla Firefox Detect Portal"/>
+                                            <ComboBoxItem Content="Cloudflare Captive Portal"/>
+                                            <ComboBoxItem Content="Custom Captive Portal URL"/>
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Endpoint Address:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.CaptivePortalUrl, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5"/>
+                                    </Grid>
+
+                                    <CheckBox IsChecked="{Binding Settings.AutoDetectCaptivePortalRedirect}"
+                                              Content="Auto-detect captive portal redirects (HTTP 302/307) and prompt to open login page"
+                                              Foreground="#A2B1CD" FontSize="11" Margin="0,0,0,10" Cursor="Hand"/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding TestCaptivePortalCommand}" Padding="12,6" Height="30">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Test Captive Portal Probe" FontWeight="SemiBold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <Border Background="#10131E" CornerRadius="6" Padding="10,6">
+                                        <TextBlock Text="{Binding Settings.CaptivePortalStatusMessage}" FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ==================== SECTION 3: PROXY & NETWORK CONDITIONS ==================== -->
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,4" Background="#171C2B">
+                                <StackPanel>
+                                    <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x1F6E1;&#xFE0F; PROXY &amp; NETWORK CONDITIONS" FontSize="13" FontWeight="Bold" Foreground="#00E5FF"/>
+                                            <TextBlock Text="Configure proxy routing and connection timeouts for enterprise or restricted network environments." FontSize="11" Foreground="#8F9EBC" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Settings.IsProxyEnabled}"
+                                                  Content="Enable Proxy" FontWeight="Bold" Foreground="#00E676" VerticalAlignment="Center" Cursor="Hand"/>
+                                    </DockPanel>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Proxy Routing Mode:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.ProxyType}" SelectedValuePath="Content"
+                                                  Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
+                                            <ComboBoxItem Content="System Proxy" IsSelected="True"/>
+                                            <ComboBoxItem Content="Manual Proxy"/>
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <!-- Manual Proxy Settings (Visible when Manual Proxy is selected) -->
+                                    <Grid Margin="0,0,0,10" Visibility="{Binding Settings.IsManualProxySelected, Converter={StaticResource BoolVisConv}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Proxy Host &amp; Port:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.ProxyHost, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5" Margin="0,0,8,0"/>
+                                        <TextBox Grid.Row="0" Grid.Column="2" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.ProxyPort, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5"/>
+
+                                        <CheckBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" IsChecked="{Binding Settings.ProxyBypassLocal}"
+                                                  Content="Bypass proxy for local addresses (192.168.*, localhost)" Foreground="#A2B1CD" FontSize="11" Margin="0,6,0,0" Cursor="Hand"/>
+                                    </Grid>
+
+                                    <!-- Network Conditions (Probe Timeout & VPN Buffer) -->
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="160"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="Probe Timeout (ms):" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.ProbeTimeoutMs, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5" Margin="0,0,12,0"/>
+
+                                        <TextBlock Grid.Column="2" Text="VPN Buffer (sec):" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
+                                        <TextBox Grid.Column="3" Style="{StaticResource ModernTextBox}" Text="{Binding Settings.VpnReconnectBufferSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="12" Padding="8,5"/>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding TestProxyCommand}" Padding="12,6" Height="30">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F50C;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Test Proxy Routing" FontWeight="SemiBold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <Border Background="#10131E" CornerRadius="6" Padding="10,6">
+                                        <TextBlock Text="{Binding Settings.ProxyStatusMessage}" FontSize="11" Foreground="#94A3B8" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Modal Footer Actions -->
+                    <DockPanel Grid.Row="2" LastChildFill="False">
+                        <Button DockPanel.Dock="Left" Command="{Binding ResetSettingsCommand}" Style="{StaticResource ModernBtn}"
+                                Content="Reset to Defaults" Height="34" Padding="14,6"/>
+
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Command="{Binding CloseSettingsCommand}" Style="{StaticResource ModernBtn}"
+                                    Content="Cancel" Height="34" Padding="16,6" Margin="0,0,10,0"/>
+
+                            <Button Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryCyanBtn}"
+                                    Content="Save &amp; Apply Settings" Height="34" Padding="18,6"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 </Window>

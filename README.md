@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.1)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.2)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -33,7 +33,7 @@ You can run the app immediately by double-clicking:
 - **Smart Hotspot / Router Recommendation**:
   - Automatically identifies the cleanest, non-overlapping channels (e.g. Channel 1, 6, or 11 on 2.4 GHz; clean channels on 5 GHz) to give you the fastest speed with zero packet drops.
 
-### 3. ⚡ Internet Speed Test & Live Traffic Monitor (v1.1.1 Multi-CDN Engine)
+### 3. ⚡ Internet Speed Test & Live Traffic Monitor (Multi-CDN Engine)
 - **Multi-CDN Resilient Engine**:
   - Automatically probes and benchmarks across a pool of tier-1 global CDNs and speed test servers (OVH Telecom, Microsoft Azure CDN, jsDelivr, Hetzner, httpbin).
   - **Pre-flight Endpoint Selection**: Automatically tests latency and selects the fastest responsive endpoints, completely bypassing regional ISP blocks or Cloudflare throttling.
@@ -45,7 +45,7 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager (v1.1.1 Enhanced)
+### 4. 🔥 Mobile Hotspot Creator & Manager
 - **Windows Mobile Hotspot Integration**:
   - Uses the official modern Windows 10/11 WinRT `NetworkOperatorTetheringManager` API.
 - **Guaranteed Restart Reliability**:
@@ -64,6 +64,26 @@ You can run the app immediately by double-clicking:
   - Countdown cancels immediately if any connected client resumes active data flow.
 - **Authentic Client Connection Speed**:
   - Displays real-time live responsiveness (`Online • {latency}`, `Active Flow`, or `Standby`) alongside the negotiated hardware PHY link speed.
+
+### 5. 🛡️ Connection Stabilizer & Reconnect Guardian
+- **Active Keep-Alive**: Ultra-lightweight pulses prevent Wi-Fi sleep and router NAT state table drops.
+- **Multi-Strategy Reconnect**: Detects dropped connections and restores links using adapter resets, DHCP release/renew, or fast Wi-Fi re-auth.
+
+### 6. ⚙️ Settings, Secure DNS, Captive Portal & Proxy (v1.1.2 New)
+- **Top Header Quick Settings (⚙️ Gear Icon)**:
+  - Accessible directly at the top of the app next to Auto-Scan and Scan Now.
+- **🔒 Secure DNS (DNS-over-HTTPS / DoH)**:
+  - Toggle Secure DNS resolution On/Off.
+  - Built-in DoH providers: **Cloudflare** (`1.1.1.1`), **Google Public DNS** (`8.8.8.8`), **Quad9** (`9.9.9.9`), **AdGuard DNS**, and Custom DoH URLs.
+  - Live DoH query tester and one-click adapter DNS configuration / DHCP restore.
+- **🌐 Active Keep-Alive HTTP HEAD Captive Portal Mode**:
+  - Sends lightweight `HTTP HEAD` requests directly to standard captive portal detection endpoints (Microsoft Connect Test, Google Connectivity Check, Mozilla Firefox Detect Portal, Cloudflare, or Custom URL).
+  - Prevents captive portal session timeouts on hotel, airport, public Wi-Fi, and corporate Cisco AnyConnect networks.
+  - **Captive Portal Redirect Detection**: Detects HTTP 302/307 redirects to login pages and alerts user with one-click browser launcher.
+- **🛡️ Proxy & Advanced Network Conditions**:
+  - Proxy support: System Proxy or Custom Manual Proxy (Host, Port, Local Bypass, Credentials) applied globally to app requests.
+  - Configurable probe timeout (ms) and VPN / Cisco AnyConnect reconnect buffer delay.
+  - Automatic persistence to `%APPDATA%\WifiAnalyzerHotspot\settings.json`.
 - **Custom Configuration & Broadcast Card**:
   - Custom SSID, WPA2 passphrase, and band/channel selection (`Auto`, 2.4 GHz channels 1-11, 5 GHz high-speed channels).
   - Live broadcast channel card synchronized with the wireless hardware.

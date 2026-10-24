@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
@@ -23,6 +24,10 @@ namespace WifiAnalyzerHotspot.ViewModels
         private readonly NetworkMonitorService _networkMonitorService = new();
         private readonly HotspotService _hotspotService = new();
         private readonly ConnectionStabilizerService _stabilizerService = new();
+        private readonly NetworkSettingsService _settingsService = new();
+
+        private AppSettingsModel _settings = new();
+        private bool _isSettingsOpen = false;
 
         private readonly DispatcherTimer _scanTimer;
         private readonly DispatcherTimer _trafficTimer;
@@ -196,6 +201,18 @@ namespace WifiAnalyzerHotspot.ViewModels
             set { _stabilizer = value; OnPropertyChanged(); }
         }
 
+        public AppSettingsModel Settings
+        {
+            get => _settings;
+            set { _settings = value; OnPropertyChanged(); }
+        }
+
+        public bool IsSettingsOpen
+        {
+            get => _isSettingsOpen;
+            set { _isSettingsOpen = value; OnPropertyChanged(); }
+        }
+
         public ICommand ScanNowCommand { get; }
         public ICommand StartSpeedTestCommand { get; }
         public ICommand CancelSpeedTestCommand { get; }
@@ -215,9 +232,22 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand DisconnectClientCommand { get; }
         public ICommand BlockClientCommand { get; }
         public ICommand UnblockClientCommand { get; }
+        public ICommand ToggleSettingsCommand { get; }
+        public ICommand CloseSettingsCommand { get; }
+        public ICommand SaveSettingsCommand { get; }
+        public ICommand ResetSettingsCommand { get; }
+        public ICommand TestDohCommand { get; }
+        public ICommand ApplyDohToAdapterCommand { get; }
+        public ICommand RestoreDhcpDnsCommand { get; }
+        public ICommand TestCaptivePortalCommand { get; }
+        public ICommand TestProxyCommand { get; }
+        public ICommand OpenCaptiveBrowserCommand { get; }
 
         public MainViewModel()
         {
+            _settings = _settingsService.LoadSettings();
+            ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
+
             ScanNowCommand = new RelayCommand(async () => await PerformScanAsync());
             StartSpeedTestCommand = new RelayCommand(
                 async () => await StartSpeedTestAsync(),
@@ -374,6 +404,82 @@ namespace WifiAnalyzerHotspot.ViewModels
             ClearStabilizerLogsCommand = new RelayCommand(() =>
             {
                 Stabilizer.ReconnectLogs.Clear();
+            });
+
+            ToggleSettingsCommand = new RelayCommand(() => IsSettingsOpen = !IsSettingsOpen);
+            CloseSettingsCommand = new RelayCommand(() => IsSettingsOpen = false);
+
+            SaveSettingsCommand = new RelayCommand(() =>
+            {
+                _settingsService.SaveSettings(Settings);
+                ConnectionStabilizerService.CaptivePortalProbeUrl = Settings.CaptivePortalUrl;
+                Settings.DnsStatusMessage = "✓ Settings successfully saved and network conditions applied!";
+            });
+
+            ResetSettingsCommand = new RelayCommand(() =>
+            {
+                Settings = new AppSettingsModel();
+                _settingsService.SaveSettings(Settings);
+                ConnectionStabilizerService.CaptivePortalProbeUrl = Settings.CaptivePortalUrl;
+                Settings.DnsStatusMessage = "✓ Settings reset to default values.";
+            });
+
+            TestDohCommand = new RelayCommand(async () =>
+            {
+                Settings.IsDnsTesting = true;
+                Settings.DnsStatusMessage = "Querying DNS-over-HTTPS provider...";
+                var res = await _settingsService.TestDohAsync(Settings.CustomDohUrl);
+                Settings.DnsStatusMessage = res.message;
+                Settings.IsDnsTesting = false;
+            });
+
+            ApplyDohToAdapterCommand = new RelayCommand(async () =>
+            {
+                string adapter = ConnectedInterface?.InterfaceName ?? string.Empty;
+                Settings.DnsStatusMessage = "Configuring adapter DNS...";
+                var res = await _settingsService.ApplyDnsToAdapterAsync(adapter, Settings.SelectedDnsProvider);
+                Settings.DnsStatusMessage = res.message;
+            });
+
+            RestoreDhcpDnsCommand = new RelayCommand(async () =>
+            {
+                string adapter = ConnectedInterface?.InterfaceName ?? string.Empty;
+                Settings.DnsStatusMessage = "Restoring DHCP DNS...";
+                var res = await _settingsService.RestoreDhcpDnsAsync(adapter);
+                Settings.DnsStatusMessage = res.message;
+            });
+
+            TestCaptivePortalCommand = new RelayCommand(async () =>
+            {
+                Settings.IsCaptiveTesting = true;
+                Settings.CaptivePortalStatusMessage = "Sending HTTP HEAD captive portal probe...";
+                var res = await _settingsService.ProbeCaptivePortalAsync(Settings.CaptivePortalUrl, Settings.ProbeTimeoutMs);
+                Settings.CaptivePortalStatusMessage = res.message;
+                Settings.IsCaptiveTesting = false;
+            });
+
+            TestProxyCommand = new RelayCommand(async () =>
+            {
+                Settings.IsProxyTesting = true;
+                Settings.ProxyStatusMessage = "Testing proxy routing...";
+                var res = await _settingsService.TestProxyAsync(Settings);
+                Settings.ProxyStatusMessage = res.message;
+                Settings.IsProxyTesting = false;
+            });
+
+            OpenCaptiveBrowserCommand = new RelayCommand(() =>
+            {
+                string url = !string.IsNullOrWhiteSpace(Stabilizer.CaptivePortalRedirectUrl)
+                    ? Stabilizer.CaptivePortalRedirectUrl
+                    : (!string.IsNullOrWhiteSpace(Settings.CaptivePortalUrl) ? Settings.CaptivePortalUrl : "http://www.msftconnecttest.com/connecttest.txt");
+                try
+                {
+                    Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    Stabilizer.CaptivePortalNotice = $"Could not launch browser: {ex.Message}";
+                }
             });
 
             // Instant OS network change notification (fires in <50ms when Wi-Fi is toggled off or on)

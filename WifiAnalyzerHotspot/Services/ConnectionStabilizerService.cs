@@ -19,9 +19,12 @@ namespace WifiAnalyzerHotspot.Services
         private static readonly HttpClient _probeClient = new(new SocketsHttpHandler
         {
             ConnectTimeout = TimeSpan.FromSeconds(2),
-            PooledConnectionLifetime = TimeSpan.FromMinutes(1)
+            PooledConnectionLifetime = TimeSpan.FromMinutes(1),
+            AllowAutoRedirect = false
         })
         { Timeout = TimeSpan.FromSeconds(3) };
+
+        public static string CaptivePortalProbeUrl { get; set; } = "http://www.msftconnecttest.com/connecttest.txt";
 
         // Rotating ping targets — if one is blocked by ISP we fail-over
         private static readonly string[] _pingTargets = { "1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222" };
@@ -68,10 +71,43 @@ namespace WifiAnalyzerHotspot.Services
                     }
                     else if (model.KeepAliveMethod.Contains("HTTP"))
                     {
-                        latencyMs = await ProbeHttpAsync("https://cloudflare-dns.com/dns-query", 2000);
-                        if (latencyMs < 0) latencyMs = await ProbeHttpAsync("http://1.1.1.1", 1500);
-                        success = latencyMs >= 0;
-                        status  = success ? $"HTTP OK  {latencyMs:F0} ms" : "HTTP Timeout";
+                        string probeUrl = !string.IsNullOrWhiteSpace(CaptivePortalProbeUrl)
+                            ? CaptivePortalProbeUrl
+                            : "http://www.msftconnecttest.com/connecttest.txt";
+
+                        var (pLatency, isCaptive, redirectUrl) = await ProbeHttpAsync(probeUrl, 2000);
+                        if (pLatency < 0 && !isCaptive)
+                        {
+                            // Secondary fallback probe if primary failed
+                            (pLatency, isCaptive, redirectUrl) = await ProbeHttpAsync("http://connectivitycheck.gstatic.com/generate_204", 1500);
+                        }
+
+                        if (isCaptive)
+                        {
+                            latencyMs = pLatency;
+                            success = false;
+                            status = "⚠ Captive Portal Redirect";
+                            UI(() =>
+                            {
+                                model.IsCaptivePortalDetected = true;
+                                model.CaptivePortalRedirectUrl = redirectUrl ?? string.Empty;
+                                model.CaptivePortalNotice = $"⚠️ Captive Portal Login Required: {redirectUrl}";
+                            });
+                        }
+                        else
+                        {
+                            latencyMs = pLatency;
+                            success = latencyMs >= 0;
+                            status = success ? $"HTTP HEAD OK  {latencyMs:F0} ms" : "HTTP Timeout";
+                            if (success && model.IsCaptivePortalDetected)
+                            {
+                                UI(() =>
+                                {
+                                    model.IsCaptivePortalDetected = false;
+                                    model.CaptivePortalNotice = string.Empty;
+                                });
+                            }
+                        }
                     }
                     else // ICMP Ping (default)
                     {
@@ -473,18 +509,33 @@ namespace WifiAnalyzerHotspot.Services
             catch { return -1; }
         }
 
-        private static async Task<double> ProbeHttpAsync(string url, int timeoutMs)
+        private static async Task<(double latencyMs, bool isCaptive, string? redirectUrl)> ProbeHttpAsync(string url, int timeoutMs)
         {
             try
             {
                 var sw = Stopwatch.StartNew();
                 using var cts  = new CancellationTokenSource(timeoutMs);
                 using var req  = new HttpRequestMessage(HttpMethod.Head, url);
+                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                req.Headers.TryAddWithoutValidation("Cache-Control", "no-cache");
                 using var resp = await _probeClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                 sw.Stop();
-                return sw.Elapsed.TotalMilliseconds;
+
+                int code = (int)resp.StatusCode;
+                if (code == 301 || code == 302 || code == 307 || code == 308)
+                {
+                    string? loc = resp.Headers.Location?.ToString();
+                    return (sw.Elapsed.TotalMilliseconds, true, loc);
+                }
+
+                if (resp.IsSuccessStatusCode)
+                {
+                    return (sw.Elapsed.TotalMilliseconds, false, null);
+                }
+
+                return (-1, false, null);
             }
-            catch { return -1; }
+            catch { return (-1, false, null); }
         }
 
         private static void Log(ConnectionStabilizerModel model, string message)

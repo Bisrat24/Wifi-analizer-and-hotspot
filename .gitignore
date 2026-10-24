@@ -18,3 +18,4 @@ WifiAnalyzerHotspot/publish/
 crash.log
 *.tmp
 *.bak
+*.old
