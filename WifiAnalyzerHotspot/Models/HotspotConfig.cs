@@ -115,7 +115,28 @@ namespace WifiAnalyzerHotspot.Models
         private string _dhcpPoolInfo = "192.168.137.1 (ICS Subnet 255.255.255.0)";
         private int _activeDataClientCount = 0;
         private string _dataHealthStatus = "Ready";
+        private bool _isHighestPriorityMode = true;
+        private string _priorityStatusText = "⚡ Highest PC Priority: Enabled";
+        private string _priorityDetails = "High CPU Priority • Max Radio Power • No Sleep Throttling • Zero Network Throttling";
         public DateTime? StartedAt { get; set; }
+
+        public bool IsHighestPriorityMode
+        {
+            get => _isHighestPriorityMode;
+            set { _isHighestPriorityMode = value; OnPropertyChanged(); }
+        }
+
+        public string PriorityStatusText
+        {
+            get => _priorityStatusText;
+            set { _priorityStatusText = value; OnPropertyChanged(); }
+        }
+
+        public string PriorityDetails
+        {
+            get => _priorityDetails;
+            set { _priorityDetails = value; OnPropertyChanged(); }
+        }
 
         public bool KeepHotspotAlive
         {

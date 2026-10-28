@@ -15,6 +15,9 @@ namespace WifiAnalyzerHotspot.Services
 {
     public class HotspotService
     {
+        private readonly HotspotPriorityService _priorityService = new();
+        public HotspotPriorityService PriorityService => _priorityService;
+
         private class HotspotStatusJson
         {
             public int ClientCount { get; set; }
@@ -703,7 +706,8 @@ try {{
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        return (true, "Hotspot completely reset, DHCP scope repaired (192.168.137.1), and restarted fresh!");
+                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync());
+                        return (true, "Hotspot completely reset, DHCP repaired (192.168.137.1), and restarted with Highest PC Priority!");
                     }
                     return (false, string.IsNullOrEmpty(res?.Error) ? "Reset finished but start could not be verified." : res.Error);
                 }
@@ -833,7 +837,8 @@ try {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        return (true, "Mobile Hotspot is now ACTIVE!");
+                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync());
+                        return (true, "Mobile Hotspot is now ACTIVE with Highest PC Priority!");
                     }
                     return (false, string.IsNullOrEmpty(res?.Error) ? "Failed to start Hotspot." : res.Error);
                 }
@@ -894,6 +899,7 @@ if ($connectionProfile) {
                 string json = RunPowerShell(script, 15000);
                 try
                 {
+                    _priorityService.ReleaseHighestPriority();
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
@@ -906,6 +912,12 @@ if ($connectionProfile) {
                     return (false, ex.Message);
                 }
             });
+        }
+
+        public async Task<(bool success, string message)> OptimizePriorityAsync()
+        {
+            var res = await _priorityService.EngageHighestPriorityAsync();
+            return (res.success, res.details);
         }
 
         private static long _lastDirectAdapterBytes = 0;

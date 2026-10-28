@@ -242,11 +242,20 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand TestCaptivePortalCommand { get; }
         public ICommand TestProxyCommand { get; }
         public ICommand OpenCaptiveBrowserCommand { get; }
+        public ICommand ApplyHotspotPriorityCommand { get; }
 
         public MainViewModel()
         {
             _settings = _settingsService.LoadSettings();
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
+
+            ApplyHotspotPriorityCommand = new RelayCommand(async () =>
+            {
+                Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
+                var res = await _hotspotService.OptimizePriorityAsync();
+                Hotspot.PriorityStatusText = "⚡ Highest PC Priority: ACTIVE";
+                Hotspot.StatusMessage = res.message;
+            });
 
             ScanNowCommand = new RelayCommand(async () => await PerformScanAsync());
             StartSpeedTestCommand = new RelayCommand(

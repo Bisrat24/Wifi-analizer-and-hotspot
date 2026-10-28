@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.2)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.3)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect and block list capabilities.
 
@@ -45,7 +45,14 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager
+### 4. 🔥 Mobile Hotspot Creator & Manager (with Highest PC Priority)
+- **⚡ Highest PC Priority Mode**:
+  - Automatically created and run with maximum OS scheduling and hardware priority:
+    1. **High CPU Priority**: Elevates the application process, `SharedAccess` (ICS NAT & DHCP router service), and `wlanext.exe` (Wi-Fi 802.11 framework) to `High` process priority class.
+    2. **Win32 Execution Lock**: Invokes `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED)` to guarantee Windows never parks CPU cores, throttles Wi-Fi, or sleeps while hotspot is active.
+    3. **Maximum Radio Power**: Enforces Wi-Fi adapter Transmit Power to **Level 5 (Highest)**, turns on **Throughput Booster**, and disables **Packet Coalescing** & **MIMO Power-Saving** sleep.
+    4. **Zero Network Throttling**: Sets `NetworkThrottlingIndex = 0xFFFFFFFF` and `SystemResponsiveness = 0` (allocating 100% CPU priority to network routing).
+    5. **Top Virtual Route Metric**: Assigns `InterfaceMetric = 5` to the Microsoft Wi-Fi Direct Virtual Adapter for prioritized routing.
 - **Windows Mobile Hotspot Integration**:
   - Uses the official modern Windows 10/11 WinRT `NetworkOperatorTetheringManager` API.
 - **Guaranteed Restart Reliability**:
