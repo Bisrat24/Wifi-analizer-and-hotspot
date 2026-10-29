@@ -23,9 +23,22 @@ namespace WifiAnalyzerHotspot
         public static readonly int WM_SHOWME = RegisterWindowMessage("WIFI_ANALYZER_AND_HOTSPOT_SHOWME");
 
         private static Mutex? _singleInstanceMutex;
+        public static bool IsStartMinimized { get; private set; } = false;
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            if (e.Args != null)
+            {
+                foreach (var arg in e.Args)
+                {
+                    if (arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase))
+                    {
+                        IsStartMinimized = true;
+                        break;
+                    }
+                }
+            }
+
             _singleInstanceMutex = new Mutex(true, "WifiAnalyzerHotspot_SingleInstance_Mutex_Bisrat24", out bool isNewInstance);
             if (!isNewInstance)
             {

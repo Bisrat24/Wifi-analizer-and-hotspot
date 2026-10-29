@@ -234,6 +234,51 @@ namespace WifiAnalyzerHotspot.Models
             set { _dnsFallbackEnabled = value; OnPropertyChanged(); }
         }
 
+        // ==================== WINDOWS STARTUP & AUTOMATION ====================
+        private bool _startWithWindows = false;
+        private bool _startMinimized = false;
+        private bool _autoStartHotspotOnLaunch = false;
+        private bool _autoStartStabilizerOnLaunch = false;
+        private string _startupStatusMessage = "Startup configuration ready";
+        private string _analyzerViewMode = "Spectrum"; // "Spectrum" or "Timeline"
+
+        public bool StartWithWindows
+        {
+            get => _startWithWindows;
+            set { _startWithWindows = value; OnPropertyChanged(); }
+        }
+
+        public bool StartMinimized
+        {
+            get => _startMinimized;
+            set { _startMinimized = value; OnPropertyChanged(); }
+        }
+
+        public bool AutoStartHotspotOnLaunch
+        {
+            get => _autoStartHotspotOnLaunch;
+            set { _autoStartHotspotOnLaunch = value; OnPropertyChanged(); }
+        }
+
+        public bool AutoStartStabilizerOnLaunch
+        {
+            get => _autoStartStabilizerOnLaunch;
+            set { _autoStartStabilizerOnLaunch = value; OnPropertyChanged(); }
+        }
+
+        [JsonIgnore]
+        public string StartupStatusMessage
+        {
+            get => _startupStatusMessage;
+            set { _startupStatusMessage = value; OnPropertyChanged(); }
+        }
+
+        public string AnalyzerViewMode
+        {
+            get => _analyzerViewMode;
+            set { _analyzerViewMode = value; OnPropertyChanged(); }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? prop = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));

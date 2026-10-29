@@ -29,6 +29,11 @@ namespace WifiAnalyzerHotspot
                 _trayManager.Initialize();
                 _trayManager.OnOpenRequested += RestoreWindow;
                 _trayManager.OnExitRequested += ShutdownApp;
+
+                if (App.IsStartMinimized)
+                {
+                    Dispatcher.InvokeAsync(MinimizeToTray, System.Windows.Threading.DispatcherPriority.Background);
+                }
             };
 
             StateChanged += MainWindow_StateChanged;

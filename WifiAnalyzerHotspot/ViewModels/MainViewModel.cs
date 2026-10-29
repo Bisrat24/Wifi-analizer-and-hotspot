@@ -65,6 +65,27 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ObservableCollection<ChannelRating> Ratings24G { get; } = new();
         public ObservableCollection<ChannelRating> Ratings5G { get; } = new();
         public ObservableCollection<string> AvailableHotspotChannels { get; } = new();
+        public ObservableCollection<RssiHistoryPoint> RssiHistory { get; } = new();
+        public List<string> QosLimitOptions { get; } = new() { "Unlimited", "1 Mbps", "2 Mbps", "5 Mbps", "10 Mbps", "20 Mbps" };
+
+        private string _analyzerViewMode = "Spectrum";
+        public string AnalyzerViewMode
+        {
+            get => _analyzerViewMode;
+            set
+            {
+                if (_analyzerViewMode != value)
+                {
+                    _analyzerViewMode = value;
+                    OnPropertyChanged();
+                    if (_settings != null)
+                    {
+                        _settings.AnalyzerViewMode = value;
+                        _settingsService.SaveSettings(_settings);
+                    }
+                }
+            }
+        }
 
         public string CurrentTab
         {
@@ -243,10 +264,13 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand TestProxyCommand { get; }
         public ICommand OpenCaptiveBrowserCommand { get; }
         public ICommand ApplyHotspotPriorityCommand { get; }
+        public ICommand SetAnalyzerViewModeCommand { get; }
+        public ICommand SetClientQosLimitCommand { get; }
 
         public MainViewModel()
         {
             _settings = _settingsService.LoadSettings();
+            _analyzerViewMode = _settings.AnalyzerViewMode ?? "Spectrum";
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
 
             ApplyHotspotPriorityCommand = new RelayCommand(async () =>
@@ -491,6 +515,40 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
             });
 
+            SetAnalyzerViewModeCommand = new RelayCommand(param => AnalyzerViewMode = param?.ToString() ?? "Spectrum");
+
+            SetClientQosLimitCommand = new RelayCommand<HotspotClientInfo>(async client =>
+            {
+                if (client == null) return;
+                var res = await _hotspotService.SetClientQosLimitAsync(client.MacAddress, client.IpAddress, client.QosLimit);
+                Hotspot.StatusMessage = res.message;
+            });
+
+            // Windows Startup Automation: Auto-start Hotspot / Stabilizer if configured
+            if (_settings.AutoStartHotspotOnLaunch)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(2500);
+                    if (!Hotspot.IsRunning && Hotspot.State == HotspotState.Off)
+                    {
+                        await ToggleHotspotAsync();
+                    }
+                });
+            }
+
+            if (_settings.AutoStartStabilizerOnLaunch)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    if (!Stabilizer.IsKeepAliveActive)
+                    {
+                        Application.Current?.Dispatcher?.Invoke(() => ToggleKeepAliveCommand.Execute(null));
+                    }
+                });
+            }
+
             // Instant OS network change notification (fires in <50ms when Wi-Fi is toggled off or on)
             NetworkChange.NetworkAddressChanged += (s, e) => CheckFastWifiState();
             NetworkChange.NetworkAvailabilityChanged += (s, e) => CheckFastWifiState();
@@ -507,6 +565,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     CurrentTraffic = _networkMonitorService.GetCurrentTraffic();
                     CheckFastWifiState();
+
+                    // Sample RSSI for Signal Strength vs Time Timeline
+                    if (ConnectedInterface != null && ConnectedInterface.Signal > 0 && !string.IsNullOrWhiteSpace(ConnectedInterface.Ssid) && !ConnectedInterface.Ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int calcDbm = (ConnectedInterface.Signal / 2) - 100;
+                        RssiHistory.Add(new RssiHistoryPoint(calcDbm, ConnectedInterface.Signal, ConnectedInterface.Ssid));
+                        while (RssiHistory.Count > 120 || (RssiHistory.Count > 0 && (DateTime.Now - RssiHistory[0].Timestamp).TotalSeconds > 120))
+                        {
+                            RssiHistory.RemoveAt(0);
+                        }
+                    }
 
                     // Update Hotspot live session uptime counter
                     if (Hotspot.IsRunning && Hotspot.StartedAt.HasValue)
@@ -987,9 +1056,18 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.Latency = fresh.Latency;
                         existing.IsGettingData = fresh.IsGettingData;
                         existing.DataStatusText = fresh.DataStatusText;
+                        existing.TotalBytesReceived = fresh.TotalBytesReceived;
+                        existing.TotalBytesSent = fresh.TotalBytesSent;
+                        existing.TotalDataFormatted = fresh.TotalDataFormatted;
+                        existing.DataBreakdown = fresh.DataBreakdown;
+                        if (existing.OnQosChanged == null)
+                        {
+                            existing.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
+                        }
                     }
                     else
                     {
+                        fresh.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         Hotspot.Clients.Add(fresh);
                     }
                 }

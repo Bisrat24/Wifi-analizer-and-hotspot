@@ -18,6 +18,64 @@ namespace WifiAnalyzerHotspot.Models
         private bool _isGettingData = true;
         private string _dataStatusText = "Checking Data...";
 
+        // Cumulative Data Usage per Device
+        private long _totalBytesReceived = 0;
+        private long _totalBytesSent = 0;
+        private string _totalDataFormatted = "0.0 MB";
+        private string _dataBreakdown = "↓ 0.0 MB • ↑ 0.0 MB";
+
+        // Bandwidth Throttling / QoS
+        private string _qosLimit = "Unlimited";
+        private bool _isQosThrottled = false;
+
+        public long TotalBytesReceived
+        {
+            get => _totalBytesReceived;
+            set { _totalBytesReceived = value; OnPropertyChanged(); }
+        }
+
+        public long TotalBytesSent
+        {
+            get => _totalBytesSent;
+            set { _totalBytesSent = value; OnPropertyChanged(); }
+        }
+
+        public string TotalDataFormatted
+        {
+            get => _totalDataFormatted;
+            set { _totalDataFormatted = value; OnPropertyChanged(); }
+        }
+
+        public string DataBreakdown
+        {
+            get => _dataBreakdown;
+            set { _dataBreakdown = value; OnPropertyChanged(); }
+        }
+
+        public Action<HotspotClientInfo>? OnQosChanged { get; set; }
+
+        public string QosLimit
+        {
+            get => _qosLimit;
+            set
+            {
+                if (_qosLimit != value)
+                {
+                    _qosLimit = value;
+                    _isQosThrottled = !string.IsNullOrEmpty(value) && !value.Equals("Unlimited", StringComparison.OrdinalIgnoreCase);
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsQosThrottled));
+                    OnQosChanged?.Invoke(this);
+                }
+            }
+        }
+
+        public bool IsQosThrottled
+        {
+            get => _isQosThrottled;
+            set { _isQosThrottled = value; OnPropertyChanged(); }
+        }
+
         public string HostName
         {
             get => _hostName;

@@ -64,8 +64,42 @@ namespace WifiAnalyzerHotspot.Services
                 File.WriteAllText(SettingsFilePath, json);
 
                 ApplyProxy(settings);
+                ConfigureWindowsStartup(settings.StartWithWindows, settings.StartMinimized);
             }
             catch { }
+        }
+
+        // ==================== WINDOWS STARTUP REGISTRY ====================
+        public static void ConfigureWindowsStartup(bool enable, bool startMinimized)
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                if (key != null)
+                {
+                    if (enable)
+                    {
+                        string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
+                        string args = startMinimized ? " --minimized" : "";
+                        key.SetValue("WifiAnalyzerHotspot", $"\"{exePath}\"{args}");
+                    }
+                    else
+                    {
+                        key.DeleteValue("WifiAnalyzerHotspot", false);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool IsWindowsStartupEnabled()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false);
+                return key?.GetValue("WifiAnalyzerHotspot") != null;
+            }
+            catch { return false; }
         }
 
         // ==================== PROXY APPLICATION & TESTING ====================
