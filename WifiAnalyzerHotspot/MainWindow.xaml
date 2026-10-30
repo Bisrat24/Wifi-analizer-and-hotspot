@@ -9,7 +9,7 @@
         Title="WiFi Analyzer &amp; Hotspot Pro"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
         Height="780" Width="1220"
-        MinHeight="650" MinWidth="1000"
+        MinHeight="540" MinWidth="760"
         WindowStartupLocation="CenterScreen"
         Background="#0C0E14"
         Foreground="#E2E8F0">
@@ -101,13 +101,13 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- ==================== LEFT SIDEBAR ==================== -->
-        <Border Grid.Column="0" Background="#10131E" BorderBrush="#1F2538" BorderThickness="0,0,1,0">
-            <Grid Margin="12,18,12,14">
+        <Border Grid.Column="0" Width="{Binding SidebarWidth}" Background="#10131E" BorderBrush="#1F2538" BorderThickness="0,0,1,0">
+            <Grid Margin="10,16,10,14">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -115,41 +115,72 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- App Branding -->
-                <StackPanel Grid.Row="0" Margin="4,0,4,20">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="36" Height="36" CornerRadius="8" Background="#1E2742" Margin="0,0,10,0" ClipToBounds="True">
-                            <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/>
-                        </Border>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="WiFi Analyzer" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
-                                <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.1.5" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
-                                </Border>
+                <!-- App Branding & Sidebar Toggle -->
+                <Grid Grid.Row="0" Margin="2,0,2,16">
+                    <!-- Expanded Branding Header -->
+                    <DockPanel LastChildFill="False" Visibility="{Binding IsSidebarExpanded, Converter={StaticResource BoolVisConv}}">
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Width="34" Height="34" CornerRadius="8" Background="#1E2742" Margin="0,0,8,0" ClipToBounds="True">
+                                <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="WiFi Analyzer" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
+                                    <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
+                                        <TextBlock Text="v1.1.6" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    </Border>
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
-                    </StackPanel>
-                </StackPanel>
 
-                <Separator Grid.Row="1" Background="#1D2336" Margin="0,0,0,14"/>
+                        <!-- Collapse Button (◀) -->
+                        <Button DockPanel.Dock="Right" Command="{Binding ToggleSidebarCommand}"
+                                Style="{StaticResource ModernBtn}" Width="28" Height="28" Padding="0"
+                                ToolTip="Collapse sidebar to icons only">
+                            <TextBlock Text="&#x25C0;" FontSize="10" Foreground="#8F9EBC" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                    </DockPanel>
+
+                    <!-- Collapsed Icon & Expand Button -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
+                        <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.6">
+                            <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border>
+                        <Button Command="{Binding ToggleSidebarCommand}"
+                                Style="{StaticResource ModernBtn}" Width="32" Height="26" Padding="0"
+                                ToolTip="Expand sidebar panel">
+                            <TextBlock Text="&#x25B6;" FontSize="11" Foreground="#00E5FF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <Separator Grid.Row="1" Background="#1D2336" Margin="0,0,0,12"/>
 
                 <!-- Navigation Tabs List -->
                 <StackPanel Grid.Row="2">
                     <!-- Tab 1: Spectrum & Channels -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Analyzer"
+                            ToolTip="Spectrum &amp; Channels"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=Analyzer}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=Analyzer}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x1F4E1;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Spectrum &amp; Channels" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x1F4E1;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Spectrum &amp; Channels" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -157,17 +188,24 @@
 
                     <!-- Tab 2: Channel Ratings -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Ratings"
+                            ToolTip="Channel Ratings"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=Ratings}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=Ratings}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x1F4CA;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Channel Ratings" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x1F4CA;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Channel Ratings" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -175,17 +213,24 @@
 
                     <!-- Tab 3: Speed Test -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="SpeedTest"
+                            ToolTip="Speed Test &amp; Live Traffic"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=SpeedTest}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=SpeedTest}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Speed Test &amp; Live" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Speed Test &amp; Live" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -193,17 +238,24 @@
 
                     <!-- Tab 4: Mobile Hotspot -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Hotspot"
+                            ToolTip="Mobile Hotspot"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=Hotspot}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=Hotspot}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x1F525;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Mobile Hotspot" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x1F525;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Mobile Hotspot" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -211,17 +263,24 @@
 
                     <!-- Tab 5: Network Info -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Info"
+                            ToolTip="Network Info &amp; Diagnostics"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=Info}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=Info}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x2139;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Network Info" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x2139;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Network Info" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -229,17 +288,24 @@
 
                     <!-- Tab 6: Connection Stabilizer -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Stabilizer"
+                            ToolTip="Connection Stabilizer &amp; Reconnect"
                             Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=Stabilizer}"
                             BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=Stabilizer}"
                             BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Connection Stabilizer" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"/>
-                                    </StackPanel>
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Connection Stabilizer" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
@@ -247,20 +313,35 @@
                 </StackPanel>
 
                 <!-- Bottom Sidebar Card: Connected Adapter Status -->
-                <Border Grid.Row="3" Background="#161B29" BorderBrush="#252C42" BorderThickness="1" CornerRadius="8" Padding="12">
+                <!-- Expanded View -->
+                <Border Grid.Row="3" Background="#161B29" BorderBrush="#252C42" BorderThickness="1" CornerRadius="8" Padding="12"
+                        Visibility="{Binding IsSidebarExpanded, Converter={StaticResource BoolVisConv}}">
                     <StackPanel>
                         <TextBlock Text="ACTIVE ADAPTER" FontSize="9" FontWeight="Bold" Foreground="#7C88A8" Margin="0,0,0,4"/>
                         <TextBlock Text="{Binding ConnectedInterface.InterfaceName}" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding ConnectedInterface.Ssid, StringFormat='Connected: {0}'}" FontSize="11" Foreground="#00E5FF" Margin="0,2,0,4" TextTrimming="CharacterEllipsis"/>
-                        
+
                         <ProgressBar Height="4" Maximum="100" Value="{Binding ConnectedInterface.Signal}"
                                      Foreground="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"
                                      Background="#232B40" BorderThickness="0" Margin="0,2,0,4"/>
-                        
+
                         <DockPanel LastChildFill="False">
                             <TextBlock Text="{Binding ConnectedInterface.Signal, StringFormat='Signal: {0}%'}" FontSize="10" Foreground="#8FA0C2"/>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding ConnectedInterface.Channel, StringFormat='Ch {0}'}" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                         </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Collapsed View (Signal Icon Badge) -->
+                <Border Grid.Row="3" Background="#161B29" BorderBrush="#252C42" BorderThickness="1" CornerRadius="8" Padding="4,8"
+                        Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}"
+                        ToolTip="{Binding ConnectedInterface.Ssid, StringFormat='Active Wi-Fi: {0}'}">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="&#x1F4F6;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center"
+                                   Foreground="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"/>
+                        <TextBlock Text="{Binding ConnectedInterface.Signal, StringFormat='{}{0}%'}" FontSize="9" FontWeight="Bold"
+                                   Foreground="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Border>
             </Grid>
@@ -276,10 +357,18 @@
             <!-- Top Header Bar -->
             <Border Grid.Row="0" Margin="0,0,0,16">
                 <DockPanel LastChildFill="False">
-                    <!-- Title & Status -->
-                    <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="Wi-Fi Spectrum &amp; Hotspot Manager" FontSize="19" FontWeight="Bold" Foreground="#FFFFFF"/>
-                        <TextBlock Text="{Binding ScanStatus}" FontSize="12" Foreground="#8B96AF" Margin="0,2,0,0"/>
+                    <!-- Title & Status with Sidebar Toggle -->
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource ModernBtn}" Command="{Binding ToggleSidebarCommand}"
+                                ToolTip="{Binding SidebarToggleTooltip}"
+                                Width="34" Height="34" Padding="0" Margin="0,0,12,0">
+                            <TextBlock Text="&#x2630;" FontSize="15" Foreground="#A2B1CD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Wi-Fi Spectrum &amp; Hotspot Manager" FontSize="19" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="{Binding ScanStatus}" FontSize="12" Foreground="#8B96AF" Margin="0,2,0,0"/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Top Action Controls -->
@@ -786,7 +875,7 @@
             <!-- ==================== TAB 4: MOBILE HOTSPOT CREATOR ==================== -->
             <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=Hotspot}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="430"/>
+                    <ColumnDefinition Width="380" MinWidth="340" MaxWidth="440"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
@@ -1122,7 +1211,9 @@
                                       Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
                                       GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1E2436"
                                       RowBackground="#141724" AlternatingRowBackground="#111420"
-                                      Foreground="#E2E8F0" FontSize="12">
+                                      Foreground="#E2E8F0" FontSize="12"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
 
                                 <DataGrid.ColumnHeaderStyle>
                                     <Style TargetType="DataGridColumnHeader">
@@ -1253,7 +1344,9 @@
                                       Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
                                       GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1E2436"
                                       RowBackground="#141724" AlternatingRowBackground="#111420"
-                                      Foreground="#E2E8F0" FontSize="12">
+                                      Foreground="#E2E8F0" FontSize="12"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
 
                                 <DataGrid.ColumnHeaderStyle>
                                     <Style TargetType="DataGridColumnHeader">

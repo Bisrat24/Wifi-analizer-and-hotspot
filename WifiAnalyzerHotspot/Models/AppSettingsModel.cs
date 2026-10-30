@@ -279,6 +279,14 @@ namespace WifiAnalyzerHotspot.Models
             set { _analyzerViewMode = value; OnPropertyChanged(); }
         }
 
+        // ==================== SIDEBAR COMPACT DISPLAY ====================
+        private bool _isSidebarCollapsed = false;
+        public bool IsSidebarCollapsed
+        {
+            get => _isSidebarCollapsed;
+            set { _isSidebarCollapsed = value; OnPropertyChanged(); }
+        }
+
         // ==================== HOTSPOT WATCHDOG & BLOCKED CLIENTS ====================
         private int _hotspotWatchdogIntervalSeconds = 5;
         public int HotspotWatchdogIntervalSeconds

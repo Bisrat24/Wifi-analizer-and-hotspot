@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.5)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.6)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), and customizable watchdog/log buffers.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), customizable watchdog/log buffers, and collapsible icon-only sidebar for small and high-DPI displays.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.1.5)
+## ✨ Key Features (v1.1.6)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -89,6 +89,14 @@ You can run the app immediately by double-clicking:
 - **🔒 Secure DNS (DNS-over-HTTPS / DoH)**: Toggle Secure DNS resolution On/Off with Cloudflare, Google, Quad9, AdGuard, or custom providers.
 - **🌐 Active Keep-Alive HTTP HEAD Captive Portal Mode**: Sends lightweight HTTP HEAD requests to standard captive portal detection endpoints to keep public/hotel Wi-Fi connections alive without timing out.
 - **🛡️ Proxy & Advanced Network Conditions**: System Proxy or Custom Manual Proxy support with probe timeout and VPN buffer delay settings.
+
+### 8. 📱 Collapsible Icon-Only Sidebar for Small & High-DPI Displays
+- **Instant Collapse / Expand Toggle**: Click the sidebar `[ ◀ / ▶ ]` chevron button or the top content header hamburger `[ ☰ ]` button.
+- **Compact Icon-Only Mode (68px)**: Collapses the full 230px sidebar down to 68px, reclaiming 162px of horizontal screen estate for data tables, spectrum graphs, and connected clients.
+- **Adaptive Typography & Tooltips**: Text navigation labels smoothly hide, leaving clean centered emoji icons with rich tooltips.
+- **Minimized Active Wi-Fi Badge**: The bottom adapter status card converts into a compact signal badge (`📶 {Signal}%`) with hover tooltips for full IP and SSID details.
+- **Small Screen & High-DPI Optimization**: Lowered window minimum dimensions (`MinWidth="760"`, `MinHeight="540"`) with horizontal scroll support on device tables to guarantee flawless rendering on 1366x768, 720p, or 125%/150% scaled displays.
+- **Settings Persistence**: Sidebar state (`IsSidebarCollapsed`) is automatically remembered and restored from `%APPDATA%\WifiAnalyzerHotspot\settings.json`.
 
 ---
 

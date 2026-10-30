@@ -93,6 +93,29 @@ namespace WifiAnalyzerHotspot.ViewModels
             set { _currentTab = value; OnPropertyChanged(); }
         }
 
+        public bool IsSidebarCollapsed
+        {
+            get => _settings?.IsSidebarCollapsed ?? false;
+            set
+            {
+                if (_settings != null && _settings.IsSidebarCollapsed != value)
+                {
+                    _settings.IsSidebarCollapsed = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsSidebarExpanded));
+                    OnPropertyChanged(nameof(SidebarWidth));
+                    OnPropertyChanged(nameof(SidebarToggleTooltip));
+                    OnPropertyChanged(nameof(SidebarToggleIcon));
+                    _settingsService.SaveSettings(_settings);
+                }
+            }
+        }
+
+        public bool IsSidebarExpanded => !IsSidebarCollapsed;
+        public double SidebarWidth => IsSidebarCollapsed ? 68.0 : 230.0;
+        public string SidebarToggleTooltip => IsSidebarCollapsed ? "Expand sidebar panel (Show text labels)" : "Collapse sidebar panel (Icons only for small displays)";
+        public string SidebarToggleIcon => IsSidebarCollapsed ? "▶" : "◀";
+
         public string SelectedBand
         {
             get => _selectedBand;
@@ -266,12 +289,15 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ApplyHotspotPriorityCommand { get; }
         public ICommand SetAnalyzerViewModeCommand { get; }
         public ICommand SetClientQosLimitCommand { get; }
+        public ICommand ToggleSidebarCommand { get; }
 
         public MainViewModel()
         {
             _settings = _settingsService.LoadSettings();
             _analyzerViewMode = _settings.AnalyzerViewMode ?? "Spectrum";
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
+
+            ToggleSidebarCommand = new RelayCommand(() => IsSidebarCollapsed = !IsSidebarCollapsed);
 
             // Load Hotspot & Stabilizer persisted preferences
             Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
