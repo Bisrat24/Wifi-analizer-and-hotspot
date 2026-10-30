@@ -273,11 +273,48 @@ namespace WifiAnalyzerHotspot.ViewModels
             _analyzerViewMode = _settings.AnalyzerViewMode ?? "Spectrum";
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
 
+            // Load Hotspot & Stabilizer persisted preferences
+            Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
+            Stabilizer.KeepAliveLogLimit = _settings.KeepAliveLogLimit > 0 ? _settings.KeepAliveLogLimit : 100;
+            Stabilizer.ReconnectLogLimit = _settings.ReconnectLogLimit > 0 ? _settings.ReconnectLogLimit : 100;
+
+            if (_settings.BlockedClients != null)
+            {
+                foreach (var b in _settings.BlockedClients)
+                {
+                    Hotspot.BlockedClients.Add(b);
+                    HotspotService.RegisterBlockedMac(b.MacAddress);
+                }
+            }
+
+            Hotspot.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(Hotspot.WatchdogIntervalSeconds))
+                {
+                    _settings.HotspotWatchdogIntervalSeconds = Hotspot.WatchdogIntervalSeconds;
+                    _settingsService.SaveSettings(_settings);
+                }
+            };
+
+            Stabilizer.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(Stabilizer.KeepAliveLogLimit))
+                {
+                    _settings.KeepAliveLogLimit = Stabilizer.KeepAliveLogLimit;
+                    _settingsService.SaveSettings(_settings);
+                }
+                else if (e.PropertyName == nameof(Stabilizer.ReconnectLogLimit))
+                {
+                    _settings.ReconnectLogLimit = Stabilizer.ReconnectLogLimit;
+                    _settingsService.SaveSettings(_settings);
+                }
+            };
+
             ApplyHotspotPriorityCommand = new RelayCommand(async () =>
             {
-                Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
+                Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode (RealTime)...";
                 var res = await _hotspotService.OptimizePriorityAsync();
-                Hotspot.PriorityStatusText = "⚡ Highest PC Priority: ACTIVE";
+                Hotspot.PriorityStatusText = "⚡ Highest PC Priority: REALTIME";
                 Hotspot.StatusMessage = res.message;
             });
 
@@ -377,6 +414,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 Hotspot.ClientCount = Hotspot.Clients.Count;
                 Hotspot.StatusMessage = res.message;
+
+                // Persist Blocked Clients to settings
+                _settings.BlockedClients = Hotspot.BlockedClients.ToList();
+                _settingsService.SaveSettings(_settings);
             });
 
             UnblockClientCommand = new RelayCommand<BlockedClientInfo>(async blocked =>
@@ -390,6 +431,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                     Hotspot.BlockedClients.Remove(b);
                 }
                 Hotspot.StatusMessage = res.message;
+
+                // Persist Blocked Clients to settings
+                _settings.BlockedClients = Hotspot.BlockedClients.ToList();
+                _settingsService.SaveSettings(_settings);
+
                 await RefreshHotspotAsync();
             });
 
@@ -641,6 +687,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                         }
                         else if (Hotspot.IsHealthCheckEnabled && !_isUserActionInProgress && Hotspot.IsRunning && Hotspot.State == HotspotState.On)
                         {
+                            int thresholdSec = Math.Max(2, Hotspot.WatchdogIntervalSeconds);
+
                             // 1. Continuous Connected Client Data Flow Watchdog
                             int totalDevices = Hotspot.Clients.Count;
                             if (totalDevices > 0)
@@ -652,11 +700,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 {
                                     // All devices connected to the hotspot have 0 data flow!
                                     _noDataCountSeconds++;
-                                    if (_noDataCountSeconds >= 5) // 5 seconds threshold
+                                    if (_noDataCountSeconds >= thresholdSec)
                                     {
                                         Hotspot.IsResetCountdownActive = true;
                                         Hotspot.ResetCountdownSeconds = 30;
-                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data. Auto-resetting Hotspot in 30s to restore data flow (Click 'Cancel Reset' to dismiss)...";
+                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 30s to restore data flow (Click 'Cancel Reset' to dismiss)...";
                                         _noDataCountSeconds = 0;
                                     }
                                 }
@@ -674,22 +722,22 @@ namespace WifiAnalyzerHotspot.ViewModels
                             if (Hotspot.State == HotspotState.InTransition)
                             {
                                 _inTransitionCountSeconds++;
-                                if (_inTransitionCountSeconds >= 5) // Stuck switching for 5 seconds
+                                if (_inTransitionCountSeconds >= thresholdSec)
                                 {
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot is stuck in transition (5s threshold reached). Auto-resetting in 30s...";
+                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot is stuck in transition ({thresholdSec}s watchdog check reached). Auto-resetting in 30s...";
                                     _inTransitionCountSeconds = 0;
                                 }
                             }
                             else if (Hotspot.State == HotspotState.Unknown && (_wasExplicitlyStarted || Hotspot.IsRunning))
                             {
                                 _unknownStateCountSeconds++;
-                                if (_unknownStateCountSeconds >= 5) // Stuck in unknown state for 5 seconds
+                                if (_unknownStateCountSeconds >= thresholdSec)
                                 {
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = "⚠️ Hotspot service reported unrecoverable error for 5s. Auto-resetting in 30s...";
+                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot service reported unrecoverable error for {thresholdSec}s. Auto-resetting in 30s...";
                                     _unknownStateCountSeconds = 0;
                                 }
                             }
@@ -1038,7 +1086,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
 
                 var currentAllowed = current.Clients
-                    .Where(c => !Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == HotspotModel.NormalizeMac(c.MacAddress)))
+                    .Where(c => !Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == HotspotModel.NormalizeMac(c.MacAddress))
+                             && !HotspotService.IsClientBlocked(c.MacAddress)
+                             && !HotspotService.IsClientDisconnected(c.MacAddress))
                     .ToList();
 
                 // In-place reconciliation to prevent UI flicker & selection loss

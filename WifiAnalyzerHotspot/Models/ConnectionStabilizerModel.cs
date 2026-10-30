@@ -272,6 +272,86 @@ namespace WifiAnalyzerHotspot.Models
 
         public ObservableCollection<string> ReconnectLogs { get; set; } = new();
 
+        public List<string> LogLimitOptions { get; } = new() { "50 entries", "100 entries", "300 entries" };
+
+        private string _keepAliveLogLimitChoice = "100 entries";
+        private int _keepAliveLogLimit = 100;
+
+        public string KeepAliveLogLimitChoice
+        {
+            get => _keepAliveLogLimitChoice;
+            set
+            {
+                _keepAliveLogLimitChoice = value;
+                OnPropertyChanged();
+                var match = System.Text.RegularExpressions.Regex.Match(value ?? "", @"^(\d+)");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out int limit))
+                {
+                    _keepAliveLogLimit = limit;
+                    while (HeartbeatHistory.Count > _keepAliveLogLimit)
+                    {
+                        HeartbeatHistory.RemoveAt(HeartbeatHistory.Count - 1);
+                    }
+                }
+                OnPropertyChanged(nameof(KeepAliveLogLimit));
+            }
+        }
+
+        public int KeepAliveLogLimit
+        {
+            get => _keepAliveLogLimit;
+            set
+            {
+                _keepAliveLogLimit = value > 0 ? value : 100;
+                _keepAliveLogLimitChoice = $"{_keepAliveLogLimit} entries";
+                while (HeartbeatHistory.Count > _keepAliveLogLimit)
+                {
+                    HeartbeatHistory.RemoveAt(HeartbeatHistory.Count - 1);
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(KeepAliveLogLimitChoice));
+            }
+        }
+
+        private string _reconnectLogLimitChoice = "100 entries";
+        private int _reconnectLogLimit = 100;
+
+        public string ReconnectLogLimitChoice
+        {
+            get => _reconnectLogLimitChoice;
+            set
+            {
+                _reconnectLogLimitChoice = value;
+                OnPropertyChanged();
+                var match = System.Text.RegularExpressions.Regex.Match(value ?? "", @"^(\d+)");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out int limit))
+                {
+                    _reconnectLogLimit = limit;
+                    while (ReconnectLogs.Count > _reconnectLogLimit)
+                    {
+                        ReconnectLogs.RemoveAt(ReconnectLogs.Count - 1);
+                    }
+                }
+                OnPropertyChanged(nameof(ReconnectLogLimit));
+            }
+        }
+
+        public int ReconnectLogLimit
+        {
+            get => _reconnectLogLimit;
+            set
+            {
+                _reconnectLogLimit = value > 0 ? value : 100;
+                _reconnectLogLimitChoice = $"{_reconnectLogLimit} entries";
+                while (ReconnectLogs.Count > _reconnectLogLimit)
+                {
+                    ReconnectLogs.RemoveAt(ReconnectLogs.Count - 1);
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ReconnectLogLimitChoice));
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {

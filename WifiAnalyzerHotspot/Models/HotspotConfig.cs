@@ -174,9 +174,55 @@ namespace WifiAnalyzerHotspot.Models
         private int _activeDataClientCount = 0;
         private string _dataHealthStatus = "Ready";
         private bool _isHighestPriorityMode = true;
-        private string _priorityStatusText = "⚡ Highest PC Priority: Enabled";
-        private string _priorityDetails = "High CPU Priority • Max Radio Power • No Sleep Throttling • Zero Network Throttling";
+        private string _priorityStatusText = "⚡ Highest PC Priority: REALTIME";
+        private string _priorityDetails = "RealTime CPU Priority • Max Radio Power • No Sleep Throttling • Zero Network Throttling";
         public DateTime? StartedAt { get; set; }
+
+        private string _watchdogIntervalChoice = "5 seconds (Recommended)";
+        private int _watchdogIntervalSeconds = 5;
+
+        public List<string> WatchdogIntervalOptions { get; } = new()
+        {
+            "2 seconds (Ultra-Fast)",
+            "3 seconds (Aggressive)",
+            "5 seconds (Recommended)",
+            "10 seconds (Standard)",
+            "15 seconds (Relaxed)",
+            "30 seconds (High Tolerance)"
+        };
+
+        public string WatchdogIntervalChoice
+        {
+            get => _watchdogIntervalChoice;
+            set
+            {
+                _watchdogIntervalChoice = value;
+                OnPropertyChanged();
+                var match = System.Text.RegularExpressions.Regex.Match(value ?? "", @"^(\d+)\s*sec");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out int sec))
+                {
+                    _watchdogIntervalSeconds = sec;
+                }
+                else
+                {
+                    _watchdogIntervalSeconds = 5;
+                }
+                OnPropertyChanged(nameof(WatchdogIntervalSeconds));
+            }
+        }
+
+        public int WatchdogIntervalSeconds
+        {
+            get => _watchdogIntervalSeconds;
+            set
+            {
+                _watchdogIntervalSeconds = Math.Max(1, value);
+                var match = WatchdogIntervalOptions.Find(o => o.StartsWith($"{_watchdogIntervalSeconds} sec", StringComparison.OrdinalIgnoreCase));
+                if (match != null) _watchdogIntervalChoice = match;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(WatchdogIntervalChoice));
+            }
+        }
 
         public bool IsHighestPriorityMode
         {

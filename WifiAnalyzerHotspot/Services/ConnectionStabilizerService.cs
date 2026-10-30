@@ -182,7 +182,8 @@ namespace WifiAnalyzerHotspot.Services
                             StatusText = capSt
                         });
 
-                        while (model.HeartbeatHistory.Count > 300)
+                        int maxHeartbeats = model.KeepAliveLogLimit > 0 ? model.KeepAliveLogLimit : 100;
+                        while (model.HeartbeatHistory.Count > maxHeartbeats)
                             model.HeartbeatHistory.RemoveAt(model.HeartbeatHistory.Count - 1);
                     });
 
@@ -543,7 +544,8 @@ namespace WifiAnalyzerHotspot.Services
             UI(() =>
             {
                 model.ReconnectLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {message}");
-                while (model.ReconnectLogs.Count > 300)
+                int maxLogs = model.ReconnectLogLimit > 0 ? model.ReconnectLogLimit : 100;
+                while (model.ReconnectLogs.Count > maxLogs)
                     model.ReconnectLogs.RemoveAt(model.ReconnectLogs.Count - 1);
             });
         }

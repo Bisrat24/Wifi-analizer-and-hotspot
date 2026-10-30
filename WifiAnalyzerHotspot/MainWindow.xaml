@@ -126,7 +126,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="&amp; HOTSPOT PRO" FontSize="10" FontWeight="Bold" Foreground="#00E5FF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.1.4" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.1.5" FontSize="9" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -923,13 +923,13 @@
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="14" Foreground="#FFD600" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                            <TextBlock Text="HIGHEST PC PRIORITY MODE" FontSize="11" FontWeight="Bold" Foreground="#00E5FF" VerticalAlignment="Center"/>
+                                            <TextBlock Text="HIGHEST PC PRIORITY MODE (REALTIME)" FontSize="11" FontWeight="Bold" Foreground="#00E5FF" VerticalAlignment="Center"/>
                                             <Border Background="#133824" CornerRadius="3" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
                                                 <TextBlock Text="ENABLED" FontSize="9" FontWeight="Bold" Foreground="#00E676"/>
                                             </Border>
                                         </StackPanel>
                                         <TextBlock Text="Hotspot is created with top OS scheduling priority:" FontSize="10" Foreground="#A0AEC0" Margin="0,3,0,1"/>
-                                        <TextBlock Text="&#x2022; High CPU Priority for ICS NAT (SharedAccess) &amp; host engine&#x0a;&#x2022; Maximum Wi-Fi Radio Transmit Power (Level 5) &amp; Throughput Booster&#x0a;&#x2022; Zero Sleep/Power Throttling (Win32 Away Mode engaged)&#x0a;&#x2022; Zero Multimedia Network Throttling (SystemResponsiveness = 0)"
+                                        <TextBlock Text="&#x2022; RealTime CPU Priority for Hotspot Creator process, ICS NAT (SharedAccess) &amp; WLAN engine&#x0a;&#x2022; Maximum Wi-Fi Radio Transmit Power (Level 5) &amp; Throughput Booster&#x0a;&#x2022; Zero Sleep/Power Throttling (Win32 Away Mode engaged)&#x0a;&#x2022; Zero Multimedia Network Throttling (SystemResponsiveness = 0)"
                                                    FontSize="9" Foreground="#64748B" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -985,14 +985,25 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Health Watchdog Checkbox -->
+                            <!-- Health Watchdog Checkbox & Check Frequency -->
                             <Border Background="#131B2A" BorderBrush="#1F2A3F" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
-                                <CheckBox IsChecked="{Binding Hotspot.IsHealthCheckEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
-                                    <StackPanel Orientation="Vertical" Margin="4,0,0,0">
-                                        <TextBlock Text="Hotspot Client Data Flow Watchdog (Auto-Reset)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
-                                        <TextBlock Text="Monitors whether connected devices are getting data. If all devices are not working, gives a 30s cancellation countdown before auto-recovering the hotspot." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </CheckBox>
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsHealthCheckEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <TextBlock Text="Hotspot Client Data Flow Watchdog (Auto-Reset)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                            <TextBlock Text="Monitors whether connected devices are getting data. If all devices are not working, gives a 30s cancellation countdown before auto-recovering the hotspot." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+
+                                    <!-- Watchdog Check Frequency Dropdown -->
+                                    <DockPanel Margin="24,8,0,0" LastChildFill="False">
+                                        <TextBlock Text="Check Frequency:" FontSize="11" Foreground="#A2B1CD" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox ItemsSource="{Binding Hotspot.WatchdogIntervalOptions}"
+                                                  SelectedItem="{Binding Hotspot.WatchdogIntervalChoice, Mode=TwoWay}"
+                                                  Background="#181C2B" Foreground="#000000" FontSize="11" Padding="6,2" Height="26" Width="200"
+                                                  VerticalAlignment="Center" ToolTip="Consecutive unresponsive seconds required before auto-reset countdown triggers"/>
+                                    </DockPanel>
+                                </StackPanel>
                             </Border>
 
                             <!-- DHCP Scope Optimization & Subnet Repair Card -->
@@ -1569,8 +1580,14 @@
                                             <RowDefinition Height="*"/>
                                         </Grid.RowDefinitions>
                                         <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
-                                            <TextBlock Text="LIVE HEARTBEAT LOG (LAST 300 MAX)" FontSize="10" FontWeight="Bold" Foreground="#7888A8"/>
-                                            <TextBlock DockPanel.Dock="Right" Text="LATENCY" FontSize="10" FontWeight="Bold" Foreground="#7888A8" Margin="0,0,60,0"/>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="LIVE HEARTBEAT LOG" FontSize="10" FontWeight="Bold" Foreground="#7888A8" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <ComboBox ItemsSource="{Binding Stabilizer.LogLimitOptions}"
+                                                          SelectedItem="{Binding Stabilizer.KeepAliveLogLimitChoice, Mode=TwoWay}"
+                                                          Background="#181C2B" Foreground="#000000" FontSize="10" Padding="4,1" Height="22" Width="105"
+                                                          VerticalAlignment="Center" ToolTip="Heartbeat log buffer size limit (50, 100, 300)"/>
+                                            </StackPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="LATENCY" FontSize="10" FontWeight="Bold" Foreground="#7888A8" Margin="0,0,60,0" VerticalAlignment="Center"/>
                                         </DockPanel>
 
                                         <ItemsControl Grid.Row="1" ItemsSource="{Binding Stabilizer.HeartbeatHistory}">
@@ -1733,7 +1750,13 @@
                                             <RowDefinition Height="*"/>
                                         </Grid.RowDefinitions>
                                         <DockPanel Grid.Row="0" Margin="0,0,0,6">
-                                            <TextBlock Text="WATCHDOG EVENT LOG (LAST 300 MAX)" FontSize="10" FontWeight="Bold" Foreground="#7888A8" VerticalAlignment="Center"/>
+                                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="WATCHDOG EVENT LOG" FontSize="10" FontWeight="Bold" Foreground="#7888A8" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <ComboBox ItemsSource="{Binding Stabilizer.LogLimitOptions}"
+                                                          SelectedItem="{Binding Stabilizer.ReconnectLogLimitChoice, Mode=TwoWay}"
+                                                          Background="#181C2B" Foreground="#000000" FontSize="10" Padding="4,1" Height="22" Width="105"
+                                                          VerticalAlignment="Center" ToolTip="Watchdog reconnect log buffer size limit (50, 100, 300)"/>
+                                            </StackPanel>
                                             <Button DockPanel.Dock="Right" Command="{Binding ClearStabilizerLogsCommand}" Content="Clear Log"
                                                     Style="{StaticResource ModernBtn}" Padding="8,2" FontSize="11" Height="24"/>
                                         </DockPanel>

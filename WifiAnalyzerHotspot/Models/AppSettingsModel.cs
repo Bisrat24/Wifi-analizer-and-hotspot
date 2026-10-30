@@ -279,6 +279,36 @@ namespace WifiAnalyzerHotspot.Models
             set { _analyzerViewMode = value; OnPropertyChanged(); }
         }
 
+        // ==================== HOTSPOT WATCHDOG & BLOCKED CLIENTS ====================
+        private int _hotspotWatchdogIntervalSeconds = 5;
+        public int HotspotWatchdogIntervalSeconds
+        {
+            get => _hotspotWatchdogIntervalSeconds;
+            set { _hotspotWatchdogIntervalSeconds = value; OnPropertyChanged(); }
+        }
+
+        private System.Collections.Generic.List<BlockedClientInfo> _blockedClients = new();
+        public System.Collections.Generic.List<BlockedClientInfo> BlockedClients
+        {
+            get => _blockedClients;
+            set { _blockedClients = value ?? new(); OnPropertyChanged(); }
+        }
+
+        // ==================== STABILIZER LOG LIMITS ====================
+        private int _keepAliveLogLimit = 100;
+        public int KeepAliveLogLimit
+        {
+            get => _keepAliveLogLimit;
+            set { _keepAliveLogLimit = value; OnPropertyChanged(); }
+        }
+
+        private int _reconnectLogLimit = 100;
+        public int ReconnectLogLimit
+        {
+            get => _reconnectLogLimit;
+            set { _reconnectLogLimit = value; OnPropertyChanged(); }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? prop = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));

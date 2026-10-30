@@ -106,6 +106,7 @@ namespace WifiAnalyzerHotspot.Services
                 string safeIf = !string.IsNullOrEmpty(activeInterfaceName) ? activeInterfaceName : "Wi-Fi";
 
                 string script = $@"
+try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }} catch {{}}
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {{
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -303,6 +304,7 @@ if ($connectionProfile) {{
                         // Discover any client present in ARP table not yet returned by WinRT
                         foreach (var kvp in arpMap)
                         {
+                            if (IsClientBlocked(kvp.Key) || IsClientDisconnected(kvp.Key)) continue;
                             if (!model.Clients.Any(c => c.MacAddress.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase)))
                             {
                                 model.Clients.Add(new HotspotClientInfo
@@ -313,6 +315,13 @@ if ($connectionProfile) {{
                                     Status = "Connected"
                                 });
                             }
+                        }
+
+                        // Ensure blocked or disconnected clients are strictly filtered out of active list
+                        var blockedOrDisc = model.Clients.Where(c => IsClientBlocked(c.MacAddress) || IsClientDisconnected(c.MacAddress)).ToList();
+                        foreach (var b in blockedOrDisc)
+                        {
+                            model.Clients.Remove(b);
                         }
                         model.ClientCount = model.Clients.Count;
 
@@ -384,6 +393,7 @@ if ($connectionProfile) {{
                 string safePass = passphrase.Replace("\"", "`\"");
 
                 string script = $@"
+try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }} catch {{}}
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {{
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -729,7 +739,10 @@ try {{
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
 
-# 1. Ensure SharedAccess service is running
+# Elevate hotspot creation process to RealTime priority
+try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime } catch {}
+
+# 1. Ensure SharedAccess service is running and boosted to RealTime priority
 try {
     $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
     if ($svc) {
@@ -740,6 +753,11 @@ try {
             Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 400
         }
+    }
+    $sa = Get-CimInstance Win32_Service -Filter ""Name='SharedAccess'"" -ErrorAction SilentlyContinue
+    if ($sa -and $sa.ProcessId -gt 0) {
+        $sap = Get-Process -Id $sa.ProcessId -ErrorAction SilentlyContinue
+        if ($sap) { $sap.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
     }
 } catch {}
 
@@ -1211,16 +1229,53 @@ if ({bitsPerSec} -gt 0 -and '{ipAddress}' -and '{ipAddress}' -ne '-') {{
             });
         }
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _disconnectedMacs = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Generic.HashSet<string> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
+
+        public static bool IsClientBlocked(string mac) =>
+            !string.IsNullOrEmpty(mac) && _activeBlockedMacs.Contains(HotspotModel.NormalizeMac(mac));
+
+        public static bool IsClientDisconnected(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return false;
+            string clean = HotspotModel.NormalizeMac(mac);
+            if (_disconnectedMacs.TryGetValue(clean, out var discTime))
+            {
+                if ((DateTime.Now - discTime).TotalSeconds < 45) return true;
+                _disconnectedMacs.TryRemove(clean, out _);
+            }
+            return false;
+        }
+
+        public static void RegisterBlockedMac(string mac)
+        {
+            if (!string.IsNullOrEmpty(mac))
+            {
+                _activeBlockedMacs.Add(HotspotModel.NormalizeMac(mac));
+            }
+        }
+
+        public static void ClearBlockedMac(string mac)
+        {
+            if (!string.IsNullOrEmpty(mac))
+            {
+                _activeBlockedMacs.Remove(HotspotModel.NormalizeMac(mac));
+            }
+        }
+
         /// <summary>
-        /// Disconnects a client device from the hotspot by resetting its network state and dropping its connection.
+        /// Disconnects a client device from the hotspot by resetting its network state, severing TCP sessions,
+        /// and enforcing a cooldown period so it cannot immediately re-associate without permission.
         /// </summary>
         public async Task<(bool success, string message)> DisconnectClientAsync(string macAddress, string ipAddress)
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
+                    _disconnectedMacs[cleanMac] = DateTime.Now;
+
                     string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
                     {
@@ -1235,30 +1290,54 @@ if ({bitsPerSec} -gt 0 -and '{ipAddress}' -and '{ipAddress}' -ne '-') {{
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
+                    if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
                     {
-                        // Add temporary block to sever TCP/UDP connections immediately
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_TempDrop_{cleanMac}\" dir=in action=block remoteip={targetIp}");
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_TempDrop_Out_{cleanMac}\" dir=out action=block remoteip={targetIp}");
-                        RunCommand("route", $"add {targetIp} mask 255.255.255.255 192.168.137.1");
-                        RunCommand("netsh", "interface ip delete arpcache");
-
-                        // Auto-clear the temporary drop rules after 4 seconds
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(4000);
-                            RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_TempDrop_{cleanMac}\"");
-                            RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_TempDrop_Out_{cleanMac}\"");
-                            RunCommand("route", $"delete {targetIp}");
-                            RunCommand("netsh", "interface ip delete arpcache");
-                        });
-                    }
-                    else
-                    {
-                        RunCommand("netsh", "interface ip delete arpcache");
+                        var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
+                        if (!string.IsNullOrEmpty(swept)) targetIp = swept;
                     }
 
-                    return (true, $"Device {macAddress} disconnected successfully.");
+                    // Script to sever connection at Windows Kernel Network layer
+                    string psDrop = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+$targetIp = '{targetIp}'
+$mac = '{cleanMac}'
+
+if ($targetIp -and $targetIp -ne '-') {{
+    # 1. Invalidate ARP / NetNeighbor
+    Remove-NetNeighbor -IPAddress $targetIp -Confirm:$false -ErrorAction SilentlyContinue
+    Set-NetNeighbor -IPAddress $targetIp -State Unreachable -ErrorAction SilentlyContinue
+
+    # 2. Kernel NetQoS Clamp to 8 bps (stops all traffic instantaneously)
+    Remove-NetQosPolicy -Name ""Hotspot_Disc_In_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-NetQosPolicy -Name ""Hotspot_Disc_Out_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    New-NetQosPolicy -Name ""Hotspot_Disc_In_$mac"" -IPDstPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name ""Hotspot_Disc_Out_$mac"" -IPSrcPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
+
+    # 3. Add WFP firewall block
+    Remove-NetFirewallRule -DisplayName ""Hotspot_Disc_In_$mac"" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -DisplayName ""Hotspot_Disc_Out_$mac"" -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName ""Hotspot_Disc_In_$mac"" -Direction Inbound -Action Block -RemoteAddress $targetIp -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName ""Hotspot_Disc_Out_$mac"" -Direction Outbound -Action Block -RemoteAddress $targetIp -ErrorAction SilentlyContinue | Out-Null
+}}
+";
+                    RunPowerShell(psDrop);
+                    RunCommand("netsh", "interface ip delete arpcache");
+
+                    // Clear the temporary drop rules after 45 seconds cooldown
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(45000);
+                        string psClear = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+Remove-NetQosPolicy -Name ""Hotspot_Disc_In_{cleanMac}"" -Confirm:$false -ErrorAction SilentlyContinue
+Remove-NetQosPolicy -Name ""Hotspot_Disc_Out_{cleanMac}"" -Confirm:$false -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName ""Hotspot_Disc_In_{cleanMac}"" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName ""Hotspot_Disc_Out_{cleanMac}"" -ErrorAction SilentlyContinue
+";
+                        RunPowerShell(psClear);
+                    });
+
+                    return (true, $"Device {macAddress} disconnected and removed from hotspot.");
                 }
                 catch (Exception ex)
                 {
@@ -1269,18 +1348,19 @@ if ({bitsPerSec} -gt 0 -and '{ipAddress}' -and '{ipAddress}' -ne '-') {{
 
         /// <summary>
         /// Permanently blocks a client device from accessing the hotspot using multi-layer isolation:
-        /// Windows Defender Firewall (In/Out/DNS/DHCP), host route blackhole loop, and ARP cache purging.
+        /// Windows Kernel NetQoS (8 bps freeze), Windows Defender Firewall (In/Out/DNS/DHCP), host route loopback blackhole,
+        /// and NetNeighbor unreachable state.
         /// </summary>
         public async Task<(bool success, string message)> BlockClientAsync(string macAddress, string ipAddress)
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    string targetIp = ipAddress;
+                    _activeBlockedMacs.Add(cleanMac);
 
-                    // If IP address was missing or '-', lookup from ARP table by MAC
+                    string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
                     {
                         var arpMap = NativeArpHelper.GetHotspotArpEntries();
@@ -1294,29 +1374,58 @@ if ({bitsPerSec} -gt 0 -and '{ipAddress}' -and '{ipAddress}' -ne '-') {{
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
+                    if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
                     {
-                        // 1. Netsh advfirewall rules: Inbound, Outbound, ICS DNS (UDP & TCP 53), DHCP (UDP 67)
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_In_{cleanMac}\" dir=in action=block remoteip={targetIp}");
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_Out_{cleanMac}\" dir=out action=block remoteip={targetIp}");
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_DNS_{cleanMac}\" dir=in action=block protocol=UDP localport=53 remoteip={targetIp}");
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_DNST_{cleanMac}\" dir=in action=block protocol=TCP localport=53 remoteip={targetIp}");
-                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_DHCP_{cleanMac}\" dir=in action=block protocol=UDP localport=67 remoteip={targetIp}");
-
-                        // 2. PowerShell New-NetFirewallRule for deep WFP integration
-                        string psRules = $@"
-try {{
-    New-NetFirewallRule -DisplayName 'Hotspot_Block_In_{cleanMac}' -Direction Inbound -Action Block -RemoteAddress '{targetIp}' -ErrorAction SilentlyContinue | Out-Null
-    New-NetFirewallRule -DisplayName 'Hotspot_Block_Out_{cleanMac}' -Direction Outbound -Action Block -RemoteAddress '{targetIp}' -ErrorAction SilentlyContinue | Out-Null
-}} catch {{}}
-";
-                        RunPowerShell(psRules);
-
-                        // 3. Routing Blackhole: loop all traffic for this IP back to host gateway 192.168.137.1
-                        RunCommand("route", $"add {targetIp} mask 255.255.255.255 192.168.137.1");
+                        var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
+                        if (!string.IsNullOrEmpty(swept)) targetIp = swept;
                     }
 
-                    // 4. Flush ARP cache
+                    // 1. Script for Kernel NetQoS, WFP Firewall rules, and NetNeighbor unreachable
+                    string psBlock = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+$targetIp = '{targetIp}'
+$mac = '{cleanMac}'
+
+if (-not $targetIp -or $targetIp -eq '-') {{
+    # Try finding IP from NetNeighbor table
+    $neighbor = Get-NetNeighbor -ErrorAction SilentlyContinue | Where-Object {{ ($_.LinkLayerAddress -replace '[:-]','').ToUpper() -eq $mac }}
+    if ($neighbor -and $neighbor.IPAddress) {{
+        $targetIp = $neighbor.IPAddress
+    }}
+}}
+
+if ($targetIp -and $targetIp -ne '-') {{
+    # 1. NetQoS Kernel Throttle clamp (8 bits/sec = 1 byte/sec -> complete freeze)
+    Remove-NetQosPolicy -Name ""Hotspot_Block_In_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-NetQosPolicy -Name ""Hotspot_Block_Out_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    New-NetQosPolicy -Name ""Hotspot_Block_In_$mac"" -IPDstPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name ""Hotspot_Block_Out_$mac"" -IPSrcPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
+
+    # 2. WFP Firewall Block rules (All Profiles, Inbound and Outbound)
+    Remove-NetFirewallRule -DisplayName ""Hotspot_Block_In_$mac"" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -DisplayName ""Hotspot_Block_Out_$mac"" -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName ""Hotspot_Block_In_$mac"" -Direction Inbound -Action Block -RemoteAddress $targetIp -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName ""Hotspot_Block_Out_$mac"" -Direction Outbound -Action Block -RemoteAddress $targetIp -ErrorAction SilentlyContinue | Out-Null
+
+    # 3. Layer 2 Sever
+    Remove-NetNeighbor -IPAddress $targetIp -Confirm:$false -ErrorAction SilentlyContinue
+    Set-NetNeighbor -IPAddress $targetIp -State Unreachable -ErrorAction SilentlyContinue
+
+    # 4. Route Blackhole
+    route add $targetIp mask 255.255.255.255 127.0.0.1
+}}
+";
+                    RunPowerShell(psBlock);
+
+                    // 2. Netsh fallback firewall rules
+                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
+                    {
+                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_In_{cleanMac}\" dir=in action=block remoteip={targetIp}");
+                        RunCommand("netsh", $"advfirewall firewall add rule name=\"Hotspot_Block_Out_{cleanMac}\" dir=out action=block remoteip={targetIp}");
+                        RunCommand("route", $"add {targetIp} mask 255.255.255.255 127.0.0.1");
+                    }
+
+                    // 3. Flush ARP cache
                     RunCommand("netsh", "interface ip delete arpcache");
 
                     return (true, $"Device {macAddress} is now BLOCKED from the hotspot.");
@@ -1329,7 +1438,7 @@ try {{
         }
 
         /// <summary>
-        /// Unblocks a previously blocked client device, removing all firewall and blackhole routing rules.
+        /// Unblocks a previously blocked client device, removing all firewall, NetQoS, and blackhole routing rules.
         /// </summary>
         public async Task<(bool success, string message)> UnblockClientAsync(string macAddress, string ipAddress)
         {
@@ -1338,7 +1447,28 @@ try {{
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
+                    _activeBlockedMacs.Remove(cleanMac);
+                    _disconnectedMacs.TryRemove(cleanMac, out _);
+
                     string targetIp = ipAddress;
+
+                    // Delete NetQoS policies and WFP rules
+                    string psUnblock = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+$targetIp = '{targetIp}'
+$mac = '{cleanMac}'
+
+Remove-NetQosPolicy -Name ""Hotspot_Block_In_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+Remove-NetQosPolicy -Name ""Hotspot_Block_Out_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName ""Hotspot_Block_In_$mac"" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName ""Hotspot_Block_Out_$mac"" -ErrorAction SilentlyContinue
+
+if ($targetIp -and $targetIp -ne '-') {{
+    Remove-NetNeighbor -IPAddress $targetIp -Confirm:$false -ErrorAction SilentlyContinue
+    route delete $targetIp
+}}
+";
+                    RunPowerShell(psUnblock);
 
                     // Delete netsh firewall rules
                     RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_In_{cleanMac}\"");
@@ -1346,15 +1476,6 @@ try {{
                     RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNS_{cleanMac}\"");
                     RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNST_{cleanMac}\"");
                     RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DHCP_{cleanMac}\"");
-
-                    // Delete PowerShell NetFirewallRules
-                    string psUnblock = $@"
-try {{
-    Remove-NetFirewallRule -DisplayName 'Hotspot_Block_In_{cleanMac}' -ErrorAction SilentlyContinue
-    Remove-NetFirewallRule -DisplayName 'Hotspot_Block_Out_{cleanMac}' -ErrorAction SilentlyContinue
-}} catch {{}}
-";
-                    RunPowerShell(psUnblock);
 
                     // Delete route blackhole
                     if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
@@ -1390,6 +1511,8 @@ try {{
                 };
                 using var process = Process.Start(psi);
                 if (process == null) return string.Empty;
+
+                try { process.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
                 string output = process.StandardOutput.ReadToEnd();
                 if (!process.WaitForExit(3000))
                 {
@@ -1421,6 +1544,8 @@ try {{
 
                 using var process = Process.Start(psi);
                 if (process == null) return string.Empty;
+
+                try { process.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
 
                 process.StandardInput.WriteLine(script);
                 process.StandardInput.Close();

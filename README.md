@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.4)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.5)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with device disconnect, block list capabilities, per-client bandwidth throttling (QoS), and cumulative data usage tracking.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), and customizable watchdog/log buffers.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.1.4)
+## ✨ Key Features (v1.1.5)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -44,42 +44,39 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager (with Highest PC Priority & QoS)
-- **⚡ Highest PC Priority Mode**:
+### 4. 🔥 Mobile Hotspot Creator & Manager (with RealTime Priority & QoS)
+- **⚡ REALTIME PC Priority Mode**:
   - Automatically created and run with maximum OS scheduling and hardware priority:
-    1. **High CPU Priority**: Elevates the application process, `SharedAccess` (ICS NAT & DHCP router service), and `wlanext.exe` (Wi-Fi 802.11 framework) to `High` process priority class.
+    1. **RealTime CPU Priority**: Elevates the application process, the hotspot creation process ID (`powershell.exe`), `SharedAccess` (ICS NAT & DHCP router service), and `wlanext.exe` / `wlansvc` to `RealTime` process priority class.
     2. **Win32 Execution Lock**: Invokes `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED)` to guarantee Windows never parks CPU cores, throttles Wi-Fi, or sleeps while hotspot is active.
     3. **Maximum Radio Power**: Enforces Wi-Fi adapter Transmit Power to **Level 5 (Highest)**, turns on **Throughput Booster**, and disables **Packet Coalescing** & **MIMO Power-Saving** sleep.
     4. **Zero Network Throttling**: Sets `NetworkThrottlingIndex = 0xFFFFFFFF` and `SystemResponsiveness = 0` (allocating 100% CPU priority to network routing).
     5. **Top Virtual Route Metric**: Assigns `InterfaceMetric = 5` to the Microsoft Wi-Fi Direct Virtual Adapter for prioritized routing.
+- **🛑 Rock-Solid Device Disconnect & Permanent Block**:
+  - **Instant Disconnect**: Severing TCP connections, flushing ARP, setting Layer 2 neighbor state to `Unreachable`, and enforcing a 45s cooldown window so disconnected clients stay removed from the client list.
+  - **Ironclad Multi-Layer Blocking**:
+    - **Kernel NetQoS 8 bps clamp**: Drops bandwidth to 1 byte/sec on both Source and Destination IP for instant network stall.
+    - **Windows Defender Firewall (Inbound & Outbound)**: Blocks all transit and local packets.
+    - **Host Route Loopback Blackhole**: Routes client packets to `127.0.0.1` so transit packets are discarded immediately.
+    - **Layer 2 NetNeighbor Unreachable**: Removes ARP resolution.
+    - **Persistent Blacklist**: Saved to `%APPDATA%\WifiAnalyzerHotspot\settings.json` across app restarts.
+- **⏱️ Configurable Watchdog Check Frequency Dropdown**:
+  - Selectable consecutive check thresholds: **`2s (Ultra-Fast)`**, **`3s (Aggressive)`**, **`5s (Recommended)`**, **`10s (Standard)`**, **`15s (Relaxed)`**, and **`30s (High Tolerance)`**.
 - **🚦 Per-Client Bandwidth Throttling / QoS**:
-  - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`).
-  - Implemented using native Windows `New-NetQosPolicy` kernel traffic shaping matching client IPv4 addresses for zero overhead.
+  - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`) via native Windows `New-NetQosPolicy`.
 - **📊 Cumulative Session Data Usage per Device**:
   - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
 - **Multi-Vector Client Data Flow Health Check**:
-  - Multi-vector verification eliminating false "No Data" flags:
-    1. **ICMP Ping**: Fast echo request.
-    2. **Layer 4 TCP Probe (Port 80/443)**: For devices that drop ICMP packets by default (e.g. iOS/iPadOS, firewalled phones), listens for TCP RST/ACK confirming active IP stack communication.
-    3. **Hardware ARP Link Verification**: Confirms active L2 Wi-Fi association when host internet is operational.
-  - Correctly marks clients as `● Getting Data` when active and `⚠ No Data` when data is stalled or cut.
-- **Continuous 1-Second Watchdog Timer**:
-  - Continuously evaluates hotspot health every 1 second.
-  - 30-second cancellation countdown triggers if 100% of connected devices experience zero data flow for 5 continuous seconds.
-  - Countdown cancels immediately if any connected client resumes active data flow.
-- **Ironclad Multi-Layer Device Blocking (Blacklist)**:
-  - Blocks unauthorized devices across Windows Defender Firewall (Inbound, Outbound, ICS DNS port 53, DHCP port 67), route blackhole loop, and normalized MAC address filtering.
+  - Multi-vector verification (ICMP Echo + Layer 4 TCP Port 80/443 + Hardware ARP Link Verification) eliminating false "No Data" flags.
 
 ### 5. 🛡️ Connection Stabilizer & Reconnect Guardian
+- **Configurable Log Buffers (50, 100, 300 entries)**:
+  - Dropdown selectors on both **Active Keep-Alive (Heartbeat Log)** and **Active Reconnect (Watchdog Event Log)** to select log retention limits (`50`, `100`, `300`).
 - **Ethernet & Wi-Fi Active Reconnect**:
   - Automatic link loss detection with user-configurable drop threshold.
-  - Multi-tier recovery strategies supporting both **Ethernet Cable Connections** and **Wi-Fi**:
-    - **Adapter Reset**: Disables and re-enables the active NIC via native Windows netsh.
-    - **DHCP IP Renew & DNS Flush**: Fixes IP lease expirations, conflicts, and stale DNS.
-    - **Fast Re-negotiation**: Resets ARP cache and initiates fast link recovery.
+  - Multi-tier recovery strategies supporting both **Ethernet Cable Connections** and **Wi-Fi** (Adapter Reset, DHCP Renew, DNS Flush, ARP Cache Reset).
 - **Active Keep-Alive Pulse**:
   - Continuous ping pulse (ICMP/TCP/HTTP) to prevent network adapter power throttling or ISP idle disconnects.
-  - Real-time heartbeat stream with latency metrics and packet loss tracking.
 
 ### 6. 🚀 Windows Startup & Automation Settings
 - **Launch on Windows Startup**: Configure registry `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` seamlessly without requiring admin elevation.

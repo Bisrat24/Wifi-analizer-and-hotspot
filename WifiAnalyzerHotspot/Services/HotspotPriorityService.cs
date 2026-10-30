@@ -38,11 +38,11 @@ namespace WifiAnalyzerHotspot.Services
             {
                 try
                 {
-                    // 1. Elevate application process priority to High
+                    // 1. Elevate application process priority to RealTime
                     try
                     {
                         using var proc = Process.GetCurrentProcess();
-                        proc.PriorityClass = ProcessPriorityClass.High;
+                        proc.PriorityClass = ProcessPriorityClass.RealTime;
                     }
                     catch { }
 
@@ -59,15 +59,23 @@ namespace WifiAnalyzerHotspot.Services
                     string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
 
-# A. Boost SharedAccess (ICS NAT service) and wlanext.exe process priority to High
+# Set current execution process to RealTime priority
+try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime } catch {}
+
+# A. Boost SharedAccess (ICS NAT service), wlansvc, and wlanext.exe process priority to RealTime
 try {
     $saSvc = Get-CimInstance Win32_Service -Filter ""Name='SharedAccess'"" -ErrorAction SilentlyContinue
     if ($saSvc -and $saSvc.ProcessId -gt 0) {
         $p = Get-Process -Id $saSvc.ProcessId -ErrorAction SilentlyContinue
-        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }
+        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
+    }
+    $wlanSvc = Get-CimInstance Win32_Service -Filter ""Name='WlanSvc'"" -ErrorAction SilentlyContinue
+    if ($wlanSvc -and $wlanSvc.ProcessId -gt 0) {
+        $p = Get-Process -Id $wlanSvc.ProcessId -ErrorAction SilentlyContinue
+        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
     }
     Get-Process -Name 'wlanext' -ErrorAction SilentlyContinue | ForEach-Object {
-        $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
+        $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime
     }
 } catch {}
 
@@ -106,7 +114,7 @@ Write-Output 'OK'
                     RunPowerShell(script);
                     _isPriorityEngaged = true;
 
-                    return (true, "⚡ Highest Priority Mode Active: High CPU Priority • Max Radio Power • No Sleep Throttling • 0% Network Throttling");
+                    return (true, "⚡ Highest Priority Mode Active: RealTime CPU Priority • Max Radio Power • No Sleep Throttling • 0% Network Throttling");
                 }
                 catch (Exception ex)
                 {
@@ -159,6 +167,8 @@ Write-Output 'OK'
 
                 using var proc = Process.Start(psi);
                 if (proc == null) return;
+
+                try { proc.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
 
                 using (var sw = proc.StandardInput)
                 {
