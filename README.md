@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.6)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.1.7)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), customizable watchdog/log buffers, and collapsible icon-only sidebar for small and high-DPI displays.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.1.6)
+## ✨ Key Features (v1.1.7)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -90,11 +90,21 @@ You can run the app immediately by double-clicking:
 - **🌐 Active Keep-Alive HTTP HEAD Captive Portal Mode**: Sends lightweight HTTP HEAD requests to standard captive portal detection endpoints to keep public/hotel Wi-Fi connections alive without timing out.
 - **🛡️ Proxy & Advanced Network Conditions**: System Proxy or Custom Manual Proxy support with probe timeout and VPN buffer delay settings.
 
-### 8. 📱 Collapsible Icon-Only Sidebar for Small & High-DPI Displays
+### 8. 🎨 Vibrant Color-Coded Vector Icons & Collapsible Sidebar
+- **Vibrant, High-Contrast Color Badging**:
+  - Replaced monochrome font glyphs with high-definition, hand-crafted WPF vector geometry (`Path`) housed in custom 30×30 tinted badge containers:
+    - 📡 **Spectrum & Channels**: Electric Cyan (`#00E5FF`) broadcast tower with radiating spectrum waves.
+    - 📊 **Channel Ratings**: Vibrant Golden Amber (`#FFD600` / `#FFC400`) 3-bar signal analytics with optimal-channel sparkle.
+    - ⚡ **Speed Test & Live Traffic**: High-voltage Electric Neon Green (`#00E676`) lightning bolt with inner speed streak.
+    - 🔥 **Mobile Hotspot**: Fiery Orange & Yellow (`#FF3D00` / `#FF9100` / `#FFEE58`) dual-layer flame.
+    - ℹ️ **Network Info**: Crisp Sky Blue (`#00B0FF` / `#40C4FF`) circular information badge.
+    - 🛡️ **Connection Stabilizer**: Glowing Emerald (`#00E676`) protection shield with mint checkmark.
+- **Flawless Recognition in Collapsed Mode**:
+  - Each icon's vibrant color theme makes navigation instant, intuitive, and identifiable from across the room even when text labels are hidden.
+- **Vector Active Wi-Fi Signal Badge**:
+  - Minimized adapter status card features a vector 3-wave Wi-Fi signal beacon dynamically colorized based on actual signal strength (`#00E676` Green, `#00E5FF` Cyan, `#FFEA00` Yellow, `#FF5252` Red).
 - **Instant Collapse / Expand Toggle**: Click the sidebar `[ ◀ / ▶ ]` chevron button or the top content header hamburger `[ ☰ ]` button.
 - **Compact Icon-Only Mode (68px)**: Collapses the full 230px sidebar down to 68px, reclaiming 162px of horizontal screen estate for data tables, spectrum graphs, and connected clients.
-- **Adaptive Typography & Tooltips**: Text navigation labels smoothly hide, leaving clean centered emoji icons with rich tooltips.
-- **Minimized Active Wi-Fi Badge**: The bottom adapter status card converts into a compact signal badge (`📶 {Signal}%`) with hover tooltips for full IP and SSID details.
 - **Small Screen & High-DPI Optimization**: Lowered window minimum dimensions (`MinWidth="760"`, `MinHeight="540"`) with horizontal scroll support on device tables to guarantee flawless rendering on 1366x768, 720p, or 125%/150% scaled displays.
 - **Settings Persistence**: Sidebar state (`IsSidebarCollapsed`) is automatically remembered and restored from `%APPDATA%\WifiAnalyzerHotspot\settings.json`.
 

@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.1.6" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.1.7" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.6">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.7">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -170,15 +170,30 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x1F4E1;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Cyan Spectrum Broadcast Tower -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#102636" BorderBrush="#1B5073" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M12 2 L12 17 M7 22 L17 22 M12 17 L7 22 M12 17 L17 22"
+                                                          Stroke="#00E5FF" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                    <Path Data="M8.5 7.5 A5 5 0 0 0 8.5 13.5 M15.5 7.5 A5 5 0 0 1 15.5 13.5"
+                                                          Stroke="#00E5FF" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                    <Path Data="M5.5 4.5 A9 9 0 0 0 5.5 16.5 M18.5 4.5 A9 9 0 0 1 18.5 16.5"
+                                                          Stroke="#80D8FF" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity="0.85"/>
+                                                    <Ellipse Canvas.Left="10.6" Canvas.Top="0.6" Width="2.8" Height="2.8" Fill="#00E5FF"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Spectrum &amp; Channels" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -195,15 +210,28 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x1F4CA;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Amber Bar Chart -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#2A2008" BorderBrush="#5E440A" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M2 21 L22 21" Stroke="#FF9100" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                    <Rectangle Canvas.Left="3.5" Canvas.Top="13" Width="4" Height="7" RadiusX="1.5" RadiusY="1.5" Fill="#FF9100"/>
+                                                    <Rectangle Canvas.Left="10" Canvas.Top="8" Width="4" Height="12" RadiusX="1.5" RadiusY="1.5" Fill="#FFC400"/>
+                                                    <Rectangle Canvas.Left="16.5" Canvas.Top="3" Width="4" Height="17" RadiusX="1.5" RadiusY="1.5" Fill="#FFEA00"/>
+                                                    <Path Data="M18.5 0.5 L19 2 L20.5 2.5 L19 3 L18.5 4.5 L18 3 L16.5 2.5 L18 2 Z" Fill="#FFFFFF"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Channel Ratings" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -220,15 +248,27 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Neon Speed Lightning -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#0B271A" BorderBrush="#155635" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M13 1 L3 13 L11 13 L10 23 L21 9 L13 9 Z"
+                                                          Fill="#00E676" Stroke="#69F0AE" StrokeThickness="1" StrokeLineJoin="Round"/>
+                                                    <Path Data="M12.5 4 L6 12 L10.5 12 L10 18 L16.5 10 L12.5 10 Z"
+                                                          Fill="#CCFF90" Opacity="0.8"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Speed Test &amp; Live" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -245,15 +285,28 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x1F525;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Vibrant Flame -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#2F1306" BorderBrush="#632509" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M12 1 C12 1 15.5 5.5 15.5 9 C15.5 10.5 14.5 11.5 15.5 13 C16.5 14.2 19 14.5 19 17.5 C19 21 16 23.5 12 23.5 C8 23.5 5 21 5 17.5 C5 14.2 7.5 11.5 8.2 9 C8.8 6.5 12 1 12 1 Z"
+                                                          Fill="#FF3D00" Stroke="#FF6E40" StrokeThickness="0.8"/>
+                                                    <Path Data="M12 10.5 C12 10.5 14 13 14 15 C14 16.2 13.2 17 13.8 18 C14.5 19 15.5 19.5 15.5 21 C15.5 22.5 13.8 23.2 12 23.2 C10.2 23.2 8.5 22.5 8.5 21 C8.5 19.5 9.8 18.2 10.2 17 C10.6 15.8 12 10.5 12 10.5 Z"
+                                                          Fill="#FF9100"/>
+                                                    <Ellipse Canvas.Left="11" Canvas.Top="18.5" Width="2" Height="3.2" Fill="#FFEE58"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Mobile Hotspot" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -270,15 +323,28 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x2139;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Sky Blue Info Ring -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#0C2238" BorderBrush="#154673" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Ellipse Canvas.Left="2" Canvas.Top="2" Width="20" Height="20"
+                                                             Fill="#3800B0FF" Stroke="#00B0FF" StrokeThickness="2"/>
+                                                    <Ellipse Canvas.Left="10.8" Canvas.Top="6" Width="2.4" Height="2.4" Fill="#40C4FF"/>
+                                                    <Path Data="M12 11 L12 17 M10.2 11 L12 11 M10 17 L14 17"
+                                                          Stroke="#40C4FF" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Network Info" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -295,15 +361,27 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="6,0">
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
                                     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="34"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- Colorful Icon Badge: Emerald Security Shield -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#0A271C" BorderBrush="#124F37" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M12 2 L4 5.5 L4 11.5 C4 16.5 7.4 20.8 12 22 C16.6 20.8 20 16.5 20 11.5 L20 5.5 Z"
+                                                          Fill="#3800E676" Stroke="#00E676" StrokeThickness="2" StrokeLineJoin="Round"/>
+                                                    <Path Data="M8 12 L10.8 15 L16 9"
+                                                          Stroke="#1DE9B6" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
                                         <TextBlock Grid.Column="1" Text="Connection Stabilizer" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
-                                                   Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
                                     </Grid>
                                 </Border>
@@ -337,11 +415,18 @@
                         Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}"
                         ToolTip="{Binding ConnectedInterface.Ssid, StringFormat='Active Wi-Fi: {0}'}">
                     <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="&#x1F4F6;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center"
-                                   Foreground="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"/>
+                        <Viewbox Width="20" Height="20">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M1.5 8.5 A15 15 0 0 1 22.5 8.5 M4.8 12.2 A10.5 10.5 0 0 1 19.2 12.2 M8.2 15.8 A6 6 0 0 1 15.8 15.8"
+                                      Stroke="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"
+                                      StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <Ellipse Canvas.Left="10.5" Canvas.Top="18.5" Width="3" Height="3"
+                                         Fill="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"/>
+                            </Canvas>
+                        </Viewbox>
                         <TextBlock Text="{Binding ConnectedInterface.Signal, StringFormat='{}{0}%'}" FontSize="9" FontWeight="Bold"
                                    Foreground="{Binding ConnectedInterface.Signal, Converter={StaticResource SignalBrushConv}}"
-                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                   HorizontalAlignment="Center" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
             </Grid>
