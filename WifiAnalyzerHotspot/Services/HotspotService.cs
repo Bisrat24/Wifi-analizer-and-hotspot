@@ -311,27 +311,6 @@ namespace WifiAnalyzerHotspot.Services
                                 }
                             }
 
-                            // Check ARP table for any device not yet reported by WinRT:
-                            // ONLY admit if SendARP actively confirms hardware radio response RIGHT NOW!
-                            foreach (var kvp in arpMap)
-                            {
-                                if (IsClientBlocked(kvp.Key) || IsClientDisconnected(kvp.Key)) continue;
-                                if (!candidateClients.Any(c => HotspotModel.NormalizeMac(c.MacAddress) == HotspotModel.NormalizeMac(kvp.Key)))
-                                {
-                                    var (alive, liveMac, _) = NativeArpHelper.ProbeClientArp(kvp.Value);
-                                    if (alive && HotspotModel.NormalizeMac(liveMac) == HotspotModel.NormalizeMac(kvp.Key))
-                                    {
-                                        candidateClients.Add(new HotspotClientInfo
-                                        {
-                                            MacAddress = kvp.Key,
-                                            IpAddress = kvp.Value,
-                                            HostName = $"Device ({kvp.Value})",
-                                            Status = "Connected"
-                                        });
-                                    }
-                                }
-                            }
-
                             // Exclude blocked or manually disconnected clients
                             candidateClients.RemoveAll(c => IsClientBlocked(c.MacAddress) || IsClientDisconnected(c.MacAddress));
 
@@ -569,26 +548,6 @@ if ($connectionProfile) {{
                                 if (arpMap.TryGetValue(client.MacAddress, out var resolvedIp))
                                 {
                                     client.IpAddress = resolvedIp;
-                                }
-                            }
-                        }
-
-                        // Only admit from ARP table if SendARP actively confirms live response
-                        foreach (var kvp in arpMap)
-                        {
-                            if (IsClientBlocked(kvp.Key) || IsClientDisconnected(kvp.Key)) continue;
-                            if (!model.Clients.Any(c => HotspotModel.NormalizeMac(c.MacAddress) == HotspotModel.NormalizeMac(kvp.Key)))
-                            {
-                                var (alive, liveMac, _) = NativeArpHelper.ProbeClientArp(kvp.Value);
-                                if (alive && HotspotModel.NormalizeMac(liveMac) == HotspotModel.NormalizeMac(kvp.Key))
-                                {
-                                    model.Clients.Add(new HotspotClientInfo
-                                    {
-                                        MacAddress = kvp.Key,
-                                        IpAddress = kvp.Value,
-                                        HostName = $"Device ({kvp.Value})",
-                                        Status = "Connected"
-                                    });
                                 }
                             }
                         }

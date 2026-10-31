@@ -53,6 +53,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private HotspotModel _hotspot = new();
         private LiveTrafficPoint _currentTraffic = new();
         private ConnectionStabilizerModel _stabilizer = new();
+        private string _resetTriggerReason = "Watchdog Auto-Reset";
 
         private string _hotspotSsidInput = "Wifi_Hotspot";
         private string _hotspotPasswordInput = "HotspotPass123";
@@ -165,7 +166,64 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ConnectedInterfaceInfo ConnectedInterface
         {
             get => _connectedInterface;
-            set { _connectedInterface = value; OnPropertyChanged(); }
+            set
+            {
+                if (_connectedInterface != null)
+                {
+                    _connectedInterface.PropertyChanged -= ConnectedInterface_PropertyChanged;
+                }
+                _connectedInterface = value;
+                if (_connectedInterface != null)
+                {
+                    _connectedInterface.PropertyChanged += ConnectedInterface_PropertyChanged;
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsWifiConnected));
+                OnPropertyChanged(nameof(SccExplanationText));
+                OnPropertyChanged(nameof(SccChannelNoticeText));
+            }
+        }
+
+        private void ConnectedInterface_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ConnectedInterfaceInfo.Ssid) || e.PropertyName == nameof(ConnectedInterfaceInfo.Channel))
+            {
+                OnPropertyChanged(nameof(IsWifiConnected));
+                OnPropertyChanged(nameof(SccExplanationText));
+                OnPropertyChanged(nameof(SccChannelNoticeText));
+            }
+        }
+
+        public bool IsWifiConnected =>
+            _connectedInterface != null &&
+            !string.IsNullOrWhiteSpace(_connectedInterface.Ssid) &&
+            !_connectedInterface.Ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase) &&
+            !_connectedInterface.Ssid.Equals("Not Connected", StringComparison.OrdinalIgnoreCase) &&
+            !_connectedInterface.Ssid.Equals("No Wi-Fi Adapter", StringComparison.OrdinalIgnoreCase) &&
+            _connectedInterface.Channel > 0;
+
+        public string SccExplanationText
+        {
+            get
+            {
+                if (IsWifiConnected)
+                {
+                    return $"Your Wi-Fi card is connected to '{ConnectedInterface.Ssid}' on Channel {ConnectedInterface.Channel}. Under Windows Single-Channel Concurrency (SCC), the 2.4 GHz hotspot synchronizes to Channel {ConnectedInterface.Channel} so you can share your internet without disconnecting from Wi-Fi.";
+                }
+                return "Your Wi-Fi card is not connected to an external Wi-Fi network (Cable / Standalone Mode). You can broadcast the hotspot freely across supported 2.4 GHz and 5 GHz channels without Single-Channel Concurrency (SCC) hardware locking.";
+            }
+        }
+
+        public string SccChannelNoticeText
+        {
+            get
+            {
+                if (IsWifiConnected)
+                {
+                    return $"• On Wi-Fi: Hardware Single-Channel Concurrency locks the SoftAP to your active Wi-Fi channel (Channel {ConnectedInterface.Channel}) so internet sharing stays active.";
+                }
+                return "• On Ethernet / Cable / Standalone: Hardware Single-Channel Concurrency is inactive. Full custom band and channel selection are available.";
+            }
         }
 
         public SpeedTestMetrics SpeedMetrics
@@ -290,6 +348,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand SetAnalyzerViewModeCommand { get; }
         public ICommand SetClientQosLimitCommand { get; }
         public ICommand ToggleSidebarCommand { get; }
+        public ICommand ClearResetLogsCommand { get; }
 
         public MainViewModel()
         {
@@ -298,6 +357,9 @@ namespace WifiAnalyzerHotspot.ViewModels
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
 
             ToggleSidebarCommand = new RelayCommand(() => IsSidebarCollapsed = !IsSidebarCollapsed);
+            ClearResetLogsCommand = new RelayCommand(() => Hotspot.ResetLogs.Clear());
+            Hotspot.AddResetLog("Hotspot Auto-Reset Watchdog service active & monitoring.");
+            _connectedInterface.PropertyChanged += ConnectedInterface_PropertyChanged;
 
             // Load Hotspot & Stabilizer persisted preferences
             Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
@@ -382,12 +444,13 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
                 _noDataCountSeconds = 0;
-                await PerformHotspotResetAsync();
+                await PerformHotspotResetAsync("Manual User Trigger");
             });
 
             TestWatchdogCommand = new RelayCommand(() =>
             {
                 if (_isResettingInProgress) return;
+                _resetTriggerReason = "Watchdog Simulation Test";
                 _resetCooldownSeconds = 0;
                 _inTransitionCountSeconds = 0;
                 _unknownStateCountSeconds = 0;
@@ -696,7 +759,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _inTransitionCountSeconds = 0;
                                 _unknownStateCountSeconds = 0;
                                 _noDataCountSeconds = 0;
-                                await PerformHotspotResetAsync();
+                                await PerformHotspotResetAsync(_resetTriggerReason);
                             }
                             else
                             {
@@ -728,6 +791,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                     _noDataCountSeconds++;
                                     if (_noDataCountSeconds >= thresholdSec)
                                     {
+                                        _resetTriggerReason = $"Watchdog: No Client Data Flow ({totalDevices} device{(totalDevices == 1 ? "" : "s")})";
                                         Hotspot.IsResetCountdownActive = true;
                                         Hotspot.ResetCountdownSeconds = 30;
                                         Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 30s to restore data flow (Click 'Cancel Reset' to dismiss)...";
@@ -750,6 +814,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _inTransitionCountSeconds++;
                                 if (_inTransitionCountSeconds >= thresholdSec)
                                 {
+                                    _resetTriggerReason = "Watchdog: Hotspot Stuck in Transition";
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
                                     Hotspot.ResetCountdownMessage = $"⚠️ Hotspot is stuck in transition ({thresholdSec}s watchdog check reached). Auto-resetting in 30s...";
@@ -761,6 +826,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _unknownStateCountSeconds++;
                                 if (_unknownStateCountSeconds >= thresholdSec)
                                 {
+                                    _resetTriggerReason = "Watchdog: SoftAP Tethering Error";
                                     Hotspot.IsResetCountdownActive = true;
                                     Hotspot.ResetCountdownSeconds = 30;
                                     Hotspot.ResetCountdownMessage = $"⚠️ Hotspot service reported unrecoverable error for {thresholdSec}s. Auto-resetting in 30s...";
@@ -1262,7 +1328,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
-        public async Task PerformHotspotResetAsync()
+        public async Task PerformHotspotResetAsync(string triggerReason = "Watchdog Auto-Reset")
         {
             if (_isResettingInProgress) return; // Prevent duplicate reset loops
             _isResettingInProgress = true;
@@ -1271,6 +1337,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             _unknownStateCountSeconds = 0;
             _noDataCountSeconds = 0;
             Hotspot.IsBusy = true;
+            Hotspot.AddResetLog($"⚡ Hotspot reset triggered ({triggerReason})");
             try
             {
                 Hotspot.StatusMessage = "🔄 Resetting Hotspot, repairing DHCP scope (192.168.137.1), and virtual adapter...";
@@ -1280,11 +1347,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (res.success)
                 {
                     Hotspot.StartedAt = DateTime.Now;
+                    Hotspot.AddResetLog($"✅ Auto-Reset restored broadcast on {Hotspot.ActiveChannel} ({Hotspot.ActiveBand})");
+                }
+                else
+                {
+                    Hotspot.AddResetLog($"❌ Reset failed: {res.message}");
                 }
             }
             catch (Exception ex)
             {
                 Hotspot.StatusMessage = $"Reset error: {ex.Message}";
+                Hotspot.AddResetLog($"❌ Reset exception: {ex.Message}");
             }
             finally
             {

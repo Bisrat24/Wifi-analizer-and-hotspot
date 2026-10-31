@@ -388,6 +388,19 @@ namespace WifiAnalyzerHotspot.Models
 
         public ObservableCollection<HotspotClientInfo> Clients { get; set; } = new();
         public ObservableCollection<BlockedClientInfo> BlockedClients { get; set; } = new();
+        public ObservableCollection<string> ResetLogs { get; set; } = new();
+
+        public void AddResetLog(string message)
+        {
+            System.Windows.Application.Current?.Dispatcher?.InvokeAsync(() =>
+            {
+                ResetLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {message}");
+                while (ResetLogs.Count > 100)
+                {
+                    ResetLogs.RemoveAt(ResetLogs.Count - 1);
+                }
+            });
+        }
 
         public static string NormalizeMac(string? mac)
         {

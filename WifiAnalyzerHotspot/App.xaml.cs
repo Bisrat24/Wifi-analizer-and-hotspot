@@ -50,6 +50,32 @@ namespace WifiAnalyzerHotspot
 
             base.OnStartup(e);
 
+            // Elevate process priority to RealTime at startup
+            try
+            {
+                using var proc = Process.GetCurrentProcess();
+                proc.PriorityClass = ProcessPriorityClass.RealTime;
+            }
+            catch
+            {
+                try
+                {
+                    using var proc = Process.GetCurrentProcess();
+                    proc.PriorityClass = ProcessPriorityClass.High;
+                }
+                catch { }
+            }
+
+            // Engage Win32 execution lock and hardware priority optimizations
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await new Services.HotspotPriorityService().EngageHighestPriorityAsync();
+                }
+                catch { }
+            });
+
             // Trap UI dispatcher exceptions so transient UI/binding glitches don't terminate the process
             DispatcherUnhandledException += App_DispatcherUnhandledException;
 
