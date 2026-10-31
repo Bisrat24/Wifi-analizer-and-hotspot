@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.1.7" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.1.8" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.7">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.8">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"

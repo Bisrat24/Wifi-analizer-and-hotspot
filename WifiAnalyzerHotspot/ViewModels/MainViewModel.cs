@@ -351,7 +351,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             CancelSpeedTestCommand = new RelayCommand(CancelSpeedTest);
             ToggleHotspotCommand = new RelayCommand(async () => await ToggleHotspotAsync());
             SaveHotspotConfigCommand = new RelayCommand(async () => await SaveHotspotConfigAsync());
-            RefreshHotspotCommand = new RelayCommand(async () => await RefreshHotspotAsync());
+            RefreshHotspotCommand = new RelayCommand(async () => await RefreshHotspotAsync(true));
             CopyHotspotDetailsCommand = new RelayCommand(() =>
             {
                 try
@@ -781,10 +781,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                         }
                     }
 
-                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog
-                    // Poll more frequently (every 1s) when busy/transitioning/countdown, otherwise every 2s
+                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (real-time 1s cadence)
                     _hotspotRefreshCounter++;
-                    int refreshThreshold = (Hotspot.State == HotspotState.InTransition || Hotspot.IsBusy || Hotspot.IsResetCountdownActive) ? 1 : 2;
+                    int refreshThreshold = 1;
                     if (_hotspotRefreshCounter >= refreshThreshold)
                     {
                         _hotspotRefreshCounter = 0;
@@ -794,11 +793,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             Hotspot.StatusMessage = "⚡ Reactivating Hotspot (Prevented Windows Idle Shutdown)...";
                             await _hotspotService.StartHotspotAsync();
-                            await RefreshHotspotAsync();
+                            await RefreshHotspotAsync(false);
                         }
                         else if (Hotspot.IsRunning && !Hotspot.IsBusy)
                         {
-                            await RefreshHotspotAsync();
+                            await RefreshHotspotAsync(false);
                         }
                     }
                 }
@@ -1087,10 +1086,15 @@ namespace WifiAnalyzerHotspot.ViewModels
             CommandManager.InvalidateRequerySuggested();
         }
 
-        public async Task RefreshHotspotAsync()
+        private bool _isRefreshingHotspot = false;
+
+        public async Task RefreshHotspotAsync(bool isManualUserAction = false)
         {
-            if (Hotspot.IsBusy || _isResettingInProgress) return;
-            Hotspot.IsBusy = true;
+            if (_isRefreshingHotspot || _isResettingInProgress) return;
+            if (_isUserActionInProgress && !isManualUserAction) return;
+
+            _isRefreshingHotspot = true;
+            if (isManualUserAction) Hotspot.IsBusy = true;
             try
             {
                 var current = await _hotspotService.GetStatusAsync(ConnectedInterface.Channel, ConnectedInterface.Band, ConnectedInterface.InterfaceName, HotspotChannelChoice);
@@ -1177,7 +1181,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
             finally
             {
-                Hotspot.IsBusy = false;
+                _isRefreshingHotspot = false;
+                if (isManualUserAction) Hotspot.IsBusy = false;
             }
         }
 
