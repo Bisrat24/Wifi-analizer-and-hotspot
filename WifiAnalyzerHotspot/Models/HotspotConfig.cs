@@ -28,6 +28,54 @@ namespace WifiAnalyzerHotspot.Models
         private string _qosLimit = "Unlimited";
         private bool _isQosThrottled = false;
 
+        // Client Priority: 1 (Highest) to 7 (Least), default = 5
+        private int _priority = 5;
+        public Action<HotspotClientInfo>? OnPriorityChanged { get; set; }
+
+        public int Priority
+        {
+            get => _priority;
+            set
+            {
+                int clamped = Math.Clamp(value, 1, 7);
+                if (_priority != clamped)
+                {
+                    _priority = clamped;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(PriorityLabel));
+                    OnPropertyChanged(nameof(PriorityDescription));
+                    OnPropertyChanged(nameof(IsHighPriority));
+                    OnPriorityChanged?.Invoke(this);
+                }
+            }
+        }
+
+        public bool IsHighPriority => _priority <= 3;
+
+        public string PriorityLabel => _priority switch
+        {
+            1 => "1 - Highest",
+            2 => "2 - High",
+            3 => "3 - Elevated",
+            4 => "4 - Normal",
+            5 => "5 - Default",
+            6 => "6 - Low",
+            7 => "7 - Lowest",
+            _ => $"{_priority}"
+        };
+
+        public string PriorityDescription => _priority switch
+        {
+            1 => "Priority 1 (Highest): Max throughput, 802.1p Network Control, 0% latency queue",
+            2 => "Priority 2 (High): Voice & interactive audio prioritized",
+            3 => "Priority 3 (Elevated): Low-latency streaming & video prioritized",
+            4 => "Priority 4 (Normal): Standard accelerated traffic",
+            5 => "Priority 5 (Default): Standard Best Effort general networking",
+            6 => "Priority 6 (Low): Deprioritized background traffic",
+            7 => "Priority 7 (Lowest): Scavenger class, lowest network queue share",
+            _ => $"Priority {_priority}"
+        };
+
         public long TotalBytesReceived
         {
             get => _totalBytesReceived;
@@ -458,5 +506,14 @@ namespace WifiAnalyzerHotspot.Models
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+    }
+
+    public class ClientPriorityOption
+    {
+        public int Value { get; set; }
+        public string DisplayText { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string BadgeColor { get; set; } = "#00E5FF";
+        public override string ToString() => DisplayText;
     }
 }

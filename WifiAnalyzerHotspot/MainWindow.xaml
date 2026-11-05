@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.1.9" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.2.0" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.1.9">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.2.0">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1368,6 +1368,19 @@
                                                         </TextBlock.Style>
                                                     </TextBlock>
                                                 </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="PRIORITY (1-7)" Width="120" SortMemberPath="Priority">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ComboBox ItemsSource="{Binding DataContext.ClientPriorityOptions, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                          SelectedValue="{Binding Priority, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                          SelectedValuePath="Value"
+                                                          DisplayMemberPath="DisplayText"
+                                                          Background="#161B29" Foreground="#000000" FontSize="11" Padding="4,1" Height="24"
+                                                          VerticalAlignment="Center"
+                                                          ToolTip="{Binding PriorityDescription}"/>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>

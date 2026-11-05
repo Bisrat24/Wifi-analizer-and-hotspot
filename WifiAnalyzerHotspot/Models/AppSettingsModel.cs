@@ -302,6 +302,20 @@ namespace WifiAnalyzerHotspot.Models
             set { _blockedClients = value ?? new(); OnPropertyChanged(); }
         }
 
+        // ==================== CLIENT PRIORITIES (1-7, 1=Highest, 7=Lowest, 5=Default) ====================
+        private System.Collections.Generic.Dictionary<string, int> _clientPriorities = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Generic.Dictionary<string, int> ClientPriorities
+        {
+            get => _clientPriorities;
+            set
+            {
+                _clientPriorities = value != null
+                    ? new System.Collections.Generic.Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase)
+                    : new System.Collections.Generic.Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                OnPropertyChanged();
+            }
+        }
+
         // ==================== STABILIZER LOG LIMITS ====================
         private int _keepAliveLogLimit = 100;
         public int KeepAliveLogLimit

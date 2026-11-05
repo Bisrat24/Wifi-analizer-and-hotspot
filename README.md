@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.1.9)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.0)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, per-client priority levels (1-7) with hardware persistence across restarts, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.1.9)
+## ✨ Key Features (v1.2.0)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -79,6 +79,16 @@ You can run the app immediately by double-clicking:
   - Accompanied by fast ICMP Echo and TCP fallback (port 80/443).
 - **⏱️ Configurable Watchdog Check Frequency Dropdown**:
   - Selectable consecutive check thresholds: **`2s (Ultra-Fast)`**, **`3s (Aggressive)`**, **`5s (Recommended)`**, **`10s (Standard)`**, **`15s (Relaxed)`**, and **`30s (High Tolerance)`**.
+- **📶 Per-Client Priority System (1 - 7, Lower = Higher Priority)**:
+  - Configure traffic priority directly from the connected devices table:
+    - **Priority 1 (Highest)**: Real-time network control, mapped to 802.1p tag `7` and DSCP `46` (Expedited Forwarding). Zero-latency scheduling queue for critical devices.
+    - **Priority 2 (High)**: Voice and low-latency interactive audio, mapped to 802.1p `6` and DSCP `34`.
+    - **Priority 3 (Elevated)**: Streaming video and gaming, mapped to 802.1p `5` and DSCP `26`.
+    - **Priority 4 (Normal)**: Accelerated data, mapped to 802.1p `4` and DSCP `18`.
+    - **Priority 5 (Default)**: Standard Best Effort traffic, mapped to 802.1p `3` and DSCP `0`. Default priority for all new connected devices.
+    - **Priority 6 (Low)**: Deprioritized background traffic, mapped to 802.1p `2` and DSCP `10`.
+    - **Priority 7 (Lowest)**: Scavenger class, mapped to 802.1p `1` and DSCP `8`. Gets the lowest packet scheduling priority.
+  - **Hardware MAC Address Persistence Across Restarts**: The priority selected for each device is permanently saved by physical MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json`. When that device reconnects or after the app or PC restarts, its custom priority is automatically retrieved and re-enforced in the Windows kernel.
 - **🚦 Per-Client Bandwidth Throttling / QoS**:
   - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`) via native Windows `New-NetQosPolicy`.
 - **📊 Cumulative Session Data Usage per Device**:
@@ -99,6 +109,16 @@ You can run the app immediately by double-clicking:
   - Accompanied by fast ICMP Echo and TCP fallback (port 80/443).
 - **⏱️ Configurable Watchdog Check Frequency Dropdown**:
   - Selectable consecutive check thresholds: **`2s (Ultra-Fast)`**, **`3s (Aggressive)`**, **`5s (Recommended)`**, **`10s (Standard)`**, **`15s (Relaxed)`**, and **`30s (High Tolerance)`**.
+- **📶 Per-Client Priority System (1 - 7, Lower = Higher Priority)**:
+  - Configure traffic priority directly from the connected devices table:
+    - **Priority 1 (Highest)**: Real-time network control, mapped to 802.1p tag `7` and DSCP `46` (Expedited Forwarding). Zero-latency scheduling queue for critical devices.
+    - **Priority 2 (High)**: Voice and low-latency interactive audio, mapped to 802.1p `6` and DSCP `34`.
+    - **Priority 3 (Elevated)**: Streaming video and gaming, mapped to 802.1p `5` and DSCP `26`.
+    - **Priority 4 (Normal)**: Accelerated data, mapped to 802.1p `4` and DSCP `18`.
+    - **Priority 5 (Default)**: Standard Best Effort traffic, mapped to 802.1p `3` and DSCP `0`. Default priority for all new connected devices.
+    - **Priority 6 (Low)**: Deprioritized background traffic, mapped to 802.1p `2` and DSCP `10`.
+    - **Priority 7 (Lowest)**: Scavenger class, mapped to 802.1p `1` and DSCP `8`. Gets the lowest packet scheduling priority.
+  - **Hardware MAC Address Persistence Across Restarts**: The priority selected for each device is permanently saved by physical MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json`. When that device reconnects or after the app or PC restarts, its custom priority is automatically retrieved and re-enforced in the Windows kernel.
 - **🚦 Per-Client Bandwidth Throttling / QoS**:
   - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`) via native Windows `New-NetQosPolicy`.
 - **📊 Cumulative Session Data Usage per Device**:

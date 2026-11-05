@@ -1181,9 +1181,26 @@ if ($connectionProfile) {
             public long BytesDown { get; set; }
             public long BytesUp { get; set; }
             public string QosLimit { get; set; } = "Unlimited";
+            public int Priority { get; set; } = 5;
         }
 
         private static readonly Dictionary<string, ClientUsageStats> _clientDataUsageMap = new(StringComparer.OrdinalIgnoreCase);
+
+        public static void RegisterSavedPriority(string mac, int priority)
+        {
+            if (string.IsNullOrEmpty(mac)) return;
+            string clean = HotspotModel.NormalizeMac(mac);
+            int clamped = Math.Clamp(priority, 1, 7);
+            lock (_clientDataUsageMap)
+            {
+                if (!_clientDataUsageMap.TryGetValue(clean, out var stats))
+                {
+                    stats = new ClientUsageStats();
+                    _clientDataUsageMap[clean] = stats;
+                }
+                stats.Priority = clamped;
+            }
+        }
 
         public static string FormatBytes(long bytes)
         {
@@ -1418,6 +1435,7 @@ if ($connectionProfile) {
                         client.TotalDataFormatted = FormatBytes(stats.BytesDown + stats.BytesUp);
                         client.DataBreakdown = $"↓ {FormatBytes(stats.BytesDown)} • ↑ {FormatBytes(stats.BytesUp)}";
                         client.QosLimit = stats.QosLimit;
+                        client.Priority = stats.Priority > 0 ? stats.Priority : 5;
                     }
                 }
             });
@@ -1475,6 +1493,104 @@ if ({bitsPerSec} -gt 0 -and '{ipAddress}' -and '{ipAddress}' -ne '-') {{
                 catch (Exception ex)
                 {
                     return (false, $"QoS error: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Configures 802.1p User Priority, DSCP, and Precedence QoS policy for a specific connected hotspot client.
+        /// Priority range: 1 (Highest) to 7 (Least), default = 5.
+        /// Lower numeric value = higher network priority.
+        /// </summary>
+        public async Task<(bool success, string message)> SetClientPriorityAsync(string macAddress, string ipAddress, int priority)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    string cleanMac = HotspotModel.NormalizeMac(macAddress);
+                    int clamped = Math.Clamp(priority, 1, 7);
+
+                    lock (_clientDataUsageMap)
+                    {
+                        if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                        {
+                            stats = new ClientUsageStats();
+                            _clientDataUsageMap[cleanMac] = stats;
+                        }
+                        stats.Priority = clamped;
+                    }
+
+                    // Map user priority (1=Highest .. 7=Least) to 802.1p and DSCP
+                    // 802.1p: 7=Network Control/Voice, 6=Voice, 5=Video, 4=Controlled, 3=Best Effort, 2=Spare, 1=Background
+                    sbyte dot1p = clamped switch
+                    {
+                        1 => 7, // Highest (Network Control / Real-time Voice)
+                        2 => 6, // High (Voice / Interactive audio)
+                        3 => 5, // Elevated (Video / Streaming)
+                        4 => 4, // Above Normal (Controlled load)
+                        5 => 3, // Default (Best effort)
+                        6 => 2, // Low (Spare)
+                        7 => 1, // Least (Background / Scavenger)
+                        _ => 3
+                    };
+
+                    sbyte dscp = clamped switch
+                    {
+                        1 => 46, // EF (Expedited Forwarding)
+                        2 => 34, // AF41
+                        3 => 26, // AF31
+                        4 => 18, // AF21
+                        5 => 0,  // CS0 (Standard Best Effort)
+                        6 => 10, // AF11
+                        7 => 8,  // CS1 (Scavenger)
+                        _ => 0
+                    };
+
+                    uint precedence = clamped switch
+                    {
+                        1 => 250,
+                        2 => 220,
+                        3 => 190,
+                        4 => 160,
+                        5 => 127,
+                        6 => 90,
+                        7 => 50,
+                        _ => 127
+                    };
+
+                    string script = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+$downName = 'Hotspot_Prio_Down_{cleanMac}'
+$upName = 'Hotspot_Prio_Up_{cleanMac}'
+
+Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+if ('{ipAddress}' -and '{ipAddress}' -ne '-') {{
+    New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{ipAddress}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{ipAddress}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+}}
+";
+                    RunPowerShell(script, 10000);
+
+                    string levelName = clamped switch
+                    {
+                        1 => "Highest (Priority 1)",
+                        2 => "High (Priority 2)",
+                        3 => "Elevated (Priority 3)",
+                        4 => "Normal (Priority 4)",
+                        5 => "Default (Priority 5)",
+                        6 => "Low (Priority 6)",
+                        7 => "Lowest (Priority 7)",
+                        _ => $"Priority {clamped}"
+                    };
+
+                    return (true, $"⚡ Client Priority Set: Device set to {levelName} (802.1p: {dot1p}, DSCP: {dscp}).");
+                }
+                catch (Exception ex)
+                {
+                    return (false, $"Priority error: {ex.Message}");
                 }
             });
         }
@@ -1648,6 +1764,8 @@ if ($targetIp -and $targetIp -ne '-') {{
     # 1. NetQoS Kernel Throttle clamp (8 bits/sec = 1 byte/sec -> complete freeze)
     Remove-NetQosPolicy -Name ""Hotspot_Block_In_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
     Remove-NetQosPolicy -Name ""Hotspot_Block_Out_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-NetQosPolicy -Name ""Hotspot_Prio_Down_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-NetQosPolicy -Name ""Hotspot_Prio_Up_$mac"" -Confirm:$false -ErrorAction SilentlyContinue
     New-NetQosPolicy -Name ""Hotspot_Block_In_$mac"" -IPDstPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
     New-NetQosPolicy -Name ""Hotspot_Block_Out_$mac"" -IPSrcPrefixMatchCondition ""$targetIp/32"" -ThrottleRateActionBitsPerSecond 8 -ErrorAction SilentlyContinue | Out-Null
 

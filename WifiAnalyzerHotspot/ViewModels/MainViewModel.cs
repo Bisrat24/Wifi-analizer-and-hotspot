@@ -68,6 +68,16 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ObservableCollection<string> AvailableHotspotChannels { get; } = new();
         public ObservableCollection<RssiHistoryPoint> RssiHistory { get; } = new();
         public List<string> QosLimitOptions { get; } = new() { "Unlimited", "1 Mbps", "2 Mbps", "5 Mbps", "10 Mbps", "20 Mbps" };
+        public List<ClientPriorityOption> ClientPriorityOptions { get; } = new()
+        {
+            new ClientPriorityOption { Value = 1, DisplayText = "1 (Highest)", Description = "Priority 1 - Highest priority (Real-Time Voice / Low Latency)", BadgeColor = "#00E676" },
+            new ClientPriorityOption { Value = 2, DisplayText = "2 (High)", Description = "Priority 2 - High priority (Interactive Audio / Gaming)", BadgeColor = "#00E5FF" },
+            new ClientPriorityOption { Value = 3, DisplayText = "3 (Elevated)", Description = "Priority 3 - Elevated priority (Streaming / Video)", BadgeColor = "#40C4FF" },
+            new ClientPriorityOption { Value = 4, DisplayText = "4 (Normal)", Description = "Priority 4 - Normal priority (Accelerated)", BadgeColor = "#82B1FF" },
+            new ClientPriorityOption { Value = 5, DisplayText = "5 (Default)", Description = "Priority 5 - Default priority (Best Effort general)", BadgeColor = "#94A3B8" },
+            new ClientPriorityOption { Value = 6, DisplayText = "6 (Low)", Description = "Priority 6 - Low priority (Background bulk)", BadgeColor = "#FFB74D" },
+            new ClientPriorityOption { Value = 7, DisplayText = "7 (Lowest)", Description = "Priority 7 - Lowest priority (Scavenger class)", BadgeColor = "#FF5252" }
+        };
 
         private string _analyzerViewMode = "Spectrum";
         public string AnalyzerViewMode
@@ -347,6 +357,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ApplyHotspotPriorityCommand { get; }
         public ICommand SetAnalyzerViewModeCommand { get; }
         public ICommand SetClientQosLimitCommand { get; }
+        public ICommand SetClientPriorityCommand { get; }
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ClearResetLogsCommand { get; }
 
@@ -372,6 +383,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     Hotspot.BlockedClients.Add(b);
                     HotspotService.RegisterBlockedMac(b.MacAddress);
+                }
+            }
+
+            if (_settings.ClientPriorities != null)
+            {
+                foreach (var kvp in _settings.ClientPriorities)
+                {
+                    HotspotService.RegisterSavedPriority(kvp.Key, kvp.Value);
                 }
             }
 
@@ -656,6 +675,21 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (client == null) return;
                 var res = await _hotspotService.SetClientQosLimitAsync(client.MacAddress, client.IpAddress, client.QosLimit);
+                Hotspot.StatusMessage = res.message;
+            });
+
+            SetClientPriorityCommand = new RelayCommand<HotspotClientInfo>(async client =>
+            {
+                if (client == null) return;
+                string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
+                if (_settings != null && !string.IsNullOrEmpty(cleanMac))
+                {
+                    _settings.ClientPriorities ??= new(StringComparer.OrdinalIgnoreCase);
+                    _settings.ClientPriorities[cleanMac] = client.Priority;
+                    _settingsService.SaveSettings(_settings);
+                }
+
+                var res = await _hotspotService.SetClientPriorityAsync(client.MacAddress, client.IpAddress, client.Priority);
                 Hotspot.StatusMessage = res.message;
             });
 
@@ -1191,10 +1225,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                 foreach (var fresh in currentAllowed)
                 {
                     string freshMac = HotspotModel.NormalizeMac(fresh.MacAddress);
+                    int targetPriority = 5;
+                    if (_settings.ClientPriorities.TryGetValue(freshMac, out int savedPrio) && savedPrio >= 1 && savedPrio <= 7)
+                    {
+                        targetPriority = savedPrio;
+                    }
+
                     var existing = Hotspot.Clients.FirstOrDefault(c => HotspotModel.NormalizeMac(c.MacAddress) == freshMac);
                     if (existing != null)
                     {
                         if (!string.IsNullOrEmpty(fresh.HostName) && fresh.HostName != "Client Device") existing.HostName = fresh.HostName;
+                        bool ipChanged = (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-" && existing.IpAddress != fresh.IpAddress);
                         if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-") existing.IpAddress = fresh.IpAddress;
                         existing.Status = fresh.Status;
                         existing.ConnectionSpeed = fresh.ConnectionSpeed;
@@ -1210,11 +1251,28 @@ namespace WifiAnalyzerHotspot.ViewModels
                         {
                             existing.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         }
+                        if (existing.OnPriorityChanged == null)
+                        {
+                            existing.Priority = targetPriority;
+                            existing.OnPriorityChanged = c => SetClientPriorityCommand.Execute(c);
+                        }
+                        if (ipChanged)
+                        {
+                            _ = _hotspotService.SetClientPriorityAsync(existing.MacAddress, existing.IpAddress, existing.Priority);
+                            if (existing.IsQosThrottled) _ = _hotspotService.SetClientQosLimitAsync(existing.MacAddress, existing.IpAddress, existing.QosLimit);
+                        }
                     }
                     else
                     {
+                        fresh.Priority = targetPriority;
+                        fresh.OnPriorityChanged = c => SetClientPriorityCommand.Execute(c);
                         fresh.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         Hotspot.Clients.Add(fresh);
+
+                        if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-")
+                        {
+                            _ = _hotspotService.SetClientPriorityAsync(fresh.MacAddress, fresh.IpAddress, fresh.Priority);
+                        }
                     }
                 }
 
