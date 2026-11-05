@@ -109,13 +109,15 @@ try {
         Set-NetIPInterface -InterfaceMetric 5 -ErrorAction SilentlyContinue
 } catch {}
 
-# E. Enforce MAXIMUM Precedence (255) for all Hotspot Transit Traffic across the Main Shared Connection:
+# E. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128):
 # Prioritize the 192.168.137.0/24 subnet traffic with 802.1p Network Control (7) and DSCP Expedited Forwarding (46)
+# Precedence 128 ensures hotspot transit is prioritized above desktop browsers (64),
+# while allowing specific client priorities (130-240) and blocks (255) to take full precedence!
 try {
     Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 255 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 255 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
 # F. Ensure local browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Tor) do not choke upstream shared connection:

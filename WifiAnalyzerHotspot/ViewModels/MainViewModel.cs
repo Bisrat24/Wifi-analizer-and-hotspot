@@ -529,10 +529,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (client == null) return;
                 string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
 
-                // 1. Immediately disconnect and sever active connections
-                await _hotspotService.DisconnectClientAsync(client.MacAddress, client.IpAddress);
-
-                // 2. Enforce permanent multi-layer kernel block & firewall rules
+                // 1. Enforce permanent multi-layer block (Layer 2 ARP poison, Netsh Firewall, Kernel NetQoS)
                 var res = await _hotspotService.BlockClientAsync(client.MacAddress, client.IpAddress);
 
                 // 3. Immediately remove from active clients list

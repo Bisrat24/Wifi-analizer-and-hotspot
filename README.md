@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.2)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.3)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.2)
+## ✨ Key Features (v1.2.3)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -46,8 +46,9 @@ You can run the app immediately by double-clicking:
 
 ### 4. 🔥 Mobile Hotspot Creator & Manager (with RealTime Priority & QoS)
 - **🌐 Upstream Connection Top Priority (Prioritized Over Host PC Browsers)**:
-  - Enforces kernel-level NetQoS priority for all hotspot transit traffic (`192.168.137.0/24`) with **Precedence 255**, **802.1p Tag 7** (Network Control / Voice), and **DSCP 46** (Expedited Forwarding).
-  - Local desktop web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`, `tor.exe`) are constrained to **Precedence 64**, **802.1p Tag 1** (Background), and **DSCP 8** (Scavenger). Hotspot packets are always serviced at the front of the physical network adapter transmission queue before local browser downloads.
+  - Enforces kernel-level NetQoS priority for hotspot transit traffic (`192.168.137.0/24`) with **Precedence 128**, **802.1p Tag 7** (Network Control / Voice), and **DSCP 46** (Expedited Forwarding).
+  - Local desktop web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`, `tor.exe`) are constrained to **Precedence 64**, **802.1p Tag 1** (Background), and **DSCP 8** (Scavenger).
+  - By using Precedence 128 for baseline transit, individual connected client priorities (**Precedence 130 - 240**), QoS bandwidth limits (**Precedence 245**), and device blocks (**Precedence 255**) take full hierarchical precedence over the general transit queue while desktop browsers remain strictly deprioritized.
 - **🛡️ "Refresh Rules" Quick Enforcement Button**:
   - Located directly beside **Refresh Clients** in the Connected Client Devices card.
   - Re-applies and re-asserts all active QoS rate limits, client priority tags (1-7), static ARP blackholes, firewall blocks, and RealTime upstream transit prioritization in a single click.
@@ -59,12 +60,13 @@ You can run the app immediately by double-clicking:
   - **Zero Network Throttling**: Sets `NetworkThrottlingIndex = 0xFFFFFFFF` and `SystemResponsiveness = 0` (allocating 100% CPU priority to network routing).
   - **Top Virtual Route Metric**: Assigns `InterfaceMetric = 5` to the Microsoft Wi-Fi Direct Virtual Adapter for prioritized routing.
 - **🛑 Rock-Solid Device Disconnect & Permanent Block**:
-  - **Instant Disconnect on Block**: Clicking **Block** immediately severs all active TCP sockets via `Remove-NetTCPConnection`, drops Layer 2 ARP mappings, marks neighbor unreachable, and removes the device from the connected table.
+  - **Immediate Connection Cut & L2/L3 Drop**: Clicking **Block** immediately severs client transit, installs persistent static ARP poison, enforces kernel NetQoS freeze, and seals Windows Defender Firewall drop rules without conflicting unblock timers.
   - **Multi-Layer Kernel Isolation**:
-    - **Layer 2 Static ARP Poisoning (`00-00-00-00-00-00`)**: Forces the host NIC to transmit frames intended for the blocked IP to a null MAC address, rendering client reception physically impossible.
-    - **Kernel NetQoS 8 bps clamp (`Precedence 255`)**: Freezes bandwidth at 1 byte/sec on both Source and Destination IP for instant network stall.
-    - **Windows Defender Firewall (Inbound & Outbound)**: Blocks all transit and local packets, including UDP/TCP 53 (DNS) and UDP 67 (DHCP) to block lease renewals.
-    - **Continuous Watchdog Auto-Seal**: If a blocked device attempts to re-associate or acquires a new IP from DHCP, the watchdog detects its MAC in ARP or client lists and immediately re-seals the new IP.
+    - **Layer 2 Static ARP Blackhole (`00-00-00-00-00-00`)**: Forces the host NIC to forward frames destined for the blocked IP into a null sink, killing communication immediately at the link layer.
+    - **Kernel NetQoS 8 bps Clamp (`Precedence 255`)**: Hard-freezes bandwidth at 1 byte/sec on both Source and Destination IP addresses.
+    - **Windows Defender Firewall (Inbound & Outbound)**: Drops all transit and local packets, including UDP/TCP 53 (DNS) and UDP 67 (DHCP) to block DNS lookup and DHCP lease renewals.
+    - **Robust MAC Address Normalization**: Client MAC lookup handles all variations (hyphenated `f4-34-...`, colon-delimited `F4:34:...`, and clean hexadecimal `F434...`), ensuring IP resolution never misses (`client.IpAddress != '-'`) and rules are reliably applied.
+    - **Continuous Watchdog Auto-Seal**: If a blocked device attempts to reconnect or is assigned a different IP, the watchdog detects the MAC and immediately seals the new IP.
     - **Persistent Blacklist**: Saved to `%APPDATA%\WifiAnalyzerHotspot\settings.json` across app and PC restarts.
 - **📻 Dynamic Single-Channel Concurrency (SCC) Hardware Detection**:
   - The Hardware Radio Architecture panel dynamically detects your real network connection:
