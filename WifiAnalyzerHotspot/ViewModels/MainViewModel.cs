@@ -67,7 +67,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ObservableCollection<ChannelRating> Ratings5G { get; } = new();
         public ObservableCollection<string> AvailableHotspotChannels { get; } = new();
         public ObservableCollection<RssiHistoryPoint> RssiHistory { get; } = new();
-        public List<string> QosLimitOptions { get; } = new() { "Unlimited", "1 Mbps", "2 Mbps", "5 Mbps", "10 Mbps", "20 Mbps" };
+        public List<string> QosLimitOptions { get; } = new() { "Unlimited", "30 KB/s", "100 KB/s", "300 KB/s", "1 Mbps", "2 Mbps", "5 Mbps", "10 Mbps", "20 Mbps" };
         public List<ClientPriorityOption> ClientPriorityOptions { get; } = new()
         {
             new ClientPriorityOption { Value = 1, DisplayText = "1 (Highest)", Description = "Priority 1 - Highest priority (Real-Time Voice / Low Latency)", BadgeColor = "#00E676" },
@@ -394,6 +394,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
             }
 
+            if (_settings.ClientQosLimits != null)
+            {
+                foreach (var kvp in _settings.ClientQosLimits)
+                {
+                    HotspotService.RegisterSavedQosLimit(kvp.Key, kvp.Value);
+                }
+            }
+
             Hotspot.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(Hotspot.WatchdogIntervalSeconds))
@@ -503,7 +511,22 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (client == null) return;
                 string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
+
+                // 1. Immediately disconnect and sever active connections
+                await _hotspotService.DisconnectClientAsync(client.MacAddress, client.IpAddress);
+
+                // 2. Enforce permanent multi-layer kernel block & firewall rules
                 var res = await _hotspotService.BlockClientAsync(client.MacAddress, client.IpAddress);
+
+                // 3. Immediately remove from active clients list
+                var toRemove = Hotspot.Clients.Where(c => HotspotModel.NormalizeMac(c.MacAddress) == cleanMac).ToList();
+                foreach (var r in toRemove)
+                {
+                    Hotspot.Clients.Remove(r);
+                }
+                Hotspot.ClientCount = Hotspot.Clients.Count;
+
+                // 4. Add to blocked devices blacklist
                 if (!Hotspot.BlockedClients.Any(b => HotspotModel.NormalizeMac(b.MacAddress) == cleanMac))
                 {
                     Hotspot.BlockedClients.Add(new BlockedClientInfo
@@ -512,16 +535,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                         MacAddress = client.MacAddress,
                         IpAddress = client.IpAddress,
                         BlockedTime = DateTime.Now.ToString("HH:mm:ss"),
-                        Reason = "Blocked by Administrator"
+                        Reason = "Blocked & Disconnected"
                     });
                 }
-                var toRemove = Hotspot.Clients.Where(c => HotspotModel.NormalizeMac(c.MacAddress) == cleanMac).ToList();
-                foreach (var r in toRemove)
-                {
-                    Hotspot.Clients.Remove(r);
-                }
-                Hotspot.ClientCount = Hotspot.Clients.Count;
-                Hotspot.StatusMessage = res.message;
+                Hotspot.StatusMessage = $"🚫 Device {client.HostName} ({client.IpAddress}) blocked & disconnected from active connections.";
 
                 // Persist Blocked Clients to settings
                 _settings.BlockedClients = Hotspot.BlockedClients.ToList();
@@ -674,6 +691,14 @@ namespace WifiAnalyzerHotspot.ViewModels
             SetClientQosLimitCommand = new RelayCommand<HotspotClientInfo>(async client =>
             {
                 if (client == null) return;
+                string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
+                if (_settings != null && !string.IsNullOrEmpty(cleanMac))
+                {
+                    _settings.ClientQosLimits ??= new(StringComparer.OrdinalIgnoreCase);
+                    _settings.ClientQosLimits[cleanMac] = client.QosLimit;
+                    _settingsService.SaveSettings(_settings);
+                }
+
                 var res = await _hotspotService.SetClientQosLimitAsync(client.MacAddress, client.IpAddress, client.QosLimit);
                 Hotspot.StatusMessage = res.message;
             });
@@ -1231,6 +1256,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                         targetPriority = savedPrio;
                     }
 
+                    string targetQos = "Unlimited";
+                    if (_settings.ClientQosLimits != null && _settings.ClientQosLimits.TryGetValue(freshMac, out var savedQos) && !string.IsNullOrEmpty(savedQos))
+                    {
+                        targetQos = savedQos;
+                    }
+
                     var existing = Hotspot.Clients.FirstOrDefault(c => HotspotModel.NormalizeMac(c.MacAddress) == freshMac);
                     if (existing != null)
                     {
@@ -1249,6 +1280,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.DataBreakdown = fresh.DataBreakdown;
                         if (existing.OnQosChanged == null)
                         {
+                            if (targetQos != "Unlimited") existing.QosLimit = targetQos;
                             existing.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         }
                         if (existing.OnPriorityChanged == null)
@@ -1265,6 +1297,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     else
                     {
                         fresh.Priority = targetPriority;
+                        fresh.QosLimit = targetQos;
                         fresh.OnPriorityChanged = c => SetClientPriorityCommand.Execute(c);
                         fresh.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         Hotspot.Clients.Add(fresh);
@@ -1272,6 +1305,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                         if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-")
                         {
                             _ = _hotspotService.SetClientPriorityAsync(fresh.MacAddress, fresh.IpAddress, fresh.Priority);
+                            if (fresh.IsQosThrottled)
+                            {
+                                _ = _hotspotService.SetClientQosLimitAsync(fresh.MacAddress, fresh.IpAddress, fresh.QosLimit);
+                            }
                         }
                     }
                 }

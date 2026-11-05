@@ -316,6 +316,20 @@ namespace WifiAnalyzerHotspot.Models
             }
         }
 
+        // ==================== CLIENT QOS LIMITS (THROTTLING) ====================
+        private System.Collections.Generic.Dictionary<string, string> _clientQosLimits = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Generic.Dictionary<string, string> ClientQosLimits
+        {
+            get => _clientQosLimits;
+            set
+            {
+                _clientQosLimits = value != null
+                    ? new System.Collections.Generic.Dictionary<string, string>(value, StringComparer.OrdinalIgnoreCase)
+                    : new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                OnPropertyChanged();
+            }
+        }
+
         // ==================== STABILIZER LOG LIMITS ====================
         private int _keepAliveLogLimit = 100;
         public int KeepAliveLogLimit

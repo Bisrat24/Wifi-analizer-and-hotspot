@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.0)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.1)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, per-client priority levels (1-7) with hardware persistence across restarts, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.0)
+## ✨ Key Features (v1.2.1)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -89,8 +89,13 @@ You can run the app immediately by double-clicking:
     - **Priority 6 (Low)**: Deprioritized background traffic, mapped to 802.1p `2` and DSCP `10`.
     - **Priority 7 (Lowest)**: Scavenger class, mapped to 802.1p `1` and DSCP `8`. Gets the lowest packet scheduling priority.
   - **Hardware MAC Address Persistence Across Restarts**: The priority selected for each device is permanently saved by physical MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json`. When that device reconnects or after the app or PC restarts, its custom priority is automatically retrieved and re-enforced in the Windows kernel.
-- **🚦 Per-Client Bandwidth Throttling / QoS**:
-  - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`) via native Windows `New-NetQosPolicy`.
+- **🚦 Granular Per-Client Bandwidth Throttling / QoS (with Hardware Persistence)**:
+  - Cap individual client speeds with one-click QoS limits via native Windows `New-NetQosPolicy`:
+    - **Ultra-Light Low Bandwidth Caps**: **`30 KB/s`** (240 kbps), **`100 KB/s`** (800 kbps), **`300 KB/s`** (2.4 Mbps) tailored specifically for metered, capped, or low-speed networks.
+    - **High-Speed Caps**: **`1 Mbps`**, **`2 Mbps`**, **`5 Mbps`**, **`10 Mbps`**, **`20 Mbps`**, or **`Unlimited`**.
+  - Rate limits are automatically remembered by MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json` and restored across restarts.
+- **🛑 Dual-Action Block & Disconnect**:
+  - Clicking **Block** on any device now **instantly terminates and severs active network connections** (via Layer 2 NetNeighbor unreachable and ARP flushing) while simultaneously applying permanent Windows Defender Firewall and kernel 8 bps clamp rules, removing the device from the connected table immediately.
 - **📊 Cumulative Session Data Usage per Device**:
   - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
 - **Multi-Vector Client Data Flow Health Check**:
@@ -119,8 +124,13 @@ You can run the app immediately by double-clicking:
     - **Priority 6 (Low)**: Deprioritized background traffic, mapped to 802.1p `2` and DSCP `10`.
     - **Priority 7 (Lowest)**: Scavenger class, mapped to 802.1p `1` and DSCP `8`. Gets the lowest packet scheduling priority.
   - **Hardware MAC Address Persistence Across Restarts**: The priority selected for each device is permanently saved by physical MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json`. When that device reconnects or after the app or PC restarts, its custom priority is automatically retrieved and re-enforced in the Windows kernel.
-- **🚦 Per-Client Bandwidth Throttling / QoS**:
-  - Cap individual client speeds with one-click QoS limits (`Unlimited`, `1 Mbps`, `2 Mbps`, `5 Mbps`, `10 Mbps`, `20 Mbps`) via native Windows `New-NetQosPolicy`.
+- **🚦 Granular Per-Client Bandwidth Throttling / QoS (with Hardware Persistence)**:
+  - Cap individual client speeds with one-click QoS limits via native Windows `New-NetQosPolicy`:
+    - **Ultra-Light Low Bandwidth Caps**: **`30 KB/s`** (240 kbps), **`100 KB/s`** (800 kbps), **`300 KB/s`** (2.4 Mbps) tailored specifically for metered, capped, or low-speed networks.
+    - **High-Speed Caps**: **`1 Mbps`**, **`2 Mbps`**, **`5 Mbps`**, **`10 Mbps`**, **`20 Mbps`**, or **`Unlimited`**.
+  - Rate limits are automatically remembered by MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json` and restored across restarts.
+- **🛑 Dual-Action Block & Disconnect**:
+  - Clicking **Block** on any device now **instantly terminates and severs active network connections** (via Layer 2 NetNeighbor unreachable and ARP flushing) while simultaneously applying permanent Windows Defender Firewall and kernel 8 bps clamp rules, removing the device from the connected table immediately.
 - **📊 Cumulative Session Data Usage per Device**:
   - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
 - **Multi-Vector Client Data Flow Health Check**:

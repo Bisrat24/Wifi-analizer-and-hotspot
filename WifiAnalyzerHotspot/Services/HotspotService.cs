@@ -1202,6 +1202,21 @@ if ($connectionProfile) {
             }
         }
 
+        public static void RegisterSavedQosLimit(string mac, string qosLimit)
+        {
+            if (string.IsNullOrEmpty(mac) || string.IsNullOrEmpty(qosLimit)) return;
+            string clean = HotspotModel.NormalizeMac(mac);
+            lock (_clientDataUsageMap)
+            {
+                if (!_clientDataUsageMap.TryGetValue(clean, out var stats))
+                {
+                    stats = new ClientUsageStats();
+                    _clientDataUsageMap[clean] = stats;
+                }
+                stats.QosLimit = qosLimit;
+            }
+        }
+
         public static string FormatBytes(long bytes)
         {
             if (bytes >= 1024L * 1024L * 1024L)
@@ -1464,7 +1479,10 @@ if ($connectionProfile) {
                     }
 
                     ulong bitsPerSec = 0;
-                    if (limitChoice.Contains("1 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 1_000_000;
+                    if (limitChoice.Contains("30 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("30KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 240_000;
+                    else if (limitChoice.Contains("100 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("100KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 800_000;
+                    else if (limitChoice.Contains("300 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("300KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_400_000;
+                    else if (limitChoice.Contains("1 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 1_000_000;
                     else if (limitChoice.Contains("2 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_000_000;
                     else if (limitChoice.Contains("5 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 5_000_000;
                     else if (limitChoice.Contains("10 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 10_000_000;
@@ -1725,6 +1743,7 @@ Remove-NetFirewallRule -DisplayName ""Hotspot_Disc_Out_{cleanMac}"" -ErrorAction
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
                     _activeBlockedMacs.Add(cleanMac);
+                    _disconnectedMacs[cleanMac] = DateTime.Now;
 
                     string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
