@@ -360,6 +360,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand SetClientPriorityCommand { get; }
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ClearResetLogsCommand { get; }
+        public ICommand RefreshRulesCommand { get; }
 
         public MainViewModel()
         {
@@ -383,6 +384,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     Hotspot.BlockedClients.Add(b);
                     HotspotService.RegisterBlockedMac(b.MacAddress);
+                    if (!string.IsNullOrEmpty(b.IpAddress) && b.IpAddress != "-")
+                    {
+                        HotspotService.EnforceIpBlock(b.MacAddress, b.IpAddress);
+                    }
                 }
             }
 
@@ -441,6 +446,18 @@ namespace WifiAnalyzerHotspot.ViewModels
             ToggleHotspotCommand = new RelayCommand(async () => await ToggleHotspotAsync());
             SaveHotspotConfigCommand = new RelayCommand(async () => await SaveHotspotConfigAsync());
             RefreshHotspotCommand = new RelayCommand(async () => await RefreshHotspotAsync(true));
+            RefreshRulesCommand = new RelayCommand(async () =>
+            {
+                Hotspot.StatusMessage = "🛡️ Re-enforcing all Hotspot QoS limits, device priorities, block blackholes, and upstream transit rules...";
+                var res = await _hotspotService.ReenforceAllRulesAsync(
+                    Hotspot.Clients,
+                    Hotspot.BlockedClients,
+                    _settings.ClientQosLimits,
+                    _settings.ClientPriorities
+                );
+                Hotspot.StatusMessage = res.message;
+                await RefreshHotspotAsync(true);
+            });
             CopyHotspotDetailsCommand = new RelayCommand(() =>
             {
                 try

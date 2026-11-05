@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.1)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.2)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, instant client disconnect, kernel-level device blocking, per-client bandwidth throttling (QoS), real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.1)
+## ✨ Key Features (v1.2.2)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -45,6 +45,12 @@ You can run the app immediately by double-clicking:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
 ### 4. 🔥 Mobile Hotspot Creator & Manager (with RealTime Priority & QoS)
+- **🌐 Upstream Connection Top Priority (Prioritized Over Host PC Browsers)**:
+  - Enforces kernel-level NetQoS priority for all hotspot transit traffic (`192.168.137.0/24`) with **Precedence 255**, **802.1p Tag 7** (Network Control / Voice), and **DSCP 46** (Expedited Forwarding).
+  - Local desktop web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`, `tor.exe`) are constrained to **Precedence 64**, **802.1p Tag 1** (Background), and **DSCP 8** (Scavenger). Hotspot packets are always serviced at the front of the physical network adapter transmission queue before local browser downloads.
+- **🛡️ "Refresh Rules" Quick Enforcement Button**:
+  - Located directly beside **Refresh Clients** in the Connected Client Devices card.
+  - Re-applies and re-asserts all active QoS rate limits, client priority tags (1-7), static ARP blackholes, firewall blocks, and RealTime upstream transit prioritization in a single click.
 - **⚡ REALTIME PC Priority Mode (Active at Every Startup)**:
   - Process automatically elevates to `RealTime` priority at application startup (with fallback to `High` if non-elevated).
   - Automatically runs the hotspot creation process ID (`powershell.exe`), `SharedAccess` (ICS NAT & DHCP router service), and `wlanext.exe` / `wlansvc` with RealTime priority.
@@ -52,6 +58,14 @@ You can run the app immediately by double-clicking:
   - **Maximum Radio Power**: Enforces Wi-Fi adapter Transmit Power to **Level 5 (Highest)**, turns on **Throughput Booster**, and disables **Packet Coalescing** & **MIMO Power-Saving** sleep.
   - **Zero Network Throttling**: Sets `NetworkThrottlingIndex = 0xFFFFFFFF` and `SystemResponsiveness = 0` (allocating 100% CPU priority to network routing).
   - **Top Virtual Route Metric**: Assigns `InterfaceMetric = 5` to the Microsoft Wi-Fi Direct Virtual Adapter for prioritized routing.
+- **🛑 Rock-Solid Device Disconnect & Permanent Block**:
+  - **Instant Disconnect on Block**: Clicking **Block** immediately severs all active TCP sockets via `Remove-NetTCPConnection`, drops Layer 2 ARP mappings, marks neighbor unreachable, and removes the device from the connected table.
+  - **Multi-Layer Kernel Isolation**:
+    - **Layer 2 Static ARP Poisoning (`00-00-00-00-00-00`)**: Forces the host NIC to transmit frames intended for the blocked IP to a null MAC address, rendering client reception physically impossible.
+    - **Kernel NetQoS 8 bps clamp (`Precedence 255`)**: Freezes bandwidth at 1 byte/sec on both Source and Destination IP for instant network stall.
+    - **Windows Defender Firewall (Inbound & Outbound)**: Blocks all transit and local packets, including UDP/TCP 53 (DNS) and UDP 67 (DHCP) to block lease renewals.
+    - **Continuous Watchdog Auto-Seal**: If a blocked device attempts to re-associate or acquires a new IP from DHCP, the watchdog detects its MAC in ARP or client lists and immediately re-seals the new IP.
+    - **Persistent Blacklist**: Saved to `%APPDATA%\WifiAnalyzerHotspot\settings.json` across app and PC restarts.
 - **📻 Dynamic Single-Channel Concurrency (SCC) Hardware Detection**:
   - The Hardware Radio Architecture panel dynamically detects your real network connection:
     - **When connected to Wi-Fi**: Shows your actual network name (SSID) and operating channel, explaining how Windows SCC synchronizes SoftAP to prevent disconnections.
@@ -60,18 +74,9 @@ You can run the app immediately by double-clicking:
   - Dedicated card in the Hotspot view that records every auto-recovery event with exact timestamps and trigger reasons (`Watchdog: No Client Data Flow`, `Watchdog: Hotspot Stuck in Transition`, `Manual User Trigger`, etc.).
   - Includes a "Clear Log" button and live event counter badge.
 - **🚫 Zero Phantom / Ghost Devices Fix**:
-  - Eliminated stale Windows ARP cache resurrection loops that previously caused disconnected devices to linger as `Device (IP)`.
-  - Only true WinRT-authenticated associated clients are displayed.
-- **🛑 Rock-Solid Device Disconnect & Permanent Block**:
-  - **Instant Disconnect**: Severing TCP connections, flushing ARP, setting Layer 2 neighbor state to `Unreachable`, and enforcing a 45s cooldown window so disconnected clients stay removed from the client list.
-  - **Ironclad Multi-Layer Blocking**:
-    - **Kernel NetQoS 8 bps clamp**: Drops bandwidth to 1 byte/sec on both Source and Destination IP for instant network stall.
-    - **Windows Defender Firewall (Inbound & Outbound)**: Blocks all transit and local packets.
-    - **Host Route Loopback Blackhole**: Routes client packets to `127.0.0.1` so transit packets are discarded immediately.
-    - **Layer 2 NetNeighbor Unreachable**: Removes ARP resolution.
-    - **Persistent Blacklist**: Saved to `%APPDATA%\WifiAnalyzerHotspot\settings.json` across app restarts.
+  - Eliminated stale Windows ARP cache resurrection loops that previously caused disconnected devices to linger as `Device (IP)`. Only true WinRT-authenticated associated clients are displayed.
 - **⚡ Real-Time In-Process Client Polling Engine (<10ms)**:
-  - Direct in-process Windows Runtime C# APIs (`Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager`).
+  - Compiled direct in-process Windows Runtime C# APIs (`Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager`).
   - Cuts background telemetry query time from 2500ms down to **under 10ms** with zero CPU consumption.
   - Client devices table refreshes smoothly every **1 second** with zero UI stutter, button freezing, or reentrancy lockouts.
 - **⚡ Hardware SendARP-First Reachability Verification**:
@@ -94,43 +99,6 @@ You can run the app immediately by double-clicking:
     - **Ultra-Light Low Bandwidth Caps**: **`30 KB/s`** (240 kbps), **`100 KB/s`** (800 kbps), **`300 KB/s`** (2.4 Mbps) tailored specifically for metered, capped, or low-speed networks.
     - **High-Speed Caps**: **`1 Mbps`**, **`2 Mbps`**, **`5 Mbps`**, **`10 Mbps`**, **`20 Mbps`**, or **`Unlimited`**.
   - Rate limits are automatically remembered by MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json` and restored across restarts.
-- **🛑 Dual-Action Block & Disconnect**:
-  - Clicking **Block** on any device now **instantly terminates and severs active network connections** (via Layer 2 NetNeighbor unreachable and ARP flushing) while simultaneously applying permanent Windows Defender Firewall and kernel 8 bps clamp rules, removing the device from the connected table immediately.
-- **📊 Cumulative Session Data Usage per Device**:
-  - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
-- **Multi-Vector Client Data Flow Health Check**:
-  - Multi-vector verification (ICMP Echo + Layer 4 TCP Port 80/443 + Hardware ARP Link Verification) eliminating false "No Data" flags.
-    - **Layer 2 NetNeighbor Unreachable**: Removes ARP resolution.
-    - **Persistent Blacklist**: Saved to `%APPDATA%\WifiAnalyzerHotspot\settings.json` across app restarts.
-- **⚡ Real-Time In-Process Client Polling Engine (<10ms)**:
-  - Replaced repetitive `powershell.exe` process spawns with compiled, direct in-process Windows Runtime C# APIs (`Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager`).
-  - Cuts background telemetry query time from 2500ms down to **under 10ms** with zero CPU consumption.
-  - Client devices table refreshes smoothly every **1 second** with zero UI stutter, button freezing, or reentrancy lockouts.
-- **🚫 Complete Stale Ghost Device Elimination**:
-  - Eliminated stale Windows ARP cache resurrection that previously caused disconnected devices to remain in the client list (e.g., showing 5 devices when only 3 were actually connected).
-  - Unresponsive devices that fail reachability verification for 2 consecutive cycles are automatically pruned in real time.
-- **⚡ Hardware SendARP-First Reachability Verification**:
-  - Probes live Layer 2 radio connectivity via raw `SendARP` packets answered directly by client device Wi-Fi chips in 1-3ms (immune to phone lock-screen sleep, firewall drops, or ICMP blocks).
-  - Accompanied by fast ICMP Echo and TCP fallback (port 80/443).
-- **⏱️ Configurable Watchdog Check Frequency Dropdown**:
-  - Selectable consecutive check thresholds: **`2s (Ultra-Fast)`**, **`3s (Aggressive)`**, **`5s (Recommended)`**, **`10s (Standard)`**, **`15s (Relaxed)`**, and **`30s (High Tolerance)`**.
-- **📶 Per-Client Priority System (1 - 7, Lower = Higher Priority)**:
-  - Configure traffic priority directly from the connected devices table:
-    - **Priority 1 (Highest)**: Real-time network control, mapped to 802.1p tag `7` and DSCP `46` (Expedited Forwarding). Zero-latency scheduling queue for critical devices.
-    - **Priority 2 (High)**: Voice and low-latency interactive audio, mapped to 802.1p `6` and DSCP `34`.
-    - **Priority 3 (Elevated)**: Streaming video and gaming, mapped to 802.1p `5` and DSCP `26`.
-    - **Priority 4 (Normal)**: Accelerated data, mapped to 802.1p `4` and DSCP `18`.
-    - **Priority 5 (Default)**: Standard Best Effort traffic, mapped to 802.1p `3` and DSCP `0`. Default priority for all new connected devices.
-    - **Priority 6 (Low)**: Deprioritized background traffic, mapped to 802.1p `2` and DSCP `10`.
-    - **Priority 7 (Lowest)**: Scavenger class, mapped to 802.1p `1` and DSCP `8`. Gets the lowest packet scheduling priority.
-  - **Hardware MAC Address Persistence Across Restarts**: The priority selected for each device is permanently saved by physical MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json`. When that device reconnects or after the app or PC restarts, its custom priority is automatically retrieved and re-enforced in the Windows kernel.
-- **🚦 Granular Per-Client Bandwidth Throttling / QoS (with Hardware Persistence)**:
-  - Cap individual client speeds with one-click QoS limits via native Windows `New-NetQosPolicy`:
-    - **Ultra-Light Low Bandwidth Caps**: **`30 KB/s`** (240 kbps), **`100 KB/s`** (800 kbps), **`300 KB/s`** (2.4 Mbps) tailored specifically for metered, capped, or low-speed networks.
-    - **High-Speed Caps**: **`1 Mbps`**, **`2 Mbps`**, **`5 Mbps`**, **`10 Mbps`**, **`20 Mbps`**, or **`Unlimited`**.
-  - Rate limits are automatically remembered by MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json` and restored across restarts.
-- **🛑 Dual-Action Block & Disconnect**:
-  - Clicking **Block** on any device now **instantly terminates and severs active network connections** (via Layer 2 NetNeighbor unreachable and ARP flushing) while simultaneously applying permanent Windows Defender Firewall and kernel 8 bps clamp rules, removing the device from the connected table immediately.
 - **📊 Cumulative Session Data Usage per Device**:
   - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
 - **Multi-Vector Client Data Flow Health Check**:

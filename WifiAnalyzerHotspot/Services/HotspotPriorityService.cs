@@ -109,12 +109,31 @@ try {
         Set-NetIPInterface -InterfaceMetric 5 -ErrorAction SilentlyContinue
 } catch {}
 
+# E. Enforce MAXIMUM Precedence (255) for all Hotspot Transit Traffic across the Main Shared Connection:
+# Prioritize the 192.168.137.0/24 subnet traffic with 802.1p Network Control (7) and DSCP Expedited Forwarding (46)
+try {
+    Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 255 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 255 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+} catch {}
+
+# F. Ensure local browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Tor) do not choke upstream shared connection:
+# Set desktop browsers to lower Precedence (64), 802.1p 1 (Background), and DSCP 8 (CS1 scavenger) so Hotspot packets always jump ahead in the router/NIC queue
+try {
+    $browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
+    foreach ($b in $browsers) {
+        Remove-NetQosPolicy -Name ""Hotspot_Browser_$b"" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        New-NetQosPolicy -Name ""Hotspot_Browser_$b"" -AppPathNameMatchCondition ""*$b"" -PriorityValue8021Action 1 -DSCPAction 8 -Precedence 64 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+} catch {}
+
 Write-Output 'OK'
 ";
                     RunPowerShell(script);
                     _isPriorityEngaged = true;
 
-                    return (true, "⚡ Highest Priority Mode Active: RealTime CPU Priority • Max Radio Power • No Sleep Throttling • 0% Network Throttling");
+                    return (true, "⚡ Highest Priority Mode Active: RealTime CPU Priority • Upstream Connection Top Priority (over Browsers) • Max Radio Power • 0% Network Throttling");
                 }
                 catch (Exception ex)
                 {
@@ -142,6 +161,21 @@ Write-Output 'OK'
                 try
                 {
                     SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
+                }
+                catch { }
+
+                // Clear transit and browser NetQoS policies
+                try
+                {
+                    string cleanupScript = @"
+Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+$browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
+foreach ($b in $browsers) {
+    Remove-NetQosPolicy -Name ""Hotspot_Browser_$b"" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+}
+";
+                    RunPowerShell(cleanupScript);
                 }
                 catch { }
 

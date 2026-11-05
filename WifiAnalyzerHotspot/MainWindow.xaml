@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.2.1" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.2.2" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.2.1">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.2.2">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1278,10 +1278,19 @@
 
                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button Style="{StaticResource ModernBtn}" Command="{Binding RefreshHotspotCommand}"
-                                            Height="30" Padding="10,3" Margin="0,0,10,0">
+                                            Height="30" Padding="10,3" Margin="0,0,8,0"
+                                            ToolTip="Refresh connected client devices list and ARP cache">
                                         <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#x1F504;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                            <TextBlock Text="&#x1F504;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
                                             <TextBlock Text="Refresh Clients" FontSize="11"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ModernBtn}" Command="{Binding RefreshRulesCommand}"
+                                            Height="30" Padding="10,3" Margin="0,0,10,0"
+                                            ToolTip="Re-enforce all QoS bandwidth caps, device priorities, block blackholes, and RealTime upstream transit rules">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                            <TextBlock Text="Refresh Rules" FontSize="11"/>
                                         </StackPanel>
                                     </Button>
                                     <Border Background="#1D253B" CornerRadius="12" Padding="12,5">
