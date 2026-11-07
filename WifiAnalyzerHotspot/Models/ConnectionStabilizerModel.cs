@@ -179,6 +179,50 @@ namespace WifiAnalyzerHotspot.Models
         private string _reconnectStatusText = "Active Reconnect is Idle";
         private string _lastReconnectTime = "-";
 
+        // Top Link Speed Display (Wi-Fi or Ethernet: e.g. 1.0 Gbps or 100 Mbps)
+        private string _activeLinkSpeedText = "Detecting...";
+        private string _activeInterfaceType = "Wi-Fi";
+        private string _activeNetworkName = "";
+        private string _activeSpeedSummaryDetail = "";
+        private bool _isManualReconnecting;
+
+        public string ActiveLinkSpeedText
+        {
+            get => _activeLinkSpeedText;
+            set { _activeLinkSpeedText = value; OnPropertyChanged(); }
+        }
+
+        public string ActiveInterfaceType
+        {
+            get => _activeInterfaceType;
+            set { _activeInterfaceType = value; OnPropertyChanged(); }
+        }
+
+        public string ActiveNetworkName
+        {
+            get => _activeNetworkName;
+            set { _activeNetworkName = value; OnPropertyChanged(); }
+        }
+
+        public string ActiveSpeedSummaryDetail
+        {
+            get => _activeSpeedSummaryDetail;
+            set { _activeSpeedSummaryDetail = value; OnPropertyChanged(); }
+        }
+
+        public bool IsManualReconnecting
+        {
+            get => _isManualReconnecting;
+            set
+            {
+                _isManualReconnecting = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ManualReconnectButtonText));
+            }
+        }
+
+        public string ManualReconnectButtonText => _isManualReconnecting ? "RESETTING LINK..." : "⚡ RECONNECT / RESET NOW";
+
         public bool IsReconnectActive
         {
             get => _isReconnectActive;

@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.3)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.4)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.3)
+## ✨ Key Features (v1.2.4)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -107,6 +107,19 @@ You can run the app immediately by double-clicking:
   - Multi-vector verification (ICMP Echo + Layer 4 TCP Port 80/443 + Hardware ARP Link Verification) eliminating false "No Data" flags.
 
 ### 5. 🛡️ Connection Stabilizer & Reconnect Guardian
+- **⚡ Top Active Network Link Speed Display (Wi-Fi or Ethernet)**:
+  - Dynamically detects the primary connected network adapter (Gigabit / Fast Ethernet or Wi-Fi 6 / 5) and displays its negotiated hardware link speed at the top of Active Reconnect (e.g. **`1.0 Gbps (Ethernet)`**, **`100 Mbps (Ethernet)`**, or **`866 Mbps (Wi-Fi: Africa)`**).
+- **🔄 On-Demand Manual Reconnect / Reset Button**:
+  - `[⚡ RECONNECT / RESET NOW]` button placed directly beside Start/Stop Active Reconnect.
+  - Instantly executes the configured recovery mode (Adapter Reset, DHCP Renew, Radio Cycle, or Fast Re-auth), refreshes ARP cache, renegotiates IP lease, and logs the manual recovery event.
+- **Continuous Hotspot Watchdog with 15s Auto-Reset Countdown**:
+  - Continuously monitors client data flow and underlying hotspot infrastructure (ICS `SharedAccess` service, Wi-Fi Direct virtual adapter IP `192.168.137.1`, and upstream internet connectivity).
+  - Reduced stuck countdown from 30s down to **15s**, providing an audible/visual grace alert with one-click `[Cancel Auto-Reset]` and `[Reset Now]` options.
+- **Complete Settings Persistence Across App & PC Restarts**:
+  - Automatically preserves and restores all configurations in `%APPDATA%\WifiAnalyzerHotspot\settings.json`:
+    - **Active Keep-Alive Settings**: Target host (`1.1.1.1`), ping interval, probe method (ICMP/TCP/HTTP), active state.
+    - **Active Reconnect Settings**: Target SSID (`Africa` / `Ethernet`), drop threshold (2/3/5 drops), recovery mode, grace buffer delay, active state.
+    - **Hotspot Configuration & Watchdog**: SSID, password, band/channel, watchdog interval, auto-reset watchdog toggle.
 - **Configurable Log Buffers (50, 100, 300 entries)**:
   - Dropdown selectors on both **Active Keep-Alive (Heartbeat Log)** and **Active Reconnect (Watchdog Event Log)** to select log retention limits (`50`, `100`, `300`).
 - **Ethernet & Wi-Fi Active Reconnect**:

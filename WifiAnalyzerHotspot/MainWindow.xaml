@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.2.3" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.2.4" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.2.3">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.2.4">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1165,7 +1165,7 @@
                                     <CheckBox IsChecked="{Binding Hotspot.IsHealthCheckEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
                                         <StackPanel Orientation="Vertical" Margin="4,0,0,0">
                                             <TextBlock Text="Hotspot Client Data Flow Watchdog (Auto-Reset)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
-                                            <TextBlock Text="Monitors whether connected devices are getting data. If all devices are not working, gives a 30s cancellation countdown before auto-recovering the hotspot." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Monitors whether connected devices are getting data. If all devices are not working, gives a 15s cancellation countdown before auto-recovering the hotspot." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </CheckBox>
 
@@ -1195,7 +1195,7 @@
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button Command="{Binding TestWatchdogCommand}" Style="{StaticResource ModernBtn}"
                                                 Height="30" Padding="8,4" FontSize="11" Margin="0,0,6,0" Background="#261C14" BorderBrush="#FF9100" Foreground="#FFB74D"
-                                                ToolTip="Test the 30-second Stuck Watchdog countdown alert">
+                                                ToolTip="Test the 15-second Stuck Watchdog countdown alert">
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="&#x23F1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
                                                 <TextBlock Text="Test Watchdog"/>
@@ -1862,6 +1862,7 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
 
@@ -1877,31 +1878,76 @@
                                     </Border>
                                 </DockPanel>
 
+                                <!-- Top Active Network Link Speed Banner (1.0 Gbps / 100 Mbps) -->
+                                <Border Grid.Row="1" Background="#10192A" BorderBrush="#00E5FF" BorderThickness="1.2" CornerRadius="8" Padding="12,8" Margin="0,0,0,12">
+                                    <DockPanel LastChildFill="True">
+                                        <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0,0,0">
+                                            <Border Background="#1A2744" BorderBrush="#2A3C64" BorderThickness="1" CornerRadius="6" Padding="8,4">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="Link: " FontSize="10" Foreground="#7C88A8"/>
+                                                    <TextBlock Text="{Binding Stabilizer.ActiveInterfaceType}" FontSize="10" FontWeight="Bold" Foreground="#00E676"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Background="#172740" CornerRadius="6" Width="32" Height="32" Margin="0,0,10,0">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="ACTIVE NETWORK LINK SPEED" FontSize="9" FontWeight="Bold" Foreground="#7C88A8"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Stabilizer.ActiveLinkSpeedText}" FontSize="17" FontWeight="Bold" Foreground="#00E5FF"/>
+                                                    <TextBlock Text="{Binding Stabilizer.ActiveSpeedSummaryDetail}" FontSize="12" Foreground="#94A3B8" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+
                                 <!-- Subtitle Explanation -->
-                                <TextBlock Grid.Row="1" Text="Monitors real-time internet route integrity. If packet delivery stalls, instantly triggers low-level Wi-Fi re-association, DHCP lease renewal, or radio cycling to restore traffic."
+                                <TextBlock Grid.Row="2" Text="Monitors real-time internet route integrity. If packet delivery stalls, instantly triggers low-level Wi-Fi re-association, DHCP lease renewal, or radio cycling to restore traffic."
                                            FontSize="12" Foreground="#8FA0C2" TextWrapping="Wrap" Margin="0,0,0,14" LineHeight="18"/>
 
-                                <!-- Start / Stop Button -->
-                                <Button Grid.Row="2" Command="{Binding ToggleReconnectCommand}" Height="40" Margin="0,0,0,14">
-                                    <Button.Style>
-                                        <Style TargetType="Button" BasedOn="{StaticResource ModernBtn}">
-                                            <Setter Property="Background" Value="#00B0FF"/>
-                                            <Setter Property="Foreground" Value="#000000"/>
-                                            <Setter Property="FontWeight" Value="Bold"/>
-                                            <Setter Property="Content" Value="&#x25B6;  START ACTIVE RECONNECT"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Stabilizer.IsReconnectActive}" Value="True">
-                                                    <Setter Property="Background" Value="#D50000"/>
-                                                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                                                    <Setter Property="Content" Value="&#x25A0;  STOP ACTIVE RECONNECT"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
+                                <!-- Action Buttons: Start/Stop + Manual Reconnect / Reset -->
+                                <Grid Grid.Row="3" Margin="0,0,0,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Start / Stop Button -->
+                                    <Button Grid.Column="0" Command="{Binding ToggleReconnectCommand}" Height="40" Margin="0,0,5,0">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource ModernBtn}">
+                                                <Setter Property="Background" Value="#00B0FF"/>
+                                                <Setter Property="Foreground" Value="#000000"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                <Setter Property="Content" Value="&#x25B6;  START ACTIVE RECONNECT"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Stabilizer.IsReconnectActive}" Value="True">
+                                                        <Setter Property="Background" Value="#D50000"/>
+                                                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                                                        <Setter Property="Content" Value="&#x25A0;  STOP ACTIVE RECONNECT"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <!-- Manual Reset / Reconnect Button -->
+                                    <Button Grid.Column="1" Command="{Binding ManualReconnectCommand}" Height="40" Margin="5,0,0,0"
+                                            Background="#182338" BorderBrush="#00E676" BorderThickness="1.2" Foreground="#00E676" FontWeight="Bold"
+                                            ToolTip="Instantly trigger a manual link reset, DHCP renew, and reconnection cycle">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x1F504;" FontFamily="Segoe UI Emoji" FontSize="14" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{Binding Stabilizer.ManualReconnectButtonText}" FontSize="11" FontWeight="Bold"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
 
                                 <!-- Configuration Settings -->
-                                <Border Grid.Row="3" Background="#161A28" BorderBrush="#252D42" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,14">
+                                <Border Grid.Row="4" Background="#161A28" BorderBrush="#252D42" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,14">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
@@ -1952,7 +1998,7 @@
                                 </Border>
 
                                 <!-- Watchdog Counters -->
-                                <Grid Grid.Row="4" Margin="0,0,0,14">
+                                <Grid Grid.Row="5" Margin="0,0,0,14">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="*"/>
@@ -1985,7 +2031,7 @@
                                 </Grid>
 
                                 <!-- Watchdog Event Log -->
-                                <Border Grid.Row="5" Background="#121522" BorderBrush="#22283C" BorderThickness="1" CornerRadius="8" Padding="10" MinHeight="180">
+                                <Border Grid.Row="6" Background="#121522" BorderBrush="#22283C" BorderThickness="1" CornerRadius="8" Padding="10" MinHeight="180">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>

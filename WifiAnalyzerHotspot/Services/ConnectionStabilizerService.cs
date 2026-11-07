@@ -283,128 +283,244 @@ namespace WifiAnalyzerHotspot.Services
                             Log(model, $"[DROP #{model.TotalDropsDetected}] {model.FailureThreshold} consecutive probe failures on {(isEthLink ? "Ethernet" : "Wi-Fi")}. Strategy: {model.ReconnectStrategy}");
 
                             // ── Execute Recovery strategies ────────────────
-                            if (isEthLink)
-                            {
-                                // ==================== ETHERNET RECONNECTION ====================
-                                if (model.ReconnectStrategy.Contains("Adapter Reset"))
-                                {
-                                    Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
-                                    if (!string.IsNullOrEmpty(adapterName))
-                                    {
-                                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
-                                        await Task.Delay(1500, token);
-                                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
-                                        await Task.Delay(2500, token);
-                                    }
-                                    RunCmd("ipconfig", "/renew");
-                                }
-                                else if (model.ReconnectStrategy.Contains("DHCP"))
-                                {
-                                    Log(model, "Renewing Ethernet DHCP lease & flushing DNS...");
-                                    RunCmd("ipconfig", "/flushdns");
-                                    RunCmd("ipconfig", "/release");
-                                    await Task.Delay(800, token);
-                                    RunCmd("ipconfig", "/renew");
-                                }
-                                else // Fast Re-auth / Re-negotiate (default)
-                                {
-                                    Log(model, "Re-negotiating Ethernet link & refreshing ARP cache...");
-                                    RunCmd("netsh", "interface ip delete arpcache");
-                                    RunCmd("ipconfig", "/renew");
-                                }
-                            }
-                            else
-                            {
-                                // ==================== WI-FI RECONNECTION ====================
-                                if (model.ReconnectStrategy.Contains("Adapter Reset"))
-                                {
-                                    Log(model, "Resetting Wi-Fi adapter (disable → enable)...");
-                                    if (!string.IsNullOrEmpty(adapterName))
-                                    {
-                                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
-                                        await Task.Delay(1200, token);
-                                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
-                                        await Task.Delay(2000, token);
-                                    }
-                                    if (!string.IsNullOrEmpty(target))
-                                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                }
-                                else if (model.ReconnectStrategy.Contains("DHCP"))
-                                {
-                                    Log(model, "Reconnecting Wi-Fi and renewing DHCP lease...");
-                                    if (!string.IsNullOrEmpty(target))
-                                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                    await Task.Delay(1500, token);
-                                    RunCmd("ipconfig", "/release");
-                                    await Task.Delay(500, token);
-                                    RunCmd("ipconfig", "/renew");
-                                }
-                                else if (model.ReconnectStrategy.Contains("Radio"))
-                                {
-                                    Log(model, "Disconnecting then reconnecting Wi-Fi radio...");
-                                    RunCmd("netsh", "wlan disconnect");
-                                    await Task.Delay(1000, token);
-                                    if (!string.IsNullOrEmpty(target))
-                                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                }
-                                else // Fast Wi-Fi Re-auth (default)
-                                {
-                                    Log(model, $"Sending fast re-auth to AP '{target}'...");
-                                    if (!string.IsNullOrEmpty(target))
-                                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
-                                }
-                            }
-
-                            // ── Buffer / Grace Period (gives Cisco AnyConnect, VPN, DHCP handshake time to establish) ──
-                            Log(model, $"[BUFFER] Reconnect action executed. Holding {bufferSec}s stabilization buffer for VPN (Cisco AnyConnect) & DHCP...");
-                            UI(() => model.ReconnectStatusText = $"Stabilizing VPN / DHCP link ({bufferSec}s buffer)...");
-
-                            DateTime bufferEnd = DateTime.UtcNow.AddSeconds(bufferSec);
-                            bool restored = false;
-
-                            while (DateTime.UtcNow < bufferEnd && !token.IsCancellationRequested)
-                            {
-                                int secLeft = (int)Math.Ceiling((bufferEnd - DateTime.UtcNow).TotalSeconds);
-                                if (secLeft > 0)
-                                {
-                                    UI(() => model.ReconnectStatusText = $"Waiting for VPN / DHCP ({secLeft}s buffer remaining)...");
-                                }
-
-                                restored = await IsInternetAliveAsync(ping);
-                                if (restored)
-                                {
-                                    // Give AnyConnect or corporate VPN 2 extra seconds to stabilize routes
-                                    await Task.Delay(2000, token);
-                                    break;
-                                }
-
-                                await Task.Delay(1500, token);
-                            }
-
-                            if (restored)
-                            {
-                                UI(() =>
-                                {
-                                    model.TotalReconnected++;
-                                    model.LastReconnectTime = DateTime.Now.ToString("HH:mm:ss");
-                                    model.ReconnectStatusText = $"✓ Restored at {model.LastReconnectTime}";
-                                });
-                                Log(model, $"[SUCCESS] Connection successfully restored & stabilized for '{targetDisplay}' at {DateTime.Now:HH:mm:ss} (total: {model.TotalReconnected}).");
-                                fails = 0;
-                            }
-                            else
-                            {
-                                Log(model, $"[BUFFER COMPLETE] Link is still handshaking. Enforcing 8s cooldown before resuming watchdog...");
-                                UI(() => model.ReconnectStatusText = "VPN / Gateway still establishing (cooling down)...");
-                                fails = 0; // Prevent immediate flapped re-trigger!
-                                await Task.Delay(8000, token);
-                            }
+                            await ExecuteRecoveryAsync(model, $"Watchdog drop #{model.TotalDropsDetected}", token);
+                            lastReconnectAttempt = DateTime.UtcNow;
+                            fails = 0;
                         }
                     }
 
                     await Task.Delay(2000, token);
                 }
             }, token);
+        }
+
+        /// <summary>
+        /// Executes the configured recovery strategy (Adapter Reset, DHCP Renew, Radio Cycle, or Fast Re-auth),
+        /// holds the VPN/DHCP grace buffer, verifies restoration, and logs results.
+        /// </summary>
+        public async Task<bool> ExecuteRecoveryAsync(ConnectionStabilizerModel model, string reason, CancellationToken token = default)
+        {
+            var (adapterName, isEthernet) = GetActiveLinkAdapterInfo(model.TargetSsid ?? "");
+            string target = string.IsNullOrWhiteSpace(model.TargetSsid) ? "" : model.TargetSsid.Trim();
+            bool isEthLink = isEthernet || target.Contains("Ethernet", StringComparison.OrdinalIgnoreCase);
+
+            Log(model, $"[RECOVERY] Executing {model.ReconnectStrategy} on {(isEthLink ? "Ethernet" : "Wi-Fi")} (Trigger: {reason})...");
+
+            // ── Execute Recovery strategies ────────────────
+            if (isEthLink)
+            {
+                // ==================== ETHERNET RECONNECTION ====================
+                if (model.ReconnectStrategy.Contains("Adapter Reset"))
+                {
+                    Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
+                    if (!string.IsNullOrEmpty(adapterName))
+                    {
+                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
+                        await Task.Delay(1500, token);
+                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
+                        await Task.Delay(2500, token);
+                    }
+                    RunCmd("ipconfig", "/renew");
+                }
+                else if (model.ReconnectStrategy.Contains("DHCP"))
+                {
+                    Log(model, "Renewing Ethernet DHCP lease & flushing DNS...");
+                    RunCmd("ipconfig", "/flushdns");
+                    RunCmd("ipconfig", "/release");
+                    await Task.Delay(800, token);
+                    RunCmd("ipconfig", "/renew");
+                }
+                else // Fast Re-auth / Re-negotiate (default)
+                {
+                    Log(model, "Re-negotiating Ethernet link & refreshing ARP cache...");
+                    RunCmd("netsh", "interface ip delete arpcache");
+                    RunCmd("ipconfig", "/renew");
+                }
+            }
+            else
+            {
+                // ==================== WI-FI RECONNECTION ====================
+                if (model.ReconnectStrategy.Contains("Adapter Reset"))
+                {
+                    Log(model, "Resetting Wi-Fi adapter (disable → enable)...");
+                    if (!string.IsNullOrEmpty(adapterName))
+                    {
+                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
+                        await Task.Delay(1200, token);
+                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
+                        await Task.Delay(2000, token);
+                    }
+                    if (!string.IsNullOrEmpty(target))
+                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                }
+                else if (model.ReconnectStrategy.Contains("DHCP"))
+                {
+                    Log(model, "Reconnecting Wi-Fi and renewing DHCP lease...");
+                    if (!string.IsNullOrEmpty(target))
+                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                    await Task.Delay(1500, token);
+                    RunCmd("ipconfig", "/release");
+                    await Task.Delay(500, token);
+                    RunCmd("ipconfig", "/renew");
+                }
+                else if (model.ReconnectStrategy.Contains("Radio"))
+                {
+                    Log(model, "Disconnecting then reconnecting Wi-Fi radio...");
+                    RunCmd("netsh", "wlan disconnect");
+                    await Task.Delay(1000, token);
+                    if (!string.IsNullOrEmpty(target))
+                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                }
+                else // Fast Wi-Fi Re-auth (default)
+                {
+                    Log(model, $"Sending fast re-auth to AP '{target}'...");
+                    if (!string.IsNullOrEmpty(target))
+                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                }
+            }
+
+            // ── Buffer / Grace Period (gives Cisco AnyConnect, VPN, DHCP handshake time to establish) ──
+            int bufferSec = Math.Max(5, model.ReconnectBufferSeconds);
+            Log(model, $"[BUFFER] Reconnect action executed. Holding {bufferSec}s stabilization buffer for VPN & DHCP...");
+            UI(() => model.ReconnectStatusText = $"Stabilizing VPN / DHCP link ({bufferSec}s buffer)...");
+
+            DateTime bufferEnd = DateTime.UtcNow.AddSeconds(bufferSec);
+            bool restored = false;
+            using var ping = new Ping();
+
+            while (DateTime.UtcNow < bufferEnd && !token.IsCancellationRequested)
+            {
+                int secLeft = (int)Math.Ceiling((bufferEnd - DateTime.UtcNow).TotalSeconds);
+                if (secLeft > 0)
+                {
+                    UI(() => model.ReconnectStatusText = $"Waiting for VPN / DHCP ({secLeft}s buffer remaining)...");
+                }
+
+                restored = await IsInternetAliveAsync(ping);
+                if (restored)
+                {
+                    await Task.Delay(2000, token);
+                    break;
+                }
+
+                await Task.Delay(1500, token);
+            }
+
+            if (restored)
+            {
+                UI(() =>
+                {
+                    model.TotalReconnected++;
+                    model.LastReconnectTime = DateTime.Now.ToString("HH:mm:ss");
+                    model.ReconnectStatusText = $"✓ Restored at {model.LastReconnectTime}";
+                });
+                string targetDisplay = !string.IsNullOrWhiteSpace(model.TargetSsid) ? model.TargetSsid.Trim() : (isEthLink ? "Ethernet" : "Active AP");
+                Log(model, $"[SUCCESS] Connection successfully restored & stabilized for '{targetDisplay}' at {DateTime.Now:HH:mm:ss} (total: {model.TotalReconnected}).");
+            }
+            else
+            {
+                Log(model, $"[BUFFER COMPLETE] Link is still handshaking. Enforcing 8s cooldown before resuming watchdog...");
+                UI(() => model.ReconnectStatusText = "VPN / Gateway still establishing (cooling down)...");
+                await Task.Delay(8000, token);
+            }
+
+            UpdateActiveLinkSpeed(model);
+            return restored;
+        }
+
+        /// <summary>
+        /// Manually triggers an immediate connection reconnect/reset on demand from the UI button.
+        /// </summary>
+        public async Task<bool> TriggerManualReconnectAsync(ConnectionStabilizerModel model)
+        {
+            if (model.IsManualReconnecting) return false;
+            model.IsManualReconnecting = true;
+            try
+            {
+                Log(model, $"[MANUAL RESET] Manual connection reset triggered by user ({model.ReconnectStrategy}).");
+                UI(() => model.ReconnectStatusText = "⚡ Executing manual reconnect & adapter reset...");
+                bool ok = await ExecuteRecoveryAsync(model, "Manual Reset Button", CancellationToken.None);
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                Log(model, $"[MANUAL RESET ERROR] {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                model.IsManualReconnecting = false;
+            }
+        }
+
+        /// <summary>
+        /// Discovers the active network adapter (Ethernet or Wi-Fi) and calculates its real-time negotiated link speed.
+        /// Formats clean human-readable text like '1.0 Gbps' or '100 Mbps' at the top of Active Reconnect.
+        /// </summary>
+        public void UpdateActiveLinkSpeed(ConnectionStabilizerModel model)
+        {
+            try
+            {
+                var ifaces = NetworkInterface.GetAllNetworkInterfaces();
+
+                // 1. Check for Active Ethernet
+                var activeEth = ifaces.FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up
+                    && i.NetworkInterfaceType == NetworkInterfaceType.Ethernet
+                    && !i.Name.Contains('*')
+                    && !i.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+                    && !i.Description.Contains("Loopback", StringComparison.OrdinalIgnoreCase));
+
+                // 2. Check for Active Wi-Fi
+                var activeWifi = ifaces.FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up
+                    && i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211
+                    && !i.Name.Contains('*'));
+
+                var primary = activeEth ?? activeWifi;
+                if (primary != null)
+                {
+                    long speedBps = primary.Speed;
+                    bool isEth = primary.NetworkInterfaceType == NetworkInterfaceType.Ethernet;
+                    string speedFormatted;
+                    if (speedBps >= 1_000_000_000)
+                    {
+                        speedFormatted = $"{speedBps / 1_000_000_000.0:0.#} Gbps";
+                    }
+                    else if (speedBps >= 1_000_000)
+                    {
+                        speedFormatted = $"{speedBps / 1_000_000.0:0} Mbps";
+                    }
+                    else if (speedBps > 0)
+                    {
+                        speedFormatted = $"{speedBps / 1_000.0:0} Kbps";
+                    }
+                    else
+                    {
+                        speedFormatted = isEth ? "1.0 Gbps" : "Auto";
+                    }
+
+                    string ifType = isEth ? "Ethernet" : "Wi-Fi";
+                    string netName = isEth ? primary.Name : (string.IsNullOrWhiteSpace(model.TargetSsid) ? primary.Name : model.TargetSsid);
+                    string detail = isEth ? "(Ethernet)" : $"(Wi-Fi: {netName})";
+
+                    UI(() =>
+                    {
+                        model.ActiveLinkSpeedText = speedFormatted;
+                        model.ActiveInterfaceType = ifType;
+                        model.ActiveNetworkName = netName;
+                        model.ActiveSpeedSummaryDetail = detail;
+                    });
+                }
+                else
+                {
+                    UI(() =>
+                    {
+                        model.ActiveLinkSpeedText = "No Link";
+                        model.ActiveInterfaceType = "None";
+                        model.ActiveSpeedSummaryDetail = "(No active link)";
+                    });
+                }
+            }
+            catch { }
         }
 
         public void StopActiveReconnect()

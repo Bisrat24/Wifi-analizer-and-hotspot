@@ -1307,6 +1307,59 @@ if ($connectionProfile) {
         }
 
         /// <summary>
+        /// Continuously checks whether the underlying Windows hotspot infrastructure
+        /// (Virtual Wi-Fi Direct adapter, ICS DHCP scope 192.168.137.1) is actively healthy.
+        /// </summary>
+        public static (bool isHealthy, string failureReason) CheckHotspotInfrastructureHealth(bool isHotspotRunning)
+        {
+            if (!isHotspotRunning) return (true, "Hotspot stopped");
+            try
+            {
+                bool directAdapterFound = false;
+                bool hasHotspotIp = false;
+
+                var ifaces = NetworkInterface.GetAllNetworkInterfaces();
+                foreach (var ni in ifaces)
+                {
+                    if (ni.OperationalStatus == OperationalStatus.Up)
+                    {
+                        if (ni.Description.Contains("Wi-Fi Direct", StringComparison.OrdinalIgnoreCase) ||
+                            ni.Name.Contains("Wi-Fi Direct", StringComparison.OrdinalIgnoreCase) ||
+                            ni.Name.Contains("Local Area Connection*", StringComparison.OrdinalIgnoreCase))
+                        {
+                            directAdapterFound = true;
+                            var ipProps = ni.GetIPProperties();
+                            foreach (var addr in ipProps.UnicastAddresses)
+                            {
+                                if (addr.Address.ToString() == "192.168.137.1")
+                                {
+                                    hasHotspotIp = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!directAdapterFound)
+                {
+                    return (false, "Virtual Wi-Fi Direct SoftAP adapter is down or missing");
+                }
+
+                if (!hasHotspotIp)
+                {
+                    return (false, "Hotspot IP 192.168.137.1 unassigned (DHCP/ICS scope lost)");
+                }
+
+                return (true, "Infrastructure healthy");
+            }
+            catch (Exception ex)
+            {
+                return (true, ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Enriches connected client devices with real-time negotiated link speed, live latency,
         /// and data flow health. Prioritizes instant hardware-level SendARP (1-3ms) directly answered
         /// by client Wi-Fi chips, followed by fast Ping/TCP fallback.
@@ -1388,7 +1441,15 @@ if ($connectionProfile) {
                 // Handled directly by client's Wi-Fi hardware SoC - immune to phone screen sleep/firewalls
                 var (arpOk, liveMac, arpRtt) = NativeArpHelper.ProbeClientArp(client.IpAddress);
 
-                if (arpOk)
+                if (!hostHasInternet)
+                {
+                    _clientConsecutiveMisses[normMac] = 0;
+                    client.IsGettingData = false;
+                    client.DataStatusText = "⚠️ No Internet (Host Offline)";
+                    client.ConnectionSpeed = "No Internet Access";
+                    client.Latency = "No Transit";
+                }
+                else if (arpOk)
                 {
                     _clientConsecutiveMisses[normMac] = 0;
                     client.IsGettingData = true;
@@ -1434,11 +1495,21 @@ if ($connectionProfile) {
                     if (pingOk || tcpOk)
                     {
                         _clientConsecutiveMisses[normMac] = 0;
-                        client.IsGettingData = true;
-                        client.DataStatusText = "● Getting Data";
-                        long rtt = pingOk ? pingRtt : tcpRtt;
-                        client.Latency = rtt > 0 ? $"{rtt} ms" : "< 10 ms";
-                        client.ConnectionSpeed = $"Online • {client.Latency}";
+                        if (!hostHasInternet)
+                        {
+                            client.IsGettingData = false;
+                            client.DataStatusText = "⚠️ No Internet (Host Offline)";
+                            client.ConnectionSpeed = "No Internet Access";
+                            client.Latency = "No Transit";
+                        }
+                        else
+                        {
+                            client.IsGettingData = true;
+                            client.DataStatusText = "● Getting Data";
+                            long rtt = pingOk ? pingRtt : tcpRtt;
+                            client.Latency = rtt > 0 ? $"{rtt} ms" : "< 10 ms";
+                            client.ConnectionSpeed = $"Online • {client.Latency}";
+                        }
                     }
                     else
                     {

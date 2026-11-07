@@ -264,19 +264,46 @@ namespace WifiAnalyzerHotspot.ViewModels
         public string HotspotSsidInput
         {
             get => _hotspotSsidInput;
-            set { _hotspotSsidInput = value; OnPropertyChanged(); }
+            set
+            {
+                _hotspotSsidInput = value;
+                OnPropertyChanged();
+                if (_settings != null)
+                {
+                    _settings.HotspotSsid = value;
+                    _settingsService.SaveSettings(_settings);
+                }
+            }
         }
 
         public string HotspotPasswordInput
         {
             get => _hotspotPasswordInput;
-            set { _hotspotPasswordInput = value; OnPropertyChanged(); }
+            set
+            {
+                _hotspotPasswordInput = value;
+                OnPropertyChanged();
+                if (_settings != null)
+                {
+                    _settings.HotspotPassword = value;
+                    _settingsService.SaveSettings(_settings);
+                }
+            }
         }
 
         public string HotspotBandInput
         {
             get => _hotspotBandInput;
-            set { _hotspotBandInput = value; OnPropertyChanged(); }
+            set
+            {
+                _hotspotBandInput = value;
+                OnPropertyChanged();
+                if (_settings != null)
+                {
+                    _settings.HotspotBand = value;
+                    _settingsService.SaveSettings(_settings);
+                }
+            }
         }
 
         public string HotspotChannelChoice
@@ -297,6 +324,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                 else
                 {
                     HotspotBandInput = "2.4 GHz";
+                }
+                if (_settings != null)
+                {
+                    _settings.HotspotChannel = value;
+                    _settingsService.SaveSettings(_settings);
                 }
             }
         }
@@ -340,6 +372,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand SetBandCommand { get; }
         public ICommand ToggleKeepAliveCommand { get; }
         public ICommand ToggleReconnectCommand { get; }
+        public ICommand ManualReconnectCommand { get; }
         public ICommand ClearStabilizerLogsCommand { get; }
         public ICommand DisconnectClientCommand { get; }
         public ICommand BlockClientCommand { get; }
@@ -375,8 +408,27 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             // Load Hotspot & Stabilizer persisted preferences
             Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
+            Hotspot.IsHealthCheckEnabled = _settings.IsHealthCheckEnabled;
+            Hotspot.KeepHotspotAlive = _settings.KeepHotspotAlive;
+            if (!string.IsNullOrWhiteSpace(_settings.HotspotSsid)) _hotspotSsidInput = _settings.HotspotSsid;
+            if (!string.IsNullOrWhiteSpace(_settings.HotspotPassword)) _hotspotPasswordInput = _settings.HotspotPassword;
+            if (!string.IsNullOrWhiteSpace(_settings.HotspotBand)) _hotspotBandInput = _settings.HotspotBand;
+            if (!string.IsNullOrWhiteSpace(_settings.HotspotChannel)) _hotspotChannelChoice = _settings.HotspotChannel;
+
+            // Stabilizer preferences
             Stabilizer.KeepAliveLogLimit = _settings.KeepAliveLogLimit > 0 ? _settings.KeepAliveLogLimit : 100;
             Stabilizer.ReconnectLogLimit = _settings.ReconnectLogLimit > 0 ? _settings.ReconnectLogLimit : 100;
+            Stabilizer.KeepAliveIntervalSeconds = _settings.KeepAliveIntervalSeconds > 0 ? _settings.KeepAliveIntervalSeconds : 5;
+            if (!string.IsNullOrWhiteSpace(_settings.KeepAliveTarget)) Stabilizer.KeepAliveTarget = _settings.KeepAliveTarget;
+            if (!string.IsNullOrWhiteSpace(_settings.KeepAliveMethod)) Stabilizer.KeepAliveMethod = _settings.KeepAliveMethod;
+
+            if (!string.IsNullOrWhiteSpace(_settings.TargetSsid)) Stabilizer.TargetSsid = _settings.TargetSsid;
+            Stabilizer.FailureThreshold = _settings.FailureThreshold > 0 ? _settings.FailureThreshold : 3;
+            if (!string.IsNullOrWhiteSpace(_settings.ReconnectStrategy)) Stabilizer.ReconnectStrategy = _settings.ReconnectStrategy;
+            Stabilizer.ReconnectBufferSeconds = _settings.ReconnectBufferSeconds > 0 ? _settings.ReconnectBufferSeconds : 10;
+
+            // Initial link speed detection
+            _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
 
             if (_settings.BlockedClients != null)
             {
@@ -414,20 +466,44 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.HotspotWatchdogIntervalSeconds = Hotspot.WatchdogIntervalSeconds;
                     _settingsService.SaveSettings(_settings);
                 }
+                else if (e.PropertyName == nameof(Hotspot.IsHealthCheckEnabled))
+                {
+                    _settings.IsHealthCheckEnabled = Hotspot.IsHealthCheckEnabled;
+                    _settingsService.SaveSettings(_settings);
+                }
+                else if (e.PropertyName == nameof(Hotspot.KeepHotspotAlive))
+                {
+                    _settings.KeepHotspotAlive = Hotspot.KeepHotspotAlive;
+                    _settingsService.SaveSettings(_settings);
+                }
             };
 
             Stabilizer.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(Stabilizer.KeepAliveLogLimit))
-                {
                     _settings.KeepAliveLogLimit = Stabilizer.KeepAliveLogLimit;
-                    _settingsService.SaveSettings(_settings);
-                }
                 else if (e.PropertyName == nameof(Stabilizer.ReconnectLogLimit))
-                {
                     _settings.ReconnectLogLimit = Stabilizer.ReconnectLogLimit;
-                    _settingsService.SaveSettings(_settings);
-                }
+                else if (e.PropertyName == nameof(Stabilizer.IsKeepAliveActive))
+                    _settings.IsKeepAliveActive = Stabilizer.IsKeepAliveActive;
+                else if (e.PropertyName == nameof(Stabilizer.KeepAliveIntervalSeconds))
+                    _settings.KeepAliveIntervalSeconds = Stabilizer.KeepAliveIntervalSeconds;
+                else if (e.PropertyName == nameof(Stabilizer.KeepAliveTarget))
+                    _settings.KeepAliveTarget = Stabilizer.KeepAliveTarget;
+                else if (e.PropertyName == nameof(Stabilizer.KeepAliveMethod))
+                    _settings.KeepAliveMethod = Stabilizer.KeepAliveMethod;
+                else if (e.PropertyName == nameof(Stabilizer.IsReconnectActive))
+                    _settings.IsReconnectActive = Stabilizer.IsReconnectActive;
+                else if (e.PropertyName == nameof(Stabilizer.TargetSsid))
+                    _settings.TargetSsid = Stabilizer.TargetSsid;
+                else if (e.PropertyName == nameof(Stabilizer.FailureThreshold))
+                    _settings.FailureThreshold = Stabilizer.FailureThreshold;
+                else if (e.PropertyName == nameof(Stabilizer.ReconnectStrategy))
+                    _settings.ReconnectStrategy = Stabilizer.ReconnectStrategy;
+                else if (e.PropertyName == nameof(Stabilizer.ReconnectBufferSeconds))
+                    _settings.ReconnectBufferSeconds = Stabilizer.ReconnectBufferSeconds;
+
+                _settingsService.SaveSettings(_settings);
             };
 
             ApplyHotspotPriorityCommand = new RelayCommand(async () =>
@@ -500,8 +576,13 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _unknownStateCountSeconds = 0;
                 _noDataCountSeconds = 0;
                 Hotspot.IsResetCountdownActive = true;
-                Hotspot.ResetCountdownSeconds = 30;
-                Hotspot.ResetCountdownMessage = "⚠️ Health Check Test: Devices connected are not getting data. Auto-resetting in 30s (click Cancel to dismiss)...";
+                Hotspot.ResetCountdownSeconds = 15;
+                Hotspot.ResetCountdownMessage = "⚠️ Health Check Test: Devices connected are not getting data. Auto-resetting in 15s (click Cancel to dismiss)...";
+            });
+
+            ManualReconnectCommand = new RelayCommand(async () =>
+            {
+                await _stabilizerService.TriggerManualReconnectAsync(Stabilizer);
             });
 
             RepairDhcpCommand = new RelayCommand(async () =>
@@ -813,7 +894,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                         return;
                     }
 
-                    // --- Hotspot Health Check & 30s Stuck Reset Countdown ---
+                    // --- Hotspot Health Check & 15s Stuck Reset Countdown ---
                     if (Hotspot.IsResetCountdownActive)
                     {
                         // If data flow is restored on any device during countdown, dismiss countdown automatically
@@ -837,7 +918,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                             else
                             {
                                 int totalDevs = Hotspot.Clients.Count;
-                                Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevs} device(s) connected to the hotspot are not getting data. Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore data flow (Click 'Cancel Reset' to dismiss)...";
+                                Hotspot.ResetCountdownMessage = totalDevs > 0
+                                    ? $"⚠️ All {totalDevs} device(s) connected to the hotspot are not getting data. Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore data flow (Click 'Cancel Auto-Reset' to dismiss)..."
+                                    : $"⚠️ Hotspot is unresponsive or stalled ({_resetTriggerReason}). Auto-resetting in {Hotspot.ResetCountdownSeconds}s to restore service (Click 'Cancel Auto-Reset' to dismiss)...";
                             }
                         }
                     }
@@ -866,8 +949,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                                     {
                                         _resetTriggerReason = $"Watchdog: No Client Data Flow ({totalDevices} device{(totalDevices == 1 ? "" : "s")})";
                                         Hotspot.IsResetCountdownActive = true;
-                                        Hotspot.ResetCountdownSeconds = 30;
-                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 30s to restore data flow (Click 'Cancel Reset' to dismiss)...";
+                                        Hotspot.ResetCountdownSeconds = 15;
+                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 15s to restore data flow (Click 'Cancel Auto-Reset' to dismiss)...";
                                         _noDataCountSeconds = 0;
                                     }
                                 }
@@ -881,16 +964,30 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _noDataCountSeconds = 0;
                             }
 
-                            // 2. Hotspot OS tethering operational state health check
-                            if (Hotspot.State == HotspotState.InTransition)
+                            // 2. Continuous Hotspot Infrastructure & Virtual Adapter / DHCP Health Check
+                            var (infraOk, infraMsg) = HotspotService.CheckHotspotInfrastructureHealth(Hotspot.IsRunning);
+                            if (!infraOk)
+                            {
+                                _unknownStateCountSeconds++;
+                                if (_unknownStateCountSeconds >= thresholdSec)
+                                {
+                                    _resetTriggerReason = $"Watchdog: {infraMsg}";
+                                    Hotspot.IsResetCountdownActive = true;
+                                    Hotspot.ResetCountdownSeconds = 15;
+                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot infrastructure stalled ({infraMsg}). Auto-resetting in 15s to repair service (Click 'Cancel Auto-Reset' to dismiss)...";
+                                    _unknownStateCountSeconds = 0;
+                                }
+                            }
+                            // 3. Hotspot OS tethering operational state health check
+                            else if (Hotspot.State == HotspotState.InTransition)
                             {
                                 _inTransitionCountSeconds++;
                                 if (_inTransitionCountSeconds >= thresholdSec)
                                 {
                                     _resetTriggerReason = "Watchdog: Hotspot Stuck in Transition";
                                     Hotspot.IsResetCountdownActive = true;
-                                    Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot is stuck in transition ({thresholdSec}s watchdog check reached). Auto-resetting in 30s...";
+                                    Hotspot.ResetCountdownSeconds = 15;
+                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot is stuck in transition ({thresholdSec}s watchdog check reached). Auto-resetting in 15s...";
                                     _inTransitionCountSeconds = 0;
                                 }
                             }
@@ -901,8 +998,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 {
                                     _resetTriggerReason = "Watchdog: SoftAP Tethering Error";
                                     Hotspot.IsResetCountdownActive = true;
-                                    Hotspot.ResetCountdownSeconds = 30;
-                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot service reported unrecoverable error for {thresholdSec}s. Auto-resetting in 30s...";
+                                    Hotspot.ResetCountdownSeconds = 15;
+                                    Hotspot.ResetCountdownMessage = $"⚠️ Hotspot service reported unrecoverable error for {thresholdSec}s. Auto-resetting in 15s...";
                                     _unknownStateCountSeconds = 0;
                                 }
                             }
@@ -919,6 +1016,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                             _noDataCountSeconds = 0;
                         }
                     }
+
+                    // Continuous Link Speed update for Active Reconnect & Stabilizer
+                    _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
 
                     // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (real-time 1s cadence)
                     _hotspotRefreshCounter++;

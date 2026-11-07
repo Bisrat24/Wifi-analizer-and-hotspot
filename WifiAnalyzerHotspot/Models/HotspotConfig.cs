@@ -215,7 +215,7 @@ namespace WifiAnalyzerHotspot.Models
         private bool _keepHotspotAlive = true;
         private string _uptimeText = "Stopped";
         private bool _isResetCountdownActive;
-        private int _resetCountdownSeconds = 30;
+        private int _resetCountdownSeconds = 15;
         private string _resetCountdownMessage = string.Empty;
         private bool _isHealthCheckEnabled = true;
         private string _dhcpPoolInfo = "192.168.137.1 (ICS Subnet 255.255.255.0)";

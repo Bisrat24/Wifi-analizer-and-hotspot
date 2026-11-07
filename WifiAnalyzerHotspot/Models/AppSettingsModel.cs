@@ -295,6 +295,113 @@ namespace WifiAnalyzerHotspot.Models
             set { _hotspotWatchdogIntervalSeconds = value; OnPropertyChanged(); }
         }
 
+        private bool _isHealthCheckEnabled = true;
+        public bool IsHealthCheckEnabled
+        {
+            get => _isHealthCheckEnabled;
+            set { _isHealthCheckEnabled = value; OnPropertyChanged(); }
+        }
+
+        private bool _keepHotspotAlive = true;
+        public bool KeepHotspotAlive
+        {
+            get => _keepHotspotAlive;
+            set { _keepHotspotAlive = value; OnPropertyChanged(); }
+        }
+
+        private string _hotspotSsid = "Wifi_Hotspot";
+        public string HotspotSsid
+        {
+            get => _hotspotSsid;
+            set { _hotspotSsid = value ?? "Wifi_Hotspot"; OnPropertyChanged(); }
+        }
+
+        private string _hotspotPassword = "HotspotPass123";
+        public string HotspotPassword
+        {
+            get => _hotspotPassword;
+            set { _hotspotPassword = value ?? "HotspotPass123"; OnPropertyChanged(); }
+        }
+
+        private string _hotspotBand = "2.4 GHz";
+        public string HotspotBand
+        {
+            get => _hotspotBand;
+            set { _hotspotBand = value ?? "2.4 GHz"; OnPropertyChanged(); }
+        }
+
+        private string _hotspotChannel = "Auto (Recommended)";
+        public string HotspotChannel
+        {
+            get => _hotspotChannel;
+            set { _hotspotChannel = value ?? "Auto (Recommended)"; OnPropertyChanged(); }
+        }
+
+        // ==================== ACTIVE KEEP-ALIVE SETTINGS ====================
+        private bool _isKeepAliveActive = false;
+        public bool IsKeepAliveActive
+        {
+            get => _isKeepAliveActive;
+            set { _isKeepAliveActive = value; OnPropertyChanged(); }
+        }
+
+        private int _keepAliveIntervalSeconds = 5;
+        public int KeepAliveIntervalSeconds
+        {
+            get => _keepAliveIntervalSeconds;
+            set { _keepAliveIntervalSeconds = Math.Clamp(value, 1, 60); OnPropertyChanged(); }
+        }
+
+        private string _keepAliveTarget = "1.1.1.1";
+        public string KeepAliveTarget
+        {
+            get => _keepAliveTarget;
+            set { _keepAliveTarget = value ?? "1.1.1.1"; OnPropertyChanged(); }
+        }
+
+        private string _keepAliveMethod = "ICMP Ping";
+        public string KeepAliveMethod
+        {
+            get => _keepAliveMethod;
+            set { _keepAliveMethod = value ?? "ICMP Ping"; OnPropertyChanged(); }
+        }
+
+        // ==================== ACTIVE RECONNECT SETTINGS ====================
+        private bool _isReconnectActive = false;
+        public bool IsReconnectActive
+        {
+            get => _isReconnectActive;
+            set { _isReconnectActive = value; OnPropertyChanged(); }
+        }
+
+        private string _targetSsid = "Africa";
+        public string TargetSsid
+        {
+            get => _targetSsid;
+            set { _targetSsid = value ?? "Africa"; OnPropertyChanged(); }
+        }
+
+        private int _failureThreshold = 3;
+        public int FailureThreshold
+        {
+            get => _failureThreshold;
+            set { _failureThreshold = Math.Clamp(value, 1, 10); OnPropertyChanged(); }
+        }
+
+        private string _reconnectStrategy = "Fast Wi-Fi Re-auth";
+        public string ReconnectStrategy
+        {
+            get => _reconnectStrategy;
+            set { _reconnectStrategy = value ?? "Fast Wi-Fi Re-auth"; OnPropertyChanged(); }
+        }
+
+        private int _reconnectBufferSeconds = 10;
+        public int ReconnectBufferSeconds
+        {
+            get => _reconnectBufferSeconds;
+            set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.List<BlockedClientInfo> _blockedClients = new();
         public System.Collections.Generic.List<BlockedClientInfo> BlockedClients
         {
