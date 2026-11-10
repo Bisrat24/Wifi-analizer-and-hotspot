@@ -1018,7 +1018,7 @@ try {{
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync());
+                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true));
                         return (true, "Hotspot completely reset, DHCP repaired (192.168.137.1), and restarted with Highest PC Priority!");
                     }
                     return (false, string.IsNullOrEmpty(res?.Error) ? "Reset finished but start could not be verified." : res.Error);
@@ -1168,7 +1168,7 @@ try {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync());
+                        _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true));
                         return (true, "Mobile Hotspot is now ACTIVE with Highest PC Priority!");
                     }
                     return (false, string.IsNullOrEmpty(res?.Error) ? "Failed to start Hotspot." : res.Error);
@@ -1258,7 +1258,7 @@ if ($connectionProfile) {
 
         public async Task<(bool success, string message)> OptimizePriorityAsync()
         {
-            var res = await _priorityService.EngageHighestPriorityAsync();
+            var res = await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true);
             return (res.success, res.details);
         }
 
@@ -1674,8 +1674,44 @@ if ($connectionProfile) {
             await Task.WhenAll(tasks);
         }
 
+        private static bool TryParseQosLimit(string? limitChoice, out ulong bitsPerSec)
+        {
+            bitsPerSec = 0;
+            if (string.IsNullOrWhiteSpace(limitChoice) ||
+                limitChoice.Equals("Unlimited", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (limitChoice.Contains("30 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("30KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 240_000;
+            else if (limitChoice.Contains("100 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("100KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 800_000;
+            else if (limitChoice.Contains("300 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("300KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_400_000;
+            else if (limitChoice.Contains("1 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 1_000_000;
+            else if (limitChoice.Contains("2 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_000_000;
+            else if (limitChoice.Contains("5 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 5_000_000;
+            else if (limitChoice.Contains("10 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 10_000_000;
+            else if (limitChoice.Contains("20 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 20_000_000;
+            else return false;
+
+            return true;
+        }
+
+        private static string ResolveClientIp(string cleanMac, string? ipAddress)
+        {
+            string targetIp = ipAddress ?? "";
+            if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
+            {
+                var arpMap = NativeArpHelper.GetHotspotArpEntries();
+                targetIp = arpMap.TryGetValue(cleanMac, out var resolved) ? resolved : "";
+            }
+
+            if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && !IsValidIp(targetIp))
+                targetIp = "";
+
+            return targetIp == "-" ? "" : targetIp;
+        }
+
         /// <summary>
         /// Configures bandwidth rate-limiting / QoS policy for a specific connected hotspot device.
+        /// Policy creation is verified with Get-NetQosPolicy so failures are reported instead of assumed.
         /// </summary>
         public async Task<(bool success, string message)> SetClientQosLimitAsync(string macAddress, string ipAddress, string limitChoice)
         {
@@ -1689,6 +1725,11 @@ if ($connectionProfile) {
                         return (false, "Invalid MAC address format.");
                     }
 
+                    if (!TryParseQosLimit(limitChoice, out ulong bitsPerSec))
+                    {
+                        return (false, $"Unrecognized bandwidth limit '{limitChoice}'.");
+                    }
+
                     lock (_clientDataUsageMap)
                     {
                         if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
@@ -1699,47 +1740,65 @@ if ($connectionProfile) {
                         stats.QosLimit = limitChoice;
                     }
 
-                    string targetIp = ipAddress;
-                    if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
-                    {
-                        var arpMap = NativeArpHelper.GetHotspotArpEntries();
-                        if (arpMap.TryGetValue(cleanMac, out var resolved)) targetIp = resolved;
-                    }
+                    string targetIp = ResolveClientIp(cleanMac, ipAddress);
 
-                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && !IsValidIp(targetIp))
+                    if (bitsPerSec > 0 && string.IsNullOrEmpty(targetIp))
                     {
-                        targetIp = "";
+                        return (false, $"QoS limit saved, but {macAddress} has no resolved IP address yet - it will be enforced once the device obtains one.");
                     }
-
-                    ulong bitsPerSec = 0;
-                    if (limitChoice.Contains("30 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("30KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 240_000;
-                    else if (limitChoice.Contains("100 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("100KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 800_000;
-                    else if (limitChoice.Contains("300 KB", StringComparison.OrdinalIgnoreCase) || limitChoice.Contains("300KB", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_400_000;
-                    else if (limitChoice.Contains("1 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 1_000_000;
-                    else if (limitChoice.Contains("2 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 2_000_000;
-                    else if (limitChoice.Contains("5 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 5_000_000;
-                    else if (limitChoice.Contains("10 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 10_000_000;
-                    else if (limitChoice.Contains("20 Mbps", StringComparison.OrdinalIgnoreCase)) bitsPerSec = 20_000_000;
 
                     string script = $@"
+$ErrorActionPreference = 'Stop'
+$downName = 'Hotspot_QoS_Down_{cleanMac}'
+$upName = 'Hotspot_QoS_Up_{cleanMac}'
 try {{
-    $downName = 'Hotspot_QoS_Down_{cleanMac}'
-    $upName = 'Hotspot_QoS_Up_{cleanMac}'
     Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    if ({bitsPerSec} -gt 0) {{
+        # Evict stale limits left behind by a device that previously held this IP
+        Get-NetQosPolicy -ErrorAction SilentlyContinue | Where-Object {{
+            $_.Name -like 'Hotspot_QoS_*' -and $_.Name -ne $downName -and $_.Name -ne $upName -and
+            ($_.IPDstPrefix -eq '{targetIp}' -or $_.IPSrcPrefix -eq '{targetIp}')
+        }} | Remove-NetQosPolicy -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-    if ({bitsPerSec} -gt 0 -and '{targetIp}' -and '{targetIp}' -ne '-') {{
-        New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond {bitsPerSec} -Precedence 245 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-        New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond {bitsPerSec} -Precedence 245 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond {bitsPerSec} -Precedence 245 -Confirm:$false -ErrorAction Stop | Out-Null
+        New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond {bitsPerSec} -Precedence 245 -Confirm:$false -ErrorAction Stop | Out-Null
+        $down = Get-NetQosPolicy -Name $downName -ErrorAction Stop
+        $up = Get-NetQosPolicy -Name $upName -ErrorAction Stop
+        Write-Output ('OK:' + $down.ThrottleRateAction + ':' + $up.ThrottleRateAction)
+    }} else {{
+        Write-Output 'CLEARED'
     }}
-}} catch {{}}
+}} catch {{
+    Write-Output ('FAIL:' + $_.Exception.Message)
+}}
 ";
-                    RunPowerShell(script, 10000);
+                    string output = RunPowerShell(script, 15000).Trim();
 
-                    if (bitsPerSec > 0)
-                        return (true, $"⚡ QoS Limit Applied: Device capped at {limitChoice}.");
-                    else
-                        return (true, "✓ QoS Cap Removed: Device has unlimited bandwidth.");
+                    if (output == "CLEARED")
+                    {
+                        return (true, "✓ QoS cap removed: device has unlimited bandwidth.");
+                    }
+
+                    if (output.StartsWith("OK:", StringComparison.Ordinal))
+                    {
+                        var rates = output.Substring(3).Split(':');
+                        if (rates.Length == 2 &&
+                            ulong.TryParse(rates[0], out ulong downRate) &&
+                            ulong.TryParse(rates[1], out ulong upRate) &&
+                            downRate == bitsPerSec && upRate == bitsPerSec)
+                        {
+                            return (true, $"⚡ QoS verified: device capped at {limitChoice} for download and upload (NetQoS precedence 245).");
+                        }
+                        return (false, $"QoS policy was created but Windows reported different rates ({output}).");
+                    }
+
+                    if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                    {
+                        return (false, $"QoS limit not applied: {output.Substring(5).Trim()}");
+                    }
+
+                    return (false, "QoS limit could not be verified (PowerShell returned no result).");
                 }
                 catch (Exception ex)
                 {
@@ -1777,17 +1836,7 @@ try {{
                         stats.Priority = clamped;
                     }
 
-                    string targetIp = ipAddress;
-                    if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
-                    {
-                        var arpMap = NativeArpHelper.GetHotspotArpEntries();
-                        if (arpMap.TryGetValue(cleanMac, out var resolved)) targetIp = resolved;
-                    }
-
-                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && !IsValidIp(targetIp))
-                    {
-                        targetIp = "";
-                    }
+                    string targetIp = ResolveClientIp(cleanMac, ipAddress);
 
                     // Map user priority (1=Highest .. 7=Least) to 802.1p and DSCP
                     // 802.1p: 7=Network Control/Voice, 6=Voice, 5=Video, 4=Controlled, 3=Best Effort, 2=Spare, 1=Background
@@ -1827,22 +1876,6 @@ try {{
                         _ => 150
                     };
 
-                    string script = $@"
-try {{
-    $downName = 'Hotspot_Prio_Down_{cleanMac}'
-    $upName = 'Hotspot_Prio_Up_{cleanMac}'
-
-    Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-
-    if ('{targetIp}' -and '{targetIp}' -ne '-') {{
-        New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-        New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{targetIp}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    }}
-}} catch {{}}
-";
-                    RunPowerShell(script, 10000);
-
                     string levelName = clamped switch
                     {
                         1 => "Highest (Priority 1)",
@@ -1855,7 +1888,58 @@ try {{
                         _ => $"Priority {clamped}"
                     };
 
-                    return (true, $"⚡ Client Priority Set: Device set to {levelName} (802.1p: {dot1p}, DSCP: {dscp}).");
+                    if (string.IsNullOrEmpty(targetIp))
+                    {
+                        return (false, $"Priority {levelName} saved, but {macAddress} has no resolved IP address yet - it will be applied once the device obtains one.");
+                    }
+
+                    string script = $@"
+$ErrorActionPreference = 'Stop'
+$downName = 'Hotspot_Prio_Down_{cleanMac}'
+$upName = 'Hotspot_Prio_Up_{cleanMac}'
+try {{
+    Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+    # Evict stale priorities left behind by a device that previously held this IP
+    Get-NetQosPolicy -ErrorAction SilentlyContinue | Where-Object {{
+        $_.Name -like 'Hotspot_Prio_*' -and $_.Name -ne $downName -and $_.Name -ne $upName -and
+        ($_.IPDstPrefix -eq '{targetIp}' -or $_.IPSrcPrefix -eq '{targetIp}')
+    }} | Remove-NetQosPolicy -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+    New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction Stop | Out-Null
+    New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{targetIp}/32' -PriorityValue8021Action {dot1p} -DSCPAction {dscp} -Precedence {precedence} -Confirm:$false -ErrorAction Stop | Out-Null
+    $down = Get-NetQosPolicy -Name $downName -ErrorAction Stop
+    $up = Get-NetQosPolicy -Name $upName -ErrorAction Stop
+    Write-Output ('OK:' + $down.PriorityValue8021Action + ':' + $down.Precedence + ':' + $up.PriorityValue8021Action + ':' + $up.Precedence)
+}} catch {{
+    Write-Output ('FAIL:' + $_.Exception.Message)
+}}
+";
+                    string output = RunPowerShell(script, 15000).Trim();
+
+                    if (output.StartsWith("OK:", StringComparison.Ordinal))
+                    {
+                        var values = output.Substring(3).Split(':');
+                        if (values.Length == 4 &&
+                            int.TryParse(values[0], out int downDot1p) &&
+                            uint.TryParse(values[1], out uint downPrecedence) &&
+                            int.TryParse(values[2], out int upDot1p) &&
+                            uint.TryParse(values[3], out uint upPrecedence) &&
+                            downDot1p == dot1p && upDot1p == dot1p &&
+                            downPrecedence == precedence && upPrecedence == precedence)
+                        {
+                            return (true, $"⚡ Priority verified: {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
+                        }
+                        return (false, $"Priority policy was created but Windows reported different values ({output}).");
+                    }
+
+                    if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                    {
+                        return (false, $"Priority not applied: {output.Substring(5).Trim()}");
+                    }
+
+                    return (false, "Priority could not be verified (PowerShell returned no result).");
                 }
                 catch (Exception ex)
                 {
@@ -2132,7 +2216,7 @@ try {{
 
         /// <summary>
         /// Re-enforces all active Hotspot rules:
-        /// 1. RealTime CPU & Upstream Connection Priority (over desktop browsers).
+        /// 1. High CPU & Upstream Connection Priority (over desktop browsers), including the QoS Packet Scheduler binding.
         /// 2. Impenetrable Layer 2 ARP blackholes and firewall rules for all blocked devices.
         /// 3. Bandwidth QoS rate-limiting caps (30 KB/s, 100 KB/s, 300 KB/s, 1-20 Mbps) for active clients.
         /// 4. 802.1p and DSCP priority levels (1-7) for active clients.
@@ -2148,11 +2232,13 @@ try {{
                 try
                 {
                     // 1. Re-enforce Host PC Priority & Upstream Transit Priority (over desktop browsers)
-                    await _priorityService.EngageHighestPriorityAsync();
+                    var priorityResult = await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true);
 
                     int blocksEnforced = 0;
                     int qosApplied = 0;
+                    int qosFailed = 0;
                     int prioApplied = 0;
+                    int prioFailed = 0;
 
                     // 2. Re-enforce Blocks
                     var arpMap = NativeArpHelper.GetHotspotArpEntries();
@@ -2225,8 +2311,8 @@ try {{
 
                         if (!string.IsNullOrEmpty(limit))
                         {
-                            await SetClientQosLimitAsync(client.MacAddress, client.IpAddress, limit);
-                            qosApplied++;
+                            var qos = await SetClientQosLimitAsync(client.MacAddress, client.IpAddress, limit);
+                            if (qos.success) qosApplied++; else qosFailed++;
                         }
                     }
 
@@ -2242,11 +2328,17 @@ try {{
                             prio = savedPrio;
                         }
 
-                        await SetClientPriorityAsync(client.MacAddress, client.IpAddress, prio);
-                        prioApplied++;
+                        var prioResult = await SetClientPriorityAsync(client.MacAddress, client.IpAddress, prio);
+                        if (prioResult.success) prioApplied++; else prioFailed++;
                     }
 
-                    return (true, $"🛡️ Rules Re-enforced: {blocksEnforced} block rule(s) locked, {qosApplied} QoS limit(s) applied, {prioApplied} priority level(s) active, and RealTime Upstream Transit locked.");
+                    string summary = $"🛡️ Rules re-enforced: {blocksEnforced} block rule(s), {qosApplied} QoS limit(s) verified, {prioApplied} priority level(s) verified.";
+                    if (qosFailed + prioFailed > 0)
+                        summary += $" ⚠️ {qosFailed + prioFailed} rule(s) could not be verified.";
+                    if (!priorityResult.success)
+                        summary += $" ⚠️ {priorityResult.details}";
+
+                    return (qosFailed == 0 && prioFailed == 0 && priorityResult.success, summary);
                 }
                 catch (Exception ex)
                 {

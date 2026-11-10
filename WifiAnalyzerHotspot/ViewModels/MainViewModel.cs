@@ -513,9 +513,11 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             ApplyHotspotPriorityCommand = new RelayCommand(async () =>
             {
-                Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode (RealTime)...";
+                Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
                 var res = await _hotspotService.OptimizePriorityAsync();
-                Hotspot.PriorityStatusText = "⚡ Highest PC Priority: REALTIME";
+                Hotspot.PriorityStatusText = res.success
+                    ? "⚡ Highest PC Priority: HIGH"
+                    : "⚠️ Priority applied with warnings";
                 Hotspot.StatusMessage = res.message;
             });
 

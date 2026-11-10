@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.5)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.6)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.5)
+## ✨ Key Features (v1.2.6)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -69,6 +69,12 @@ You can run the app immediately by double-clicking:
   - Enforces kernel-level NetQoS priority for hotspot transit traffic (`192.168.137.0/24`) with **Precedence 128**, **802.1p Tag 7** (Network Control / Voice), and **DSCP 46** (Expedited Forwarding).
   - Local desktop web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`, `tor.exe`) are constrained to **Precedence 64**, **802.1p Tag 1** (Background), and **DSCP 8** (Scavenger).
   - By using Precedence 128 for baseline transit, individual connected client priorities (**Precedence 130 - 240**), QoS bandwidth limits (**Precedence 245**), and device blocks (**Precedence 255**) take full hierarchical precedence over the general transit queue while desktop browsers remain strictly deprioritized.
+- **✅ Enforced, Verified & Self-Cleaning NetQoS**:
+  - **QoS Packet Scheduler check**: rate limiting and 802.1p tagging require the `ms_pacer` binding. The hotspot's own virtual adapter is bound automatically; a disabled upstream adapter is reported with the exact remediation command instead of being silently reset.
+  - **Verified policy creation**: every per-client QoS limit and priority is read back with `Get-NetQosPolicy`; the UI reports the verified throttle rate, 802.1p, DSCP, and precedence, or the real error message.
+  - **No fake success**: a limit or priority requested for a device whose IP is not yet resolved reports that clearly instead of claiming it was applied.
+  - **Stale policy eviction**: if DHCP hands an address previously used by another device to a new one, the old per-IP QoS/priority policy is removed automatically.
+  - **Full cleanup**: stopping the hotspot and exiting the app remove every `Hotspot_*` NetQoS policy, so stale per-IP rules never survive a session.
 - **🛡️ "Refresh Rules" Quick Enforcement Button**:
   - Located directly beside **Refresh Clients** in the Connected Client Devices card.
   - Re-applies and re-asserts all active QoS rate limits, client priority tags (1-7), static ARP blackholes, firewall blocks, and upstream transit prioritization in a single click.
