@@ -77,6 +77,15 @@ Write-Output 'OK'
             });
         }
 
+        private const string CleanupScript = @"
+Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+$browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
+foreach ($b in $browsers) {
+    Remove-NetQosPolicy -Name ""Hotspot_Browser_$b"" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+}
+";
+
         /// <summary>
         /// Releases priority and removes custom NetQoS policies when Hotspot stops.
         /// </summary>
@@ -95,21 +104,35 @@ Write-Output 'OK'
                 // Clear transit and browser NetQoS policies
                 try
                 {
-                    string cleanupScript = @"
-Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-$browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
-foreach ($b in $browsers) {
-    Remove-NetQosPolicy -Name ""Hotspot_Browser_$b"" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-}
-";
-                    _ = RunPowerShellAsync(cleanupScript, 6000);
+                    _ = RunPowerShellAsync(CleanupScript, 6000);
                 }
                 catch { }
 
                 _isPriorityEngaged = false;
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Synchronous best-effort cleanup for process exit. NetQoS policies are persistent,
+        /// so they must be removed even when the app closes without stopping the hotspot.
+        /// </summary>
+        public static void CleanupAllPolicies()
+        {
+            try
+            {
+                using var proc = Process.GetCurrentProcess();
+                proc.PriorityClass = ProcessPriorityClass.Normal;
+            }
+            catch { }
+
+            try
+            {
+                RunPowerShellAsync(CleanupScript, 5000).GetAwaiter().GetResult();
+            }
+            catch { }
+
+            _isPriorityEngaged = false;
         }
 
         private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 10000)
@@ -142,6 +165,9 @@ foreach ($b in $browsers) {
 
                 await proc.WaitForExitAsync(cts.Token);
                 string output = await outTask;
+                string error = await errTask;
+                if (!string.IsNullOrWhiteSpace(error))
+                    Debug.WriteLine($"HotspotPriorityService PowerShell stderr: {error.Trim()}");
                 return output.Trim();
             }
             catch (Exception ex)

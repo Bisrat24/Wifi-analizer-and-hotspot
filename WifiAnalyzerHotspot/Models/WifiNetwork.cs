@@ -145,6 +145,26 @@ namespace WifiAnalyzerHotspot.Models
         // Returns a thread-safe, frozen SolidColorBrush
         public SolidColorBrush ColorBrush => FrozenPalette[Math.Abs(_colorIndex) % FrozenPalette.Length];
 
+        /// <summary>
+        /// Updates live readings in place so an existing row keeps its selection/scroll state.
+        /// </summary>
+        public void CopyLiveValuesFrom(WifiNetwork other)
+        {
+            if (other == null) return;
+            if (!string.IsNullOrWhiteSpace(other._ssid)) Ssid = other._ssid;
+            SignalPercent = other.SignalPercent;
+            Rssi = other.Rssi;
+            Band = other.Band;
+            Channel = other.Channel;
+            FrequencyMHz = other.FrequencyMHz;
+            ChannelWidthMHz = other.ChannelWidthMHz;
+            RadioType = other.RadioType;
+            Authentication = other.Authentication;
+            Encryption = other.Encryption;
+            IsConnected = other.IsConnected;
+            ColorIndex = other.ColorIndex;
+        }
+
         public int SignalBars
         {
             get

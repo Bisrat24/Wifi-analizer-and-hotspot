@@ -15,6 +15,10 @@ namespace WifiAnalyzerHotspot.Services
         private static readonly string SettingsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WifiAnalyzerHotspot");
         private static readonly string SettingsFilePath = Path.Combine(SettingsDirectory, "settings.json");
+        private const string StartupTaskName = "WifiAnalyzerHotspot";
+
+        // Captured before any app-level override so disabling the proxy can restore it.
+        private static readonly IWebProxy OriginalDefaultProxy = HttpClient.DefaultProxy;
 
         private readonly HttpClient _dohClient;
 
@@ -28,7 +32,7 @@ namespace WifiAnalyzerHotspot.Services
             {
                 Timeout = TimeSpan.FromSeconds(5)
             };
-            _dohClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "WifiAnalyzerHotspot/1.1.2");
+            _dohClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "WifiAnalyzerHotspot/1.2.5");
         }
 
         // ==================== PERSISTENCE ====================
@@ -42,6 +46,8 @@ namespace WifiAnalyzerHotspot.Services
                     var loaded = JsonSerializer.Deserialize<AppSettingsModel>(json);
                     if (loaded != null)
                     {
+                        loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
+                        loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
                         ApplyProxy(loaded);
                         return loaded;
                     }
@@ -60,7 +66,17 @@ namespace WifiAnalyzerHotspot.Services
             {
                 Directory.CreateDirectory(SettingsDirectory);
                 var options = new JsonSerializerOptions { WriteIndented = true };
-                string json = JsonSerializer.Serialize(settings, options);
+                string json;
+                if (JsonSerializer.SerializeToNode(settings, options) is System.Text.Json.Nodes.JsonObject node)
+                {
+                    node["ProxyPassword"] = DpapiSecret.Protect(settings.ProxyPassword);
+                    node["HotspotPassword"] = DpapiSecret.Protect(settings.HotspotPassword);
+                    json = node.ToJsonString(options);
+                }
+                else
+                {
+                    json = JsonSerializer.Serialize(settings, options);
+                }
                 File.WriteAllText(SettingsFilePath, json);
 
                 ApplyProxy(settings);
@@ -69,25 +85,62 @@ namespace WifiAnalyzerHotspot.Services
             catch { }
         }
 
-        // ==================== WINDOWS STARTUP REGISTRY ====================
+        // ==================== WINDOWS STARTUP SCHEDULED TASK ====================
+        // A highest-privileges logon task starts the app elevated without a UAC prompt.
+        // The legacy HKCU Run entry is removed so startup is not triggered twice.
         public static void ConfigureWindowsStartup(bool enable, bool startMinimized)
         {
             try
             {
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
-                if (key != null)
+                string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
+
+                try
                 {
-                    if (enable)
-                    {
-                        string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
-                        string args = startMinimized ? " --minimized" : "";
-                        key.SetValue("WifiAnalyzerHotspot", $"\"{exePath}\"{args}");
-                    }
-                    else
-                    {
-                        key.DeleteValue("WifiAnalyzerHotspot", false);
-                    }
+                    using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                    runKey?.DeleteValue(StartupTaskName, false);
                 }
+                catch { }
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "schtasks.exe",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                if (enable)
+                {
+                    psi.ArgumentList.Add("/Create");
+                    psi.ArgumentList.Add("/TN");
+                    psi.ArgumentList.Add(StartupTaskName);
+                    psi.ArgumentList.Add("/SC");
+                    psi.ArgumentList.Add("ONLOGON");
+                    psi.ArgumentList.Add("/RL");
+                    psi.ArgumentList.Add("HIGHEST");
+                    psi.ArgumentList.Add("/TR");
+                    psi.ArgumentList.Add(startMinimized ? $"\"{exePath}\" --minimized" : $"\"{exePath}\"");
+                    psi.ArgumentList.Add("/F");
+                }
+                else
+                {
+                    psi.ArgumentList.Add("/Delete");
+                    psi.ArgumentList.Add("/TN");
+                    psi.ArgumentList.Add(StartupTaskName);
+                    psi.ArgumentList.Add("/F");
+                }
+
+                using var p = Process.Start(psi);
+                if (p == null) return;
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(8000))
+                {
+                    try { p.Kill(true); } catch { }
+                }
+                Task.WaitAll(new[] { stdout, stderr }, 1000);
             }
             catch { }
         }
@@ -97,7 +150,31 @@ namespace WifiAnalyzerHotspot.Services
             try
             {
                 using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false);
-                return key?.GetValue("WifiAnalyzerHotspot") != null;
+                if (key?.GetValue(StartupTaskName) != null) return true;
+            }
+            catch { }
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "schtasks.exe",
+                    Arguments = $"/Query /TN {StartupTaskName}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var p = Process.Start(psi);
+                if (p == null) return false;
+                _ = p.StandardOutput.ReadToEndAsync();
+                _ = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(4000))
+                {
+                    try { p.Kill(true); } catch { }
+                    return false;
+                }
+                return p.ExitCode == 0;
             }
             catch { return false; }
         }
@@ -126,9 +203,7 @@ namespace WifiAnalyzerHotspot.Services
                 }
                 else
                 {
-#pragma warning disable CS8625
-                    HttpClient.DefaultProxy = (IWebProxy)null!;
-#pragma warning restore CS8625
+                    HttpClient.DefaultProxy = OriginalDefaultProxy;
                 }
             }
             catch { }

@@ -57,6 +57,9 @@ namespace WifiAnalyzerHotspot.ViewModels
         private ConnectionStabilizerModel _stabilizer = new();
         private string _resetTriggerReason = "Watchdog Auto-Reset";
 
+        private NetworkAddressChangedEventHandler? _networkAddressChangedHandler;
+        private NetworkAvailabilityChangedEventHandler? _networkAvailabilityChangedHandler;
+
         private string _hotspotSsidInput = "Wifi_Hotspot";
         private string _hotspotPasswordInput = "HotspotPass123";
         private string _hotspotBandInput = "2.4 GHz";
@@ -849,8 +852,10 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
 
             // Instant OS network change notification (fires in <50ms when Wi-Fi is toggled off or on)
-            NetworkChange.NetworkAddressChanged += (s, e) => CheckFastWifiState();
-            NetworkChange.NetworkAvailabilityChanged += (s, e) => CheckFastWifiState();
+            _networkAddressChangedHandler = (s, e) => CheckFastWifiState();
+            _networkAvailabilityChangedHandler = (s, e) => CheckFastWifiState();
+            NetworkChange.NetworkAddressChanged += _networkAddressChangedHandler;
+            NetworkChange.NetworkAvailabilityChanged += _networkAvailabilityChangedHandler;
 
             // Wi-Fi scanner timer: runs every 5 seconds on UI Dispatcher
             _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -964,7 +969,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                                 if (workingCount == 0)
                                 {
-                                    bool isUpstreamAvailable = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+                                    bool isUpstreamAvailable = await HotspotService.CheckInternetAvailableAsync();
                                     if (!isUpstreamAvailable)
                                     {
                                         Hotspot.DataHealthStatus = "⚠️ Upstream Internet Offline (Auto-reset suspended)";
@@ -1173,11 +1178,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 UpdateAvailableHotspotChannels(connInfo.Channel);
 
-                Networks.Clear();
-                foreach (var net in scanResults)
-                {
-                    Networks.Add(net);
-                }
+                MergeNetworks(scanResults);
                 ApplyFilter();
 
                 Ratings24G.Clear();
@@ -1286,9 +1287,41 @@ namespace WifiAnalyzerHotspot.ViewModels
             catch { }
         }
 
+        private void MergeNetworks(List<WifiNetwork> scanResults)
+        {
+            static string KeyOf(WifiNetwork n) =>
+                string.IsNullOrEmpty(n.Bssid) ? "ssid:" + n.Ssid : n.Bssid;
+
+            var existing = Networks
+                .GroupBy(KeyOf, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < scanResults.Count; i++)
+            {
+                var net = scanResults[i];
+                string key = KeyOf(net);
+                if (!seen.Add(key)) continue;
+
+                if (existing.TryGetValue(key, out var current))
+                {
+                    current.CopyLiveValuesFrom(net);
+                }
+                else
+                {
+                    Networks.Insert(Math.Min(i, Networks.Count), net);
+                }
+            }
+
+            for (int i = Networks.Count - 1; i >= 0; i--)
+            {
+                if (!seen.Contains(KeyOf(Networks[i])))
+                    Networks.RemoveAt(i);
+            }
+        }
+
         private void ApplyFilter()
         {
-            FilteredNetworks.Clear();
             var query = Networks.AsEnumerable();
 
             if (SelectedBand == "2.4 GHz")
@@ -1307,9 +1340,24 @@ namespace WifiAnalyzerHotspot.ViewModels
                     n.Bssid.Contains(SearchFilter, StringComparison.OrdinalIgnoreCase));
             }
 
-            foreach (var item in query)
+            // Reconcile in place: MergeNetworks preserves instances, so reference equality
+            // keeps the DataGrid selection and scroll position across 5-second scans.
+            var desired = query.ToList();
+            var desiredSet = new HashSet<WifiNetwork>(desired);
+
+            for (int i = FilteredNetworks.Count - 1; i >= 0; i--)
             {
-                FilteredNetworks.Add(item);
+                if (!desiredSet.Contains(FilteredNetworks[i]))
+                    FilteredNetworks.RemoveAt(i);
+            }
+
+            for (int i = 0; i < desired.Count; i++)
+            {
+                int currentIndex = FilteredNetworks.IndexOf(desired[i]);
+                if (currentIndex < 0)
+                    FilteredNetworks.Insert(Math.Min(i, FilteredNetworks.Count), desired[i]);
+                else if (currentIndex != i)
+                    FilteredNetworks.Move(currentIndex, i);
             }
         }
 
@@ -1462,11 +1510,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (Hotspot.ClientCount > 0)
                 {
                     if (Hotspot.ActiveDataClientCount == Hotspot.ClientCount)
-                        Hotspot.DataHealthStatus = $"All {Hotspot.ClientCount} device(s) getting data";
+                        Hotspot.DataHealthStatus = $"All {Hotspot.ClientCount} device(s) online";
                     else if (Hotspot.ActiveDataClientCount == 0)
-                        Hotspot.DataHealthStatus = $"⚠️ 0/{Hotspot.ClientCount} devices getting data (Stalled)";
+                        Hotspot.DataHealthStatus = $"⚠️ 0/{Hotspot.ClientCount} devices reachable (Stalled)";
                     else
-                        Hotspot.DataHealthStatus = $"{Hotspot.ActiveDataClientCount}/{Hotspot.ClientCount} device(s) getting data";
+                        Hotspot.DataHealthStatus = $"{Hotspot.ActiveDataClientCount}/{Hotspot.ClientCount} device(s) online";
                 }
                 else
                 {
@@ -1613,6 +1661,11 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         public void Dispose()
         {
+            if (_networkAddressChangedHandler != null)
+                NetworkChange.NetworkAddressChanged -= _networkAddressChangedHandler;
+            if (_networkAvailabilityChangedHandler != null)
+                NetworkChange.NetworkAvailabilityChanged -= _networkAvailabilityChangedHandler;
+
             _scanTimer?.Stop();
             _trafficTimer?.Stop();
             _settingsDebounceTimer?.Stop();

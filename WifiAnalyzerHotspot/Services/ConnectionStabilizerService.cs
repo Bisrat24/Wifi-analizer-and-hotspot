@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
@@ -15,6 +16,9 @@ namespace WifiAnalyzerHotspot.Services
     {
         private CancellationTokenSource? _keepAliveCts;
         private CancellationTokenSource? _reconnectCts;
+
+        private static readonly Dictionary<string, (int Attempts, DateTime LastAttempt)> _adapterResetHistory = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _adapterResetLock = new();
 
         private static readonly HttpClient _probeClient = new(new SocketsHttpHandler
         {
@@ -312,12 +316,12 @@ namespace WifiAnalyzerHotspot.Services
                 // ==================== ETHERNET RECONNECTION ====================
                 if (model.ReconnectStrategy.Contains("Adapter Reset"))
                 {
-                    Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
-                    if (!string.IsNullOrEmpty(adapterName))
+                    if (!string.IsNullOrEmpty(adapterName) && TryReserveAdapterReset(adapterName, model))
                     {
-                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
+                        Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
+                        RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
                         await Task.Delay(1500, token);
-                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
+                        RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled");
                         await Task.Delay(2500, token);
                     }
                     RunCmd("ipconfig", "/renew");
@@ -333,7 +337,7 @@ namespace WifiAnalyzerHotspot.Services
                 else // Fast Re-auth / Re-negotiate (default)
                 {
                     Log(model, "Re-negotiating Ethernet link & refreshing ARP cache...");
-                    RunCmd("netsh", "interface ip delete arpcache");
+                    RunCmd("netsh", "interface", "ip", "delete", "arpcache");
                     RunCmd("ipconfig", "/renew");
                 }
             }
@@ -342,22 +346,20 @@ namespace WifiAnalyzerHotspot.Services
                 // ==================== WI-FI RECONNECTION ====================
                 if (model.ReconnectStrategy.Contains("Adapter Reset"))
                 {
-                    Log(model, "Resetting Wi-Fi adapter (disable → enable)...");
-                    if (!string.IsNullOrEmpty(adapterName))
+                    if (!string.IsNullOrEmpty(adapterName) && TryReserveAdapterReset(adapterName, model))
                     {
-                        RunCmd("netsh", $"interface set interface \"{adapterName}\" disabled");
+                        Log(model, $"Resetting Wi-Fi adapter '{adapterName}' (disable → enable)...");
+                        RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
                         await Task.Delay(1200, token);
-                        RunCmd("netsh", $"interface set interface \"{adapterName}\" enabled");
+                        RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled");
                         await Task.Delay(2000, token);
                     }
-                    if (!string.IsNullOrEmpty(target))
-                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                    ConnectToWifi(target, adapterName);
                 }
                 else if (model.ReconnectStrategy.Contains("DHCP"))
                 {
                     Log(model, "Reconnecting Wi-Fi and renewing DHCP lease...");
-                    if (!string.IsNullOrEmpty(target))
-                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                    ConnectToWifi(target, adapterName);
                     await Task.Delay(1500, token);
                     RunCmd("ipconfig", "/release");
                     await Task.Delay(500, token);
@@ -366,16 +368,14 @@ namespace WifiAnalyzerHotspot.Services
                 else if (model.ReconnectStrategy.Contains("Radio"))
                 {
                     Log(model, "Disconnecting then reconnecting Wi-Fi radio...");
-                    RunCmd("netsh", "wlan disconnect");
+                    RunCmd("netsh", "wlan", "disconnect");
                     await Task.Delay(1000, token);
-                    if (!string.IsNullOrEmpty(target))
-                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                    ConnectToWifi(target, adapterName);
                 }
                 else // Fast Wi-Fi Re-auth (default)
                 {
                     Log(model, $"Sending fast re-auth to AP '{target}'...");
-                    if (!string.IsNullOrEmpty(target))
-                        RunCmd("netsh", $"wlan connect name=\"{target}\"");
+                    ConnectToWifi(target, adapterName);
                 }
             }
 
@@ -408,6 +408,7 @@ namespace WifiAnalyzerHotspot.Services
 
             if (restored)
             {
+                ClearAdapterResetHistory(adapterName);
                 UI(() =>
                 {
                     model.TotalReconnected++;
@@ -666,28 +667,73 @@ namespace WifiAnalyzerHotspot.Services
             });
         }
 
-        private static void RunCmd(string exe, string args)
+        private static void RunCmd(string exe, params string[] args)
         {
             try
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName               = exe,
-                    Arguments              = args,
-                    UseShellExecute        = false,
-                    CreateNoWindow         = true,
-                    RedirectStandardOutput = true
+                    FileName = exe,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 };
+                foreach (var a in args) psi.ArgumentList.Add(a);
+
                 using var p = Process.Start(psi);
-                if (p != null)
+                if (p == null) return;
+
+                // Drain both pipes so a chatty command cannot fill the buffer and hang.
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(5000))
                 {
-                    if (!p.WaitForExit(5000))
-                    {
-                        try { p.Kill(true); } catch { }
-                    }
+                    try { p.Kill(true); } catch { }
                 }
+                Task.WaitAll(new[] { stdout, stderr }, 1000);
             }
             catch { }
+        }
+
+        /// <summary>Connects by SSID (not saved profile name) so renamed profiles still work.</summary>
+        private static void ConnectToWifi(string ssid, string adapterName)
+        {
+            if (string.IsNullOrWhiteSpace(ssid)) return;
+            var args = new List<string> { "wlan", "connect", $"ssid={ssid}" };
+            if (!string.IsNullOrEmpty(adapterName)) args.Add($"interface={adapterName}");
+            RunCmd("netsh", args.ToArray());
+        }
+
+        /// <summary>
+        /// Caps adapter disable/enable cycles to 3 per 10 minutes so a persistently failing
+        /// link cannot be thrashed into an unusable state.
+        /// </summary>
+        private static bool TryReserveAdapterReset(string adapterName, ConnectionStabilizerModel model)
+        {
+            if (string.IsNullOrEmpty(adapterName)) return false;
+            var now = DateTime.UtcNow;
+            lock (_adapterResetLock)
+            {
+                _adapterResetHistory.TryGetValue(adapterName, out var hist);
+                bool withinWindow = (now - hist.LastAttempt) < TimeSpan.FromMinutes(10);
+                if (withinWindow && hist.Attempts >= 3)
+                {
+                    Log(model, $"[BACKOFF] Adapter reset throttled for '{adapterName}' (3 attempts in 10 min). Using fast re-auth instead.");
+                    return false;
+                }
+                _adapterResetHistory[adapterName] = (withinWindow ? hist.Attempts + 1 : 1, now);
+                return true;
+            }
+        }
+
+        private static void ClearAdapterResetHistory(string adapterName)
+        {
+            if (string.IsNullOrEmpty(adapterName)) return;
+            lock (_adapterResetLock)
+            {
+                _adapterResetHistory.Remove(adapterName);
+            }
         }
 
         private static void UI(Action a)

@@ -1042,7 +1042,12 @@ try {{
                 {
                     _clientDataUsageMap.Clear();
                 }
-                _lastDirectAdapterBytes = 0;
+                lock (_usageBaselineLock)
+                {
+                    _lastDirectRxBytes = 0;
+                    _lastDirectTxBytes = 0;
+                    _hasUsageBaseline = false;
+                }
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1186,7 +1191,12 @@ try {
                 {
                     _clientDataUsageMap.Clear();
                 }
-                _lastDirectAdapterBytes = 0;
+                lock (_usageBaselineLock)
+                {
+                    _lastDirectRxBytes = 0;
+                    _lastDirectTxBytes = 0;
+                    _hasUsageBaseline = false;
+                }
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1304,11 +1314,14 @@ if ($connectionProfile) {
             return $"{bytes} B";
         }
 
-        private static long _lastDirectAdapterBytes = 0;
+        private static long _lastDirectRxBytes = 0;
+        private static long _lastDirectTxBytes = 0;
+        private static bool _hasUsageBaseline = false;
+        private static readonly object _usageBaselineLock = new();
         private static bool _cachedInternetAvailable = true;
         private static DateTime _lastInternetCheck = DateTime.MinValue;
 
-        private static async Task<bool> CheckInternetAvailableAsync()
+        public static async Task<bool> CheckInternetAvailableAsync()
         {
             if ((DateTime.Now - _lastInternetCheck).TotalSeconds < 3)
             {
@@ -1436,7 +1449,8 @@ if ($connectionProfile) {
             if (clientList.Count == 0) return;
 
             long negotiatedSpeedBps = 0;
-            long currentDirectBytes = 0;
+            long currentDirectRx = 0;
+            long currentDirectTx = 0;
             try
             {
                 foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
@@ -1452,7 +1466,8 @@ if ($connectionProfile) {
                                 negotiatedSpeedBps = ni.Speed;
                             }
                             var stats = ni.GetIPv4Statistics();
-                            currentDirectBytes += (stats.BytesReceived + stats.BytesSent);
+                            currentDirectRx += stats.BytesReceived;
+                            currentDirectTx += stats.BytesSent;
                         }
                     }
                 }
@@ -1474,6 +1489,31 @@ if ($connectionProfile) {
             catch { }
 
             bool hostHasInternet = await CheckInternetAvailableAsync();
+
+            // Measure the adapter delta once per cycle, then advance the baseline so the
+            // next sample counts only new bytes instead of the total since adapter start.
+            long cycleRx, cycleTx;
+            lock (_usageBaselineLock)
+            {
+                if (!_hasUsageBaseline)
+                {
+                    // First sample after (re)start: adopt current counters without
+                    // crediting bytes that predate this hotspot session.
+                    _lastDirectRxBytes = currentDirectRx;
+                    _lastDirectTxBytes = currentDirectTx;
+                    _hasUsageBaseline = true;
+                    cycleRx = 0;
+                    cycleTx = 0;
+                }
+                else
+                {
+                    cycleRx = currentDirectRx > _lastDirectRxBytes ? currentDirectRx - _lastDirectRxBytes : 0;
+                    cycleTx = currentDirectTx > _lastDirectTxBytes ? currentDirectTx - _lastDirectTxBytes : 0;
+                    _lastDirectRxBytes = currentDirectRx;
+                    _lastDirectTxBytes = currentDirectTx;
+                }
+            }
+            bool cycleHasTraffic = (cycleRx + cycleTx) > 0;
 
             double speedMbps = negotiatedSpeedBps > 0 ? (negotiatedSpeedBps / 1_000_000.0) : (activeBand.Contains("5 GHz") ? 300.0 : 72.2);
             string linkText = $"{speedMbps:F0} Mbps";
@@ -1518,7 +1558,7 @@ if ($connectionProfile) {
                 {
                     _clientConsecutiveMisses[normMac] = 0;
                     client.IsGettingData = true;
-                    client.DataStatusText = "● Getting Data";
+                    client.DataStatusText = cycleHasTraffic ? "● Getting Data" : "● Online (idle)";
                     long rtt = arpRtt > 0 ? arpRtt : 2;
                     client.Latency = $"{rtt} ms";
                     client.ConnectionSpeed = $"Online • {rtt}ms";
@@ -1570,7 +1610,7 @@ if ($connectionProfile) {
                         else
                         {
                             client.IsGettingData = true;
-                            client.DataStatusText = "● Getting Data";
+                            client.DataStatusText = cycleHasTraffic ? "● Getting Data" : "● Online (idle)";
                             long rtt = pingOk ? pingRtt : tcpRtt;
                             client.Latency = rtt > 0 ? $"{rtt} ms" : "< 10 ms";
                             client.ConnectionSpeed = $"Online • {client.Latency}";
@@ -1614,17 +1654,11 @@ if ($connectionProfile) {
 
                         if (client.IsGettingData)
                         {
-                            long deltaBytes = (_lastDirectAdapterBytes > 0 && currentDirectBytes > _lastDirectAdapterBytes)
-                                ? (currentDirectBytes - _lastDirectAdapterBytes)
-                                : 0;
+                            // Split the cycle's real adapter delta evenly across online devices.
+                            // This is an estimated share (Windows exposes no per-client counters).
                             int activeCount = Math.Max(1, clientList.Count);
-                            long shareBytes = deltaBytes > 0 ? (deltaBytes / activeCount) : 0;
-
-                            long addDown = shareBytes > 0 ? (long)(shareBytes * 0.8) : 0;
-                            long addUp = shareBytes > 0 ? (long)(shareBytes * 0.2) : 0;
-
-                            stats.BytesDown += addDown;
-                            stats.BytesUp += addUp;
+                            stats.BytesDown += cycleRx / activeCount;
+                            stats.BytesUp += cycleTx / activeCount;
                         }
 
                         client.TotalBytesReceived = stats.BytesDown;

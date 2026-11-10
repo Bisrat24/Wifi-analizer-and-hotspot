@@ -424,8 +424,9 @@ namespace WifiAnalyzerHotspot.Services
         // ─────────────────────────────────────────────────────────────────────────────
         private static void UI(Action a)
         {
-            if (Application.Current != null)
-                Application.Current.Dispatcher.Invoke(a);
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+                dispatcher.BeginInvoke(a);
             else
                 a();
         }

@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.4)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.5)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with RealTime OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.4)
+## ✨ Key Features (v1.2.5)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -54,9 +54,13 @@ You can run the app immediately by double-clicking:
 - **🧠 Upstream-Aware Intelligent Watchdog & Backoff**:
   - Differentiates upstream ISP outages from local SoftAP failures. Auto-reset is automatically suspended if the host PC's upstream network is offline.
   - Rate-limited consecutive resets: caps auto-resets at 3 consecutive attempts, pausing for a 90-second backoff cooldown to prevent infinite reset loops.
-- **📊 100% Honest Telemetry & Accurate Accounting**:
-  - Zero fabricated data usage: all per-client download and upload metrics are derived strictly from genuine transferred byte deltas on the virtual network adapter.
+- **📊 100% Honest Telemetry & Accounting**:
+  - Zero fabricated data usage: totals come from real byte deltas on the virtual network adapter, split evenly across online devices (Windows exposes no per-client counters).
   - Speed test strictly reports honest measurements with no artificial minimum fallbacks.
+- **🔐 Encrypted Settings & Silent Elevated Startup**:
+  - Hotspot and proxy passwords are DPAPI-encrypted (current-user scope) inside `settings.json`.
+  - Autostart uses a highest-privileges logon scheduled task, so the app starts elevated without a UAC prompt.
+  - Disabling the proxy restores the original system proxy instead of leaving a stale override.
 - **🔒 Input Validation & Injection Hardening**:
   - Strict escaping of PowerShell string literals (`$`, `"`, `` ` ``) in SSID and password parameters.
   - Strict regex/IP address parsing for all MAC and IP address inputs across firewall, ARP, and QoS commands.
@@ -116,7 +120,7 @@ You can run the app immediately by double-clicking:
     - **High-Speed Caps**: **`1 Mbps`**, **`2 Mbps`**, **`5 Mbps`**, **`10 Mbps`**, **`20 Mbps`**, or **`Unlimited`**.
   - Rate limits are automatically remembered by MAC address in `%APPDATA%\WifiAnalyzerHotspot\settings.json` and restored across restarts.
 - **📊 Cumulative Session Data Usage per Device**:
-  - Accurately tracks and displays per-device cumulative download and upload data usage (`↓ MB • ↑ MB`) throughout the hotspot session.
+  - Estimates each device's share of cumulative download and upload data (`↓ MB • ↑ MB`) from real adapter deltas throughout the hotspot session.
 - **Multi-Vector Client Data Flow Health Check**:
   - Multi-vector verification (ICMP Echo + Layer 4 TCP Port 80/443 + Hardware ARP Link Verification) eliminating false "No Data" flags.
 

@@ -126,6 +126,13 @@ namespace WifiAnalyzerHotspot
         {
             try
             {
+                // Remove persistent NetQoS policies even if the hotspot was left running
+                Services.HotspotPriorityService.CleanupAllPolicies();
+            }
+            catch { }
+
+            try
+            {
                 // Clear Win32 execution state lock
                 SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
             }
