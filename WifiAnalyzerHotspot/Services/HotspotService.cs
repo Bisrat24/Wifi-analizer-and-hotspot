@@ -2401,7 +2401,7 @@ try {{
                 using var cts = new CancellationTokenSource(timeoutMs);
 
                 // Write script asynchronously to stdin
-                await process.StandardInput.WriteLineAsync(script);
+                await process.StandardInput.WriteLineAsync(script).ConfigureAwait(false);
                 process.StandardInput.Close();
 
                 // Concurrently read stdout and stderr to avoid OS pipe deadlock
@@ -2410,7 +2410,7 @@ try {{
 
                 try
                 {
-                    await process.WaitForExitAsync(cts.Token);
+                    await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -2419,8 +2419,8 @@ try {{
                     return string.Empty;
                 }
 
-                string output = await outTask;
-                string error = await errTask;
+                string output = await outTask.ConfigureAwait(false);
+                string error = await errTask.ConfigureAwait(false);
 
                 if (!string.IsNullOrWhiteSpace(error))
                 {
@@ -2438,7 +2438,8 @@ try {{
 
         private static string RunPowerShell(string script, int timeoutMs = 15000)
         {
-            return RunPowerShellAsync(script, timeoutMs).GetAwaiter().GetResult();
+            // Thread-pool hop so a blocking caller on the WPF UI thread cannot deadlock the continuation.
+            return Task.Run(() => RunPowerShellAsync(script, timeoutMs)).GetAwaiter().GetResult();
         }
 
         /// <summary>

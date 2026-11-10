@@ -217,7 +217,9 @@ Write-Output ('REMOVED:' + $names.Count)
 
             try
             {
-                string output = RunPowerShellAsync(CleanupScript, 15000).GetAwaiter().GetResult();
+                // Run on the thread pool: this is called from the WPF UI thread during OnExit, and
+                // blocking there while an await needs that same Dispatcher would deadlock shutdown.
+                string output = Task.Run(() => RunPowerShellAsync(CleanupScript, 15000)).GetAwaiter().GetResult();
                 Debug.WriteLine($"HotspotPriorityService cleanup: {output}");
             }
             catch { }
@@ -246,16 +248,16 @@ Write-Output ('REMOVED:' + $names.Count)
                 using var cts = new CancellationTokenSource(timeoutMs);
 
                 // Write script to stdin
-                await proc.StandardInput.WriteLineAsync(script);
+                await proc.StandardInput.WriteLineAsync(script).ConfigureAwait(false);
                 proc.StandardInput.Close();
 
                 // Concurrently read stdout and stderr to prevent deadlocks
                 var outTask = proc.StandardOutput.ReadToEndAsync(cts.Token);
                 var errTask = proc.StandardError.ReadToEndAsync(cts.Token);
 
-                await proc.WaitForExitAsync(cts.Token);
-                string output = await outTask;
-                string error = await errTask;
+                await proc.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                string output = await outTask.ConfigureAwait(false);
+                string error = await errTask.ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(error))
                     Debug.WriteLine($"HotspotPriorityService PowerShell stderr: {error.Trim()}");
                 return output.Trim();
