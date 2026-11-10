@@ -49,7 +49,25 @@ namespace WifiAnalyzerHotspot.Services
 
         private static (int channel, string band) _cachedVirtualChannel = (0, "");
         private static DateTime _lastVirtualChannelCheck = DateTime.MinValue;
-        private static readonly Dictionary<string, int> _clientConsecutiveMisses = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _clientConsecutiveMisses = new(StringComparer.OrdinalIgnoreCase);
+
+        private static string EscapePowerShellString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return string.Empty;
+            return input.Replace("`", "``").Replace("\"", "`\"").Replace("$", "`$");
+        }
+
+        private static bool IsValidMac(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return false;
+            string clean = HotspotModel.NormalizeMac(mac);
+            return clean.Length == 12 && System.Text.RegularExpressions.Regex.IsMatch(clean, "^[0-9A-Fa-f]{12}$");
+        }
+
+        private static bool IsValidIp(string ip)
+        {
+            return !string.IsNullOrEmpty(ip) && ip != "-" && System.Net.IPAddress.TryParse(ip, out _);
+        }
 
         /// <summary>
         /// Attempts to query the live channel of the active Wi-Fi Direct virtual adapter via netsh wlan show interfaces.
@@ -673,11 +691,11 @@ if ($connectionProfile) {{
                     bandEnum = "Auto";
                 }
 
-                string safeSsid = ssid.Replace("\"", "`\"");
-                string safePass = passphrase.Replace("\"", "`\"");
+                string safeSsid = EscapePowerShellString(ssid);
+                string safePass = EscapePowerShellString(passphrase);
 
                 string script = $@"
-try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }} catch {{}}
+try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }} catch {{}}
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {{
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -834,8 +852,8 @@ try {
                     bandEnum = "Auto";
                 }
 
-                string safeSsid = ssid.Replace("\"", "`\"");
-                string safePass = passphrase.Replace("\"", "`\"");
+                string safeSsid = EscapePowerShellString(ssid);
+                string safePass = EscapePowerShellString(passphrase);
 
                 string script = $@"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1020,11 +1038,17 @@ try {{
         {
             return await Task.Run(() =>
             {
+                lock (_clientDataUsageMap)
+                {
+                    _clientDataUsageMap.Clear();
+                }
+                _lastDirectAdapterBytes = 0;
+
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Elevate hotspot creation process to RealTime priority
-try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime } catch {}
+# Elevate hotspot creation process to High priority
+try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High } catch {}
 
 # 1. Ensure SharedAccess service is running and boosted to RealTime priority
 try {
@@ -1158,6 +1182,12 @@ try {
         {
             return await Task.Run(() =>
             {
+                lock (_clientDataUsageMap)
+                {
+                    _clientDataUsageMap.Clear();
+                }
+                _lastDirectAdapterBytes = 0;
+
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
@@ -1286,6 +1316,7 @@ if ($connectionProfile) {
             }
             _lastInternetCheck = DateTime.Now;
 
+            // Vector 1: Fast ICMP Ping (8.8.8.8)
             try
             {
                 using var pinger = new Ping();
@@ -1295,14 +1326,48 @@ if ($connectionProfile) {
                     _cachedInternetAvailable = true;
                     return true;
                 }
-                var reply2 = await pinger.SendPingAsync("1.1.1.1", 150);
-                _cachedInternetAvailable = (reply2.Status == IPStatus.Success);
+            }
+            catch { }
+
+            // Vector 2: Fast TCP handshake on port 443 (1.1.1.1:443 - works when ICMP is blocked)
+            try
+            {
+                using var tcp = new System.Net.Sockets.TcpClient();
+                var connectTask = tcp.ConnectAsync("1.1.1.1", 443);
+                var delayTask = Task.Delay(250);
+                var finished = await Task.WhenAny(connectTask, delayTask);
+                if (finished == connectTask && tcp.Connected)
+                {
+                    _cachedInternetAvailable = true;
+                    return true;
+                }
+            }
+            catch { }
+
+            // Vector 3: Fast HTTP 204 Probe (Google / MSFT connectivity check)
+            try
+            {
+                using var handler = new System.Net.Http.SocketsHttpHandler { ConnectTimeout = TimeSpan.FromMilliseconds(300) };
+                using var http = new System.Net.Http.HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(500) };
+                var resp = await http.GetAsync("http://connectivitycheck.gstatic.com/generate_204");
+                if (resp.IsSuccessStatusCode)
+                {
+                    _cachedInternetAvailable = true;
+                    return true;
+                }
+            }
+            catch { }
+
+            // Vector 4: OS Network Available status fallback
+            try
+            {
+                _cachedInternetAvailable = NetworkInterface.GetIsNetworkAvailable();
                 return _cachedInternetAvailable;
             }
             catch
             {
-                _cachedInternetAvailable = NetworkInterface.GetIsNetworkAvailable();
-                return _cachedInternetAvailable;
+                _cachedInternetAvailable = true;
+                return true;
             }
         }
 
@@ -1555,8 +1620,8 @@ if ($connectionProfile) {
                             int activeCount = Math.Max(1, clientList.Count);
                             long shareBytes = deltaBytes > 0 ? (deltaBytes / activeCount) : 0;
 
-                            long addDown = Math.Max(2500, (long)(shareBytes * 0.8));
-                            long addUp = Math.Max(1200, (long)(shareBytes * 0.2));
+                            long addDown = shareBytes > 0 ? (long)(shareBytes * 0.8) : 0;
+                            long addUp = shareBytes > 0 ? (long)(shareBytes * 0.2) : 0;
 
                             stats.BytesDown += addDown;
                             stats.BytesUp += addUp;
@@ -1585,6 +1650,11 @@ if ($connectionProfile) {
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
+                    if (!IsValidMac(cleanMac))
+                    {
+                        return (false, "Invalid MAC address format.");
+                    }
+
                     lock (_clientDataUsageMap)
                     {
                         if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
@@ -1600,6 +1670,11 @@ if ($connectionProfile) {
                     {
                         var arpMap = NativeArpHelper.GetHotspotArpEntries();
                         if (arpMap.TryGetValue(cleanMac, out var resolved)) targetIp = resolved;
+                    }
+
+                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && !IsValidIp(targetIp))
+                    {
+                        targetIp = "";
                     }
 
                     ulong bitsPerSec = 0;
@@ -1651,6 +1726,11 @@ try {{
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
+                    if (!IsValidMac(cleanMac))
+                    {
+                        return (false, "Invalid MAC address format.");
+                    }
+
                     int clamped = Math.Clamp(priority, 1, 7);
 
                     lock (_clientDataUsageMap)
@@ -1668,6 +1748,11 @@ try {{
                     {
                         var arpMap = NativeArpHelper.GetHotspotArpEntries();
                         if (arpMap.TryGetValue(cleanMac, out var resolved)) targetIp = resolved;
+                    }
+
+                    if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && !IsValidIp(targetIp))
+                    {
+                        targetIp = "";
                     }
 
                     // Map user priority (1=Highest .. 7=Least) to 802.1p and DSCP
@@ -1746,11 +1831,11 @@ try {{
         }
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _disconnectedMacs = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly System.Collections.Generic.HashSet<string> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.HashSet<string>> _blockedMacToIps = new(StringComparer.OrdinalIgnoreCase);
 
         public static bool IsClientBlocked(string mac) =>
-            !string.IsNullOrEmpty(mac) && _activeBlockedMacs.Contains(HotspotModel.NormalizeMac(mac));
+            !string.IsNullOrEmpty(mac) && _activeBlockedMacs.ContainsKey(HotspotModel.NormalizeMac(mac));
 
         public static bool IsClientDisconnected(string mac)
         {
@@ -1768,7 +1853,7 @@ try {{
         {
             if (!string.IsNullOrEmpty(mac))
             {
-                _activeBlockedMacs.Add(HotspotModel.NormalizeMac(mac));
+                _activeBlockedMacs.TryAdd(HotspotModel.NormalizeMac(mac), 0);
             }
         }
 
@@ -1776,7 +1861,7 @@ try {{
         {
             if (!string.IsNullOrEmpty(mac))
             {
-                _activeBlockedMacs.Remove(HotspotModel.NormalizeMac(mac));
+                _activeBlockedMacs.TryRemove(HotspotModel.NormalizeMac(mac), out _);
             }
         }
 
@@ -1788,8 +1873,9 @@ try {{
         /// </summary>
         public static void EnforceIpBlock(string cleanMac, string ip)
         {
-            if (string.IsNullOrWhiteSpace(ip) || ip == "-" || !ip.Contains('.')) return;
+            if (string.IsNullOrWhiteSpace(ip) || ip == "-" || !IsValidIp(ip)) return;
             cleanMac = HotspotModel.NormalizeMac(cleanMac);
+            if (!IsValidMac(cleanMac)) return;
 
             lock (_blockedMacToIps)
             {
@@ -1905,7 +1991,7 @@ try {{
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    _activeBlockedMacs.Add(cleanMac);
+                    _activeBlockedMacs.TryAdd(cleanMac, 0);
                     _disconnectedMacs[cleanMac] = DateTime.Now;
 
                     // Gather all candidate IPs for this MAC
@@ -1955,7 +2041,12 @@ try {{
                 try
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    _activeBlockedMacs.Remove(cleanMac);
+                    if (!IsValidMac(cleanMac))
+                    {
+                        return (false, "Invalid MAC address format.");
+                    }
+
+                    _activeBlockedMacs.TryRemove(cleanMac, out _);
                     _disconnectedMacs.TryRemove(cleanMac, out _);
 
                     var ipsToRemove = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2037,9 +2128,9 @@ try {{
                     {
                         allBlocked.Add(HotspotModel.NormalizeMac(b.MacAddress));
                     }
-                    foreach (var mac in _activeBlockedMacs)
+                    foreach (var kvp in _activeBlockedMacs)
                     {
-                        allBlocked.Add(HotspotModel.NormalizeMac(mac));
+                        allBlocked.Add(HotspotModel.NormalizeMac(kvp.Key));
                     }
 
                     foreach (var mac in allBlocked)
@@ -2161,7 +2252,7 @@ try {{
             }
         }
 
-        private static string RunPowerShell(string script, int timeoutMs = 15000)
+        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000)
         {
             try
             {
@@ -2174,22 +2265,42 @@ try {{
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
                 };
 
                 using var process = Process.Start(psi);
                 if (process == null) return string.Empty;
 
-                try { process.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
+                using var cts = new CancellationTokenSource(timeoutMs);
 
-                process.StandardInput.WriteLine(script);
+                // Write script asynchronously to stdin
+                await process.StandardInput.WriteLineAsync(script);
                 process.StandardInput.Close();
 
-                string output = process.StandardOutput.ReadToEnd();
-                if (!process.WaitForExit(timeoutMs))
+                // Concurrently read stdout and stderr to avoid OS pipe deadlock
+                var outTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+                var errTask = process.StandardError.ReadToEndAsync(cts.Token);
+
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
                 {
                     try { process.Kill(true); } catch { }
+                    Debug.WriteLine($"PowerShell command timed out after {timeoutMs}ms and was terminated.");
+                    return string.Empty;
                 }
+
+                string output = await outTask;
+                string error = await errTask;
+
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    Debug.WriteLine($"PowerShell stderr: {error}");
+                }
+
                 return output.Trim();
             }
             catch (Exception ex)
@@ -2197,6 +2308,11 @@ try {{
                 Debug.WriteLine($"PowerShell exec error: {ex.Message}");
                 return string.Empty;
             }
+        }
+
+        private static string RunPowerShell(string script, int timeoutMs = 15000)
+        {
+            return RunPowerShellAsync(script, timeoutMs).GetAwaiter().GetResult();
         }
 
         /// <summary>

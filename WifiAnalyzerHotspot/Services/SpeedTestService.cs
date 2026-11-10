@@ -24,11 +24,7 @@ namespace WifiAnalyzerHotspot.Services
                 AutomaticDecompression = System.Net.DecompressionMethods.None,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(3),
                 MaxConnectionsPerServer = 16,
-                EnableMultipleHttp2Connections = true,
-                SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-                {
-                    RemoteCertificateValidationCallback = (_, _, _, _) => true
-                }
+                EnableMultipleHttp2Connections = true
             };
 
             _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
@@ -137,7 +133,7 @@ namespace WifiAnalyzerHotspot.Services
             }
             else
             {
-                UI(() => { metrics.PingMs = 35.0; metrics.JitterMs = 4.0; });
+                UI(() => { metrics.PingMs = 0; metrics.JitterMs = 0; });
             }
         }
 
@@ -296,10 +292,10 @@ namespace WifiAnalyzerHotspot.Services
             }
             else
             {
-                final = 1.0;
+                final = 0.0;
             }
 
-            final = Math.Round(Math.Max(0.1, final), 2);
+            final = Math.Round(final, 2);
             UI(() => { metrics.DownloadMbps = final; onGauge(final); });
         }
 
@@ -418,10 +414,10 @@ namespace WifiAnalyzerHotspot.Services
             }
             else
             {
-                finalUp = Math.Max(0.5, metrics.DownloadMbps * 0.4);
+                finalUp = 0.0;
             }
 
-            finalUp = Math.Round(Math.Max(0.1, finalUp), 2);
+            finalUp = Math.Round(finalUp, 2);
             UI(() => { metrics.UploadMbps = finalUp; onGauge(finalUp); });
         }
 

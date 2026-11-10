@@ -44,21 +44,35 @@ You can run the app immediately by double-clicking:
 - **Real-time Adapter Throughput Monitor**:
   - Continuous live upload and download bandwidth monitor updating every second directly from the active wireless network interface.
 
-### 4. 🔥 Mobile Hotspot Creator & Manager (with RealTime Priority & QoS)
+### 4. 🔥 Mobile Hotspot Creator & Manager (with High OS Priority, QoS & Admin Manifest)
+- **🛡️ Full Administrator Manifest & Privilege Gating**:
+  - Application includes a native `app.manifest` declaring `<requestedExecutionLevel level="requireAdministrator" />`. All privileged operations (`arp -s`, `netsh advfirewall`, `New-NetQosPolicy`, ICS virtual adapter configurations) execute with verified administrative rights rather than failing silently.
+- **⚡ Deadlock-Free Asynchronous Process Pipeline**:
+  - Replaced synchronous standard stream reading with asynchronous, non-blocking execution (`RunPowerShellAsync` reading `StandardOutput` and `StandardError` concurrently with `WaitForExitAsync` and `CancellationTokenSource`). Eliminates parent process hangs and "hotspot stuck in transition" issues caused by full OS pipe buffers.
+- **🌐 Tri-Vector Internet Reachability Verification**:
+  - `CheckInternetAvailableAsync` employs multi-vector probing: ICMP Echo Ping + Layer 4 TCP Port 443 handshake to `1.1.1.1` + HTTP 204 head probe. Completely immune to networks, hotels, or enterprise firewalls that block or deprioritize ICMP.
+- **🧠 Upstream-Aware Intelligent Watchdog & Backoff**:
+  - Differentiates upstream ISP outages from local SoftAP failures. Auto-reset is automatically suspended if the host PC's upstream network is offline.
+  - Rate-limited consecutive resets: caps auto-resets at 3 consecutive attempts, pausing for a 90-second backoff cooldown to prevent infinite reset loops.
+- **📊 100% Honest Telemetry & Accurate Accounting**:
+  - Zero fabricated data usage: all per-client download and upload metrics are derived strictly from genuine transferred byte deltas on the virtual network adapter.
+  - Speed test strictly reports honest measurements with no artificial minimum fallbacks.
+- **🔒 Input Validation & Injection Hardening**:
+  - Strict escaping of PowerShell string literals (`$`, `"`, `` ` ``) in SSID and password parameters.
+  - Strict regex/IP address parsing for all MAC and IP address inputs across firewall, ARP, and QoS commands.
+  - Captive portal URLs strictly validated for `http://` and `https://` schemes before system browser dispatch.
 - **🌐 Upstream Connection Top Priority (Prioritized Over Host PC Browsers)**:
   - Enforces kernel-level NetQoS priority for hotspot transit traffic (`192.168.137.0/24`) with **Precedence 128**, **802.1p Tag 7** (Network Control / Voice), and **DSCP 46** (Expedited Forwarding).
   - Local desktop web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`, `tor.exe`) are constrained to **Precedence 64**, **802.1p Tag 1** (Background), and **DSCP 8** (Scavenger).
   - By using Precedence 128 for baseline transit, individual connected client priorities (**Precedence 130 - 240**), QoS bandwidth limits (**Precedence 245**), and device blocks (**Precedence 255**) take full hierarchical precedence over the general transit queue while desktop browsers remain strictly deprioritized.
 - **🛡️ "Refresh Rules" Quick Enforcement Button**:
   - Located directly beside **Refresh Clients** in the Connected Client Devices card.
-  - Re-applies and re-asserts all active QoS rate limits, client priority tags (1-7), static ARP blackholes, firewall blocks, and RealTime upstream transit prioritization in a single click.
-- **⚡ REALTIME PC Priority Mode (Active at Every Startup)**:
-  - Process automatically elevates to `RealTime` priority at application startup (with fallback to `High` if non-elevated).
-  - Automatically runs the hotspot creation process ID (`powershell.exe`), `SharedAccess` (ICS NAT & DHCP router service), and `wlanext.exe` / `wlansvc` with RealTime priority.
-  - **Win32 Execution Lock**: Invokes `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED)` to guarantee Windows never parks CPU cores, throttles Wi-Fi, or sleeps while hotspot is active.
-  - **Maximum Radio Power**: Enforces Wi-Fi adapter Transmit Power to **Level 5 (Highest)**, turns on **Throughput Booster**, and disables **Packet Coalescing** & **MIMO Power-Saving** sleep.
-  - **Zero Network Throttling**: Sets `NetworkThrottlingIndex = 0xFFFFFFFF` and `SystemResponsiveness = 0` (allocating 100% CPU priority to network routing).
-  - **Top Virtual Route Metric**: Assigns `InterfaceMetric = 5` to the Microsoft Wi-Fi Direct Virtual Adapter for prioritized routing.
+  - Re-applies and re-asserts all active QoS rate limits, client priority tags (1-7), static ARP blackholes, firewall blocks, and upstream transit prioritization in a single click.
+- **⚡ High Process Priority & Safe Power Hygiene**:
+  - Process elevates safely to `High` priority (avoiding `RealTime` to prevent starving OS input/audio/DWM).
+  - `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED)` executed directly on the persistent UI thread and cleanly released on application exit.
+  - Zero invasive global registry modifications (protecting system responsiveness and multimedia scheduling).
+  - Full Windows shutdown/reboot compatibility: window close interceptor respects `SessionEnding` to allow clean OS shutdown.
 - **🛑 Rock-Solid Device Disconnect & Permanent Block**:
   - **Immediate Connection Cut & L2/L3 Drop**: Clicking **Block** immediately severs client transit, installs persistent static ARP poison, enforces kernel NetQoS freeze, and seals Windows Defender Firewall drop rules without conflicting unblock timers.
   - **Multi-Layer Kernel Isolation**:

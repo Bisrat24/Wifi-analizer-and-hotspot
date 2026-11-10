@@ -1,116 +1,49 @@
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WifiAnalyzerHotspot.Services
 {
     public class HotspotPriorityService
     {
-        [Flags]
-        public enum EXECUTION_STATE : uint
-        {
-            ES_AWAYMODE_REQUIRED = 0x00000040,
-            ES_CONTINUOUS = 0x80000000,
-            ES_DISPLAY_REQUIRED = 0x00000002,
-            ES_SYSTEM_REQUIRED = 0x00000001
-        }
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
-
         private static bool _isPriorityEngaged = false;
 
         public static bool IsPriorityEngaged => _isPriorityEngaged;
 
         /// <summary>
-        /// Elevates the PC to the Highest Priority for Hotspot:
-        /// 1. Elevates current application process priority to High.
-        /// 2. Engages Win32 SetThreadExecutionState (System Required + Away Mode) to prevent CPU/Wi-Fi sleep throttling.
-        /// 3. Boosts SharedAccess (ICS NAT Router / DHCP) and wlanext.exe process priorities to High.
-        /// 4. Disables Windows Network Throttling (NetworkThrottlingIndex = 0xFFFFFFFF) & sets SystemResponsiveness = 0 (100% priority for network routing).
-        /// 5. Forces Wi-Fi radio to Maximum Transmit Power (Level 5), Throughput Booster Enabled, and disables Packet Coalescing.
-        /// 6. Optimizes Hotspot Virtual Adapter route metric (Metric = 5) for highest routing priority.
+        /// Elevates network priority for the Hotspot without destabilizing the Windows desktop:
+        /// 1. Sets process priority to High (optimal responsiveness without starving OS input/audio/DWM).
+        /// 2. Optimizes Hotspot Virtual Adapter route metric (Metric = 5) for highest routing priority.
+        /// 3. Prioritizes hotspot transit traffic (192.168.137.0/24) via NetQoS (Precedence 128, 802.1p Tag 7, DSCP 46).
+        /// 4. Prioritizes hotspot traffic ahead of desktop browsers (Precedence 64).
         /// </summary>
         public async Task<(bool success, string details)> EngageHighestPriorityAsync()
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
                 try
                 {
-                    // 1. Elevate application process priority to RealTime
+                    // 1. Elevate application process priority to High
                     try
                     {
                         using var proc = Process.GetCurrentProcess();
-                        proc.PriorityClass = ProcessPriorityClass.RealTime;
+                        proc.PriorityClass = ProcessPriorityClass.High;
                     }
                     catch { }
 
-                    // 2. Prevent system sleep, CPU downclocking, and radio sleep throttling via Win32 kernel power API
-                    try
-                    {
-                        SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS |
-                                                EXECUTION_STATE.ES_SYSTEM_REQUIRED |
-                                                EXECUTION_STATE.ES_AWAYMODE_REQUIRED);
-                    }
-                    catch { }
-
-                    // 3. System-level optimizations via PowerShell script
+                    // 2. System-level NetQoS & adapter routing via PowerShell script
                     string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Set current execution process to RealTime priority
-try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime } catch {}
-
-# A. Boost SharedAccess (ICS NAT service), wlansvc, and wlanext.exe process priority to RealTime
-try {
-    $saSvc = Get-CimInstance Win32_Service -Filter ""Name='SharedAccess'"" -ErrorAction SilentlyContinue
-    if ($saSvc -and $saSvc.ProcessId -gt 0) {
-        $p = Get-Process -Id $saSvc.ProcessId -ErrorAction SilentlyContinue
-        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-    }
-    $wlanSvc = Get-CimInstance Win32_Service -Filter ""Name='WlanSvc'"" -ErrorAction SilentlyContinue
-    if ($wlanSvc -and $wlanSvc.ProcessId -gt 0) {
-        $p = Get-Process -Id $wlanSvc.ProcessId -ErrorAction SilentlyContinue
-        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-    }
-    Get-Process -Name 'wlanext' -ErrorAction SilentlyContinue | ForEach-Object {
-        $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime
-    }
-} catch {}
-
-# B. Disable Windows Network Throttling & prioritize network packet I/O (SystemResponsiveness = 0)
-try {
-    $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
-    if (Test-Path $regPath) {
-        Set-ItemProperty -Path $regPath -Name 'SystemResponsiveness' -Value 0 -Type DWord -ErrorAction SilentlyContinue
-        Set-ItemProperty -Path $regPath -Name 'NetworkThrottlingIndex' -Value 0xFFFFFFFF -Type DWord -ErrorAction SilentlyContinue
-    }
-} catch {}
-
-# C. Maximize Wi-Fi Adapter Transmit Power, Throughput Booster, and disable Packet Coalescing
-try {
-    $wifiAdapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { 
-        $_.InterfaceDescription -like '*Wi-Fi*' -or $_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*802.11*'
-    }
-    foreach ($ad in $wifiAdapters) {
-        Set-NetAdapterAdvancedProperty -Name $ad.Name -DisplayName 'Transmit Power' -DisplayValue '5. Highest' -ErrorAction SilentlyContinue
-        Set-NetAdapterAdvancedProperty -Name $ad.Name -DisplayName 'Throughput Booster' -DisplayValue 'Enabled' -ErrorAction SilentlyContinue
-        Set-NetAdapterAdvancedProperty -Name $ad.Name -DisplayName 'Packet Coalescing' -DisplayValue 'Disabled' -ErrorAction SilentlyContinue
-        Set-NetAdapterAdvancedProperty -Name $ad.Name -DisplayName 'Sleep on WoWLAN Disconnect' -DisplayValue 'Disabled' -ErrorAction SilentlyContinue
-        Set-NetAdapterPowerManagement -Name $ad.Name -DeviceSleepOnDisconnect Disabled -D0PacketCoalescing Disabled -SelectiveSuspend Disabled -ErrorAction SilentlyContinue
-    }
-} catch {}
-
-# D. Prioritize Hotspot Virtual Adapter Route Metric (Metric = 5)
+# A. Prioritize Hotspot Virtual Adapter Route Metric (Metric = 5)
 try {
     Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object { ($_.InterfaceAlias -like '*Wi-Fi Direct*' -or $_.InterfaceAlias -like '*Local Area Connection*') -and $_.ConnectionState -eq 'Connected' } |
         Set-NetIPInterface -InterfaceMetric 5 -ErrorAction SilentlyContinue
 } catch {}
 
-# E. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128):
-# Prioritize the 192.168.137.0/24 subnet traffic with 802.1p Network Control (7) and DSCP Expedited Forwarding (46)
+# B. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128):
 # Precedence 128 ensures hotspot transit is prioritized above desktop browsers (64),
 # while allowing specific client priorities (130-240) and blocks (255) to take full precedence!
 try {
@@ -120,8 +53,8 @@ try {
     New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
-# F. Ensure local browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Tor) do not choke upstream shared connection:
-# Set desktop browsers to lower Precedence (64), 802.1p 1 (Background), and DSCP 8 (CS1 scavenger) so Hotspot packets always jump ahead in the router/NIC queue
+# C. Ensure local browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Tor) do not choke upstream shared connection:
+# Set desktop browsers to lower Precedence (64), 802.1p 1 (Background), and DSCP 8 (CS1 scavenger)
 try {
     $browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
     foreach ($b in $browsers) {
@@ -132,10 +65,10 @@ try {
 
 Write-Output 'OK'
 ";
-                    RunPowerShell(script);
+                    await RunPowerShellAsync(script, 10000);
                     _isPriorityEngaged = true;
 
-                    return (true, "⚡ Highest Priority Mode Active: RealTime CPU Priority • Upstream Connection Top Priority (over Browsers) • Max Radio Power • 0% Network Throttling");
+                    return (true, "⚡ High Priority Mode Active: High CPU Priority • Upstream Connection Top Priority (over Browsers) • Optimized Route Metric");
                 }
                 catch (Exception ex)
                 {
@@ -145,7 +78,7 @@ Write-Output 'OK'
         }
 
         /// <summary>
-        /// Releases highest priority and restores standard desktop priority when Hotspot stops.
+        /// Releases priority and removes custom NetQoS policies when Hotspot stops.
         /// </summary>
         public void ReleaseHighestPriority()
         {
@@ -156,13 +89,6 @@ Write-Output 'OK'
                 {
                     using var proc = Process.GetCurrentProcess();
                     proc.PriorityClass = ProcessPriorityClass.Normal;
-                }
-                catch { }
-
-                // Release Win32 execution lock
-                try
-                {
-                    SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
                 }
                 catch { }
 
@@ -177,7 +103,7 @@ foreach ($b in $browsers) {
     Remove-NetQosPolicy -Name ""Hotspot_Browser_$b"" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 }
 ";
-                    RunPowerShell(cleanupScript);
+                    _ = RunPowerShellAsync(cleanupScript, 6000);
                 }
                 catch { }
 
@@ -186,7 +112,7 @@ foreach ($b in $browsers) {
             catch { }
         }
 
-        private static void RunPowerShell(string script)
+        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 10000)
         {
             try
             {
@@ -202,21 +128,27 @@ foreach ($b in $browsers) {
                 };
 
                 using var proc = Process.Start(psi);
-                if (proc == null) return;
+                if (proc == null) return string.Empty;
 
-                try { proc.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
+                using var cts = new CancellationTokenSource(timeoutMs);
 
-                using (var sw = proc.StandardInput)
-                {
-                    if (sw.BaseStream.CanWrite)
-                    {
-                        sw.Write(script);
-                    }
-                }
+                // Write script to stdin
+                await proc.StandardInput.WriteLineAsync(script);
+                proc.StandardInput.Close();
 
-                proc.WaitForExit(10000);
+                // Concurrently read stdout and stderr to prevent deadlocks
+                var outTask = proc.StandardOutput.ReadToEndAsync(cts.Token);
+                var errTask = proc.StandardError.ReadToEndAsync(cts.Token);
+
+                await proc.WaitForExitAsync(cts.Token);
+                string output = await outTask;
+                return output.Trim();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"HotspotPriorityService RunPowerShell error: {ex.Message}");
+                return string.Empty;
+            }
         }
     }
 }

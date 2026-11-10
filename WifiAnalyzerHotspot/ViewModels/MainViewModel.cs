@@ -16,7 +16,7 @@ using WifiAnalyzerHotspot.Services;
 
 namespace WifiAnalyzerHotspot.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         private readonly WifiScannerService _scannerService = new();
         private readonly ChannelAnalysisService _analysisService = new();
@@ -31,6 +31,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         private readonly DispatcherTimer _scanTimer;
         private readonly DispatcherTimer _trafficTimer;
+        private readonly DispatcherTimer _settingsDebounceTimer;
         private CancellationTokenSource? _speedTestCts;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
@@ -40,6 +41,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private int _unknownStateCountSeconds = 0;
         private int _noDataCountSeconds = 0;
         private int _resetCooldownSeconds = 0;
+        private int _consecutiveResetCount = 0;
 
         private string _currentTab = "Analyzer";
         private string _selectedBand = "2.4 GHz";
@@ -271,7 +273,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (_settings != null)
                 {
                     _settings.HotspotSsid = value;
-                    _settingsService.SaveSettings(_settings);
+                    RequestDebouncedSettingsSave();
                 }
             }
         }
@@ -286,7 +288,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (_settings != null)
                 {
                     _settings.HotspotPassword = value;
-                    _settingsService.SaveSettings(_settings);
+                    RequestDebouncedSettingsSave();
                 }
             }
         }
@@ -773,7 +775,15 @@ namespace WifiAnalyzerHotspot.ViewModels
                     : (!string.IsNullOrWhiteSpace(Settings.CaptivePortalUrl) ? Settings.CaptivePortalUrl : "http://www.msftconnecttest.com/connecttest.txt");
                 try
                 {
-                    Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+                    if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                    {
+                        Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
+                    }
+                    else
+                    {
+                        Stabilizer.CaptivePortalNotice = "Invalid captive portal URL scheme. Only HTTP and HTTPS are permitted.";
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -845,6 +855,17 @@ namespace WifiAnalyzerHotspot.ViewModels
             // Wi-Fi scanner timer: runs every 5 seconds on UI Dispatcher
             _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _scanTimer.Tick += async (s, e) => await PerformScanAsync();
+
+            // Settings auto-save debounce timer: flushes pending keystroke edits to disk after 500ms of inactivity
+            _settingsDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _settingsDebounceTimer.Tick += (s, e) =>
+            {
+                _settingsDebounceTimer.Stop();
+                if (_settings != null)
+                {
+                    _settingsService.SaveSettings(_settings);
+                }
+            };
 
             // Real-time adapter traffic monitor & client refresh timer: runs every 1 second
             _trafficTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -943,20 +964,37 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                                 if (workingCount == 0)
                                 {
-                                    // All devices connected to the hotspot have 0 data flow!
-                                    _noDataCountSeconds++;
-                                    if (_noDataCountSeconds >= thresholdSec)
+                                    bool isUpstreamAvailable = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+                                    if (!isUpstreamAvailable)
                                     {
-                                        _resetTriggerReason = $"Watchdog: No Client Data Flow ({totalDevices} device{(totalDevices == 1 ? "" : "s")})";
-                                        Hotspot.IsResetCountdownActive = true;
-                                        Hotspot.ResetCountdownSeconds = 15;
-                                        Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 15s to restore data flow (Click 'Cancel Auto-Reset' to dismiss)...";
+                                        Hotspot.DataHealthStatus = "⚠️ Upstream Internet Offline (Auto-reset suspended)";
                                         _noDataCountSeconds = 0;
+                                    }
+                                    else if (_consecutiveResetCount >= 3)
+                                    {
+                                        Hotspot.DataHealthStatus = "⚠️ Watchdog paused: 3 consecutive resets completed without restoring data. Check upstream network.";
+                                        _resetCooldownSeconds = 90;
+                                        _consecutiveResetCount = 0;
+                                        _noDataCountSeconds = 0;
+                                    }
+                                    else
+                                    {
+                                        // All devices connected to the hotspot have 0 data flow!
+                                        _noDataCountSeconds++;
+                                        if (_noDataCountSeconds >= thresholdSec)
+                                        {
+                                            _resetTriggerReason = $"Watchdog: No Client Data Flow ({totalDevices} device{(totalDevices == 1 ? "" : "s")})";
+                                            Hotspot.IsResetCountdownActive = true;
+                                            Hotspot.ResetCountdownSeconds = 15;
+                                            Hotspot.ResetCountdownMessage = $"⚠️ All {totalDevices} device(s) connected to the hotspot are not getting data ({thresholdSec}s watchdog check reached). Auto-resetting Hotspot in 15s to restore data flow (Click 'Cancel Auto-Reset' to dismiss)...";
+                                            _noDataCountSeconds = 0;
+                                        }
                                     }
                                 }
                                 else
                                 {
                                     _noDataCountSeconds = 0;
+                                    _consecutiveResetCount = 0;
                                 }
                             }
                             else
@@ -1065,43 +1103,28 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 // Connected to Wi-Fi: Single-Channel Concurrency applies
                 AvailableHotspotChannels.Add($"Auto / Synchronized with active Wi-Fi (Channel {activeChannel})");
-                AvailableHotspotChannels.Add($"Channel {activeChannel} (2.4 GHz) - [ACTIVE / SYNCHRONIZED with {ConnectedInterface.Ssid}]");
-
-                for (int ch = 1; ch <= 11; ch++)
-                {
-                    if (ch == activeChannel) continue;
-                    AvailableHotspotChannels.Add($"Channel {ch} (2.4 GHz) - Currently Unavailable [Locked to active Wi-Fi Ch {activeChannel} • Available on Ethernet/Cable]");
-                }
-
-                // 5 GHz channels
-                int[] fiveGChannels = new[] { 36, 40, 44, 48, 149, 153, 157, 161 };
-                foreach (var ch5 in fiveGChannels)
-                {
-                    AvailableHotspotChannels.Add($"Channel {ch5} (5 GHz) - [High Speed 5 GHz • Available if Dual-Band supported]");
-                }
+                AvailableHotspotChannels.Add($"2.4 GHz Band (Synchronized to Channel {activeChannel} • {ConnectedInterface.Ssid})");
+                AvailableHotspotChannels.Add("5 GHz Band (High Speed 5 GHz • Auto-channel)");
             }
             else
             {
                 // On Ethernet / Cable or disconnected from Wi-Fi
-                AvailableHotspotChannels.Add("Auto / Dual-Band (Recommended - Available on Ethernet/Cable)");
-                for (int ch = 1; ch <= 11; ch++)
-                {
-                    AvailableHotspotChannels.Add($"Channel {ch} (2.4 GHz) - [Available on Ethernet/Cable]");
-                }
-                int[] fiveGChannels = new[] { 36, 40, 44, 48, 149, 153, 157, 161 };
-                foreach (var ch5 in fiveGChannels)
-                {
-                    AvailableHotspotChannels.Add($"Channel {ch5} (5 GHz) - [Available on Ethernet/Cable]");
-                }
+                AvailableHotspotChannels.Add("Auto / Any Band (Recommended)");
+                AvailableHotspotChannels.Add("2.4 GHz Band (Standard Compatibility)");
+                AvailableHotspotChannels.Add("5 GHz Band (High Speed 5 GHz • Auto-channel)");
             }
 
             if (!string.IsNullOrEmpty(previousChoice) && AvailableHotspotChannels.Contains(previousChoice))
             {
                 HotspotChannelChoice = previousChoice;
             }
+            else if (!string.IsNullOrEmpty(previousChoice) && previousChoice.Contains("5 GHz"))
+            {
+                HotspotChannelChoice = AvailableHotspotChannels.FirstOrDefault(c => c.Contains("5 GHz")) ?? AvailableHotspotChannels[0];
+            }
             else
             {
-                HotspotChannelChoice = AvailableHotspotChannels.FirstOrDefault() ?? "Auto";
+                HotspotChannelChoice = AvailableHotspotChannels.FirstOrDefault() ?? "Auto / Any Band (Recommended)";
             }
         }
 
@@ -1541,6 +1564,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         {
             if (_isResettingInProgress) return; // Prevent duplicate reset loops
             _isResettingInProgress = true;
+            _consecutiveResetCount++;
             Hotspot.IsResetCountdownActive = false; // Guarantee no reset suggestion banner appears during reset
             _inTransitionCountSeconds = 0;
             _unknownStateCountSeconds = 0;
@@ -1579,6 +1603,21 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.IsResetCountdownActive = false;
                 await RefreshHotspotAsync();
             }
+        }
+
+        private void RequestDebouncedSettingsSave()
+        {
+            _settingsDebounceTimer?.Stop();
+            _settingsDebounceTimer?.Start();
+        }
+
+        public void Dispose()
+        {
+            _scanTimer?.Stop();
+            _trafficTimer?.Stop();
+            _settingsDebounceTimer?.Stop();
+            _speedTestCts?.Cancel();
+            _speedTestCts?.Dispose();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

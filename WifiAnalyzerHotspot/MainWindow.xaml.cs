@@ -60,11 +60,15 @@ namespace WifiAnalyzerHotspot
 
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
-            if (!_isExplicitExit)
+            // Allow clean Windows shutdown / restart without blocking the OS
+            if (_isExplicitExit || App.IsSessionEnding)
             {
-                e.Cancel = true;
-                MinimizeToTray();
+                e.Cancel = false;
+                return;
             }
+
+            e.Cancel = true;
+            MinimizeToTray();
         }
 
         private void MinimizeToTray()
@@ -100,6 +104,10 @@ namespace WifiAnalyzerHotspot
 
         protected override void OnClosed(EventArgs e)
         {
+            if (DataContext is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
             _trayManager?.Dispose();
             _trayManager = null;
             base.OnClosed(e);

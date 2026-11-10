@@ -397,17 +397,14 @@ namespace WifiAnalyzerHotspot.Services
 
         public static int EstimateChannelWidth(string radioType, string band, int channel)
         {
-            if (radioType.Contains("Wi-Fi 6") || radioType.Contains("802.11ax"))
+            // On 2.4 GHz, 20 MHz is standard (40 MHz in 2.4 GHz is rarely deployed due to severe interference)
+            if (band.Contains("2.4") || (channel >= 1 && channel <= 14))
             {
-                return band.Contains("5") ? 80 : 40;
+                return 20;
             }
-            if (radioType.Contains("Wi-Fi 5") || radioType.Contains("802.11ac"))
+            if (radioType.Contains("Wi-Fi 6") || radioType.Contains("802.11ax") || radioType.Contains("Wi-Fi 5") || radioType.Contains("802.11ac"))
             {
                 return 80;
-            }
-            if (radioType.Contains("802.11n"))
-            {
-                return 20; // 20 MHz or 40 MHz for 802.11n
             }
             return 20;
         }

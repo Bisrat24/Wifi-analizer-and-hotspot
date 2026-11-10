@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -13,6 +15,17 @@ namespace WifiAnalyzerHotspot
     /// </summary>
     public partial class App : Application
     {
+        [Flags]
+        public enum EXECUTION_STATE : uint
+        {
+            ES_AWAYMODE_REQUIRED = 0x00000040,
+            ES_CONTINUOUS = 0x80000000,
+            ES_SYSTEM_REQUIRED = 0x00000001
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
+
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern int RegisterWindowMessage(string lpString);
 
@@ -24,9 +37,28 @@ namespace WifiAnalyzerHotspot
 
         private static Mutex? _singleInstanceMutex;
         public static bool IsStartMinimized { get; private set; } = false;
+        public static bool IsAdministrator { get; private set; } = false;
+        public static bool IsSessionEnding { get; private set; } = false;
+
+        private static readonly string LogDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WifiAnalyzerHotspot");
+        private static readonly string CrashLogPath = Path.Combine(LogDirectory, "crash.log");
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            // 1. Check Administrator elevation
+            try
+            {
+                var identity = WindowsIdentity.GetCurrent();
+                var principal = new WindowsPrincipal(identity);
+                IsAdministrator = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                IsAdministrator = false;
+            }
+
+            // 2. Command-line argument parsing
             if (e.Args != null)
             {
                 foreach (var arg in e.Args)
@@ -39,6 +71,7 @@ namespace WifiAnalyzerHotspot
                 }
             }
 
+            // 3. Single instance enforcement
             _singleInstanceMutex = new Mutex(true, "WifiAnalyzerHotspot_SingleInstance_Mutex_Bisrat24", out bool isNewInstance);
             if (!isNewInstance)
             {
@@ -50,23 +83,24 @@ namespace WifiAnalyzerHotspot
 
             base.OnStartup(e);
 
-            // Elevate process priority to RealTime at startup
+            // 4. Elevate process priority to High (High responsiveness without starving OS input/audio/DWM)
             try
             {
                 using var proc = Process.GetCurrentProcess();
-                proc.PriorityClass = ProcessPriorityClass.RealTime;
+                proc.PriorityClass = ProcessPriorityClass.High;
             }
-            catch
-            {
-                try
-                {
-                    using var proc = Process.GetCurrentProcess();
-                    proc.PriorityClass = ProcessPriorityClass.High;
-                }
-                catch { }
-            }
+            catch { }
 
-            // Engage Win32 execution lock and hardware priority optimizations
+            // 5. Engage Win32 execution lock on the persistent UI thread so Windows does not sleep or throttle Wi-Fi
+            try
+            {
+                SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS |
+                                        EXECUTION_STATE.ES_SYSTEM_REQUIRED |
+                                        EXECUTION_STATE.ES_AWAYMODE_REQUIRED);
+            }
+            catch { }
+
+            // 6. Run background hotspot priority configuration
             _ = Task.Run(async () =>
             {
                 try
@@ -76,13 +110,15 @@ namespace WifiAnalyzerHotspot
                 catch { }
             });
 
-            // Trap UI dispatcher exceptions so transient UI/binding glitches don't terminate the process
+            // 7. Session ending listener (allows Windows restart/shutdown without blocking)
+            SessionEnding += (s, args) =>
+            {
+                IsSessionEnding = true;
+            };
+
+            // 8. Exception handlers
             DispatcherUnhandledException += App_DispatcherUnhandledException;
-
-            // Trap AppDomain unhandled exceptions
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
-
-            // Trap unobserved background task exceptions
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
         }
 
@@ -90,34 +126,52 @@ namespace WifiAnalyzerHotspot
         {
             try
             {
+                // Clear Win32 execution state lock
+                SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
+            }
+            catch { }
+
+            try
+            {
                 _singleInstanceMutex?.ReleaseMutex();
                 _singleInstanceMutex?.Dispose();
                 _singleInstanceMutex = null;
             }
             catch { }
+
             base.OnExit(e);
+        }
+
+        private static void SafeLogCrash(string type, string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(LogDirectory);
+                var fi = new FileInfo(CrashLogPath);
+                if (fi.Exists && fi.Length > 1024 * 1024)
+                {
+                    // Keep log bounded to 1MB
+                    File.Delete(CrashLogPath);
+                }
+                File.AppendAllText(CrashLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{type}] {message}\n");
+            }
+            catch { }
         }
 
         private static int _dispatcherExCount = 0;
         private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
         {
-            int count = System.Threading.Interlocked.Increment(ref _dispatcherExCount);
+            int count = Interlocked.Increment(ref _dispatcherExCount);
             if (count <= 10)
             {
-                try
-                {
-                    System.IO.File.AppendAllText("crash.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [Dispatcher] {e.Exception}\n");
-                }
-                catch { }
+                SafeLogCrash("Dispatcher", e.Exception.ToString());
             }
             Debug.WriteLine($"[Handled Dispatcher Exception] {e.Exception.GetType().Name}: {e.Exception.Message}");
-            Debug.WriteLine(e.Exception.StackTrace);
             if (count > 25)
             {
                 e.Handled = false;
                 return;
             }
-            // Mark handled to prevent crash
             e.Handled = true;
         }
 
@@ -125,22 +179,14 @@ namespace WifiAnalyzerHotspot
         {
             if (e.ExceptionObject is Exception ex)
             {
-                try
-                {
-                    System.IO.File.AppendAllText("crash.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [AppDomain] {ex}\n");
-                }
-                catch { }
+                SafeLogCrash("AppDomain", ex.ToString());
                 Debug.WriteLine($"[AppDomain Unhandled Exception] {ex.GetType().Name}: {ex.Message}");
             }
         }
 
         private void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
         {
-            try
-            {
-                System.IO.File.AppendAllText("crash.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [TaskScheduler] {e.Exception}\n");
-            }
-            catch { }
+            SafeLogCrash("TaskScheduler", e.Exception.ToString());
             Debug.WriteLine($"[Unobserved Task Exception] {e.Exception.Message}");
             e.SetObserved();
         }
