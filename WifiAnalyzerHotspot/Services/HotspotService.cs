@@ -1767,7 +1767,7 @@ if ($connectionProfile) {
                         }
 
                         // Evict stale cached limit entries for any previous MAC holding this IP
-                        if (!string.IsNullOrEmpty(targetIp))
+                        if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
                         {
                             foreach (var kvp in _appliedQosLimits)
                             {
@@ -1944,11 +1944,14 @@ try {{
                         }
 
                         // Evict stale cached priority entries for any previous MAC holding this IP
-                        foreach (var kvp in _appliedPriorities)
+                        if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
                         {
-                            if (kvp.Value.ip == targetIp && !string.Equals(kvp.Key, cleanMac, StringComparison.OrdinalIgnoreCase))
+                            foreach (var kvp in _appliedPriorities)
                             {
-                                _appliedPriorities.TryRemove(kvp.Key, out _);
+                                if (kvp.Value.ip == targetIp && !string.Equals(kvp.Key, cleanMac, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _appliedPriorities.TryRemove(kvp.Key, out _);
+                                }
                             }
                         }
 
@@ -1976,9 +1979,13 @@ try {{
     Write-Output 'FAIL'
 }}
 ";
-                            RunPowerShell(clearScript, 5000);
-                            _appliedPriorities[cleanMac] = (targetIp, 5);
-                            return (true, "✓ Default priority active (standard transit QoS: Precedence 128).");
+                            string clearOut = RunPowerShell(clearScript, 5000).Trim();
+                            if (clearOut == "CLEARED")
+                            {
+                                _appliedPriorities[cleanMac] = (targetIp, 5);
+                                return (true, "✓ Default priority active (standard transit QoS: Precedence 128).");
+                            }
+                            return (false, "Could not reset client priority to default.");
                         }
 
                         // Check if identical custom priority policy was already verified and applied for this client and IP
@@ -2154,6 +2161,7 @@ try {{
                     _disconnectedMacs[cleanMac] = DateTime.Now;
                     _appliedPriorities.TryRemove(cleanMac, out _);
                     _appliedQosLimits.TryRemove(cleanMac, out _);
+                    _macLocks.TryRemove(cleanMac, out _);
 
                     string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
@@ -2333,6 +2341,41 @@ try {{
                         // 4. Flush ARP cache
                         RunCommand("netsh", "interface ip delete arpcache");
 
+                        // 5. Automatically restore configured Priority & QoS policies once unblocked
+                        string restoreIp = ipAddress;
+                        if (string.IsNullOrEmpty(restoreIp) || restoreIp == "-")
+                        {
+                            restoreIp = ipsToRemove.FirstOrDefault(ip => !string.IsNullOrEmpty(ip) && ip != "-") ?? "";
+                        }
+                        if (string.IsNullOrEmpty(restoreIp) || restoreIp == "-")
+                        {
+                            var arpMap = NativeArpHelper.GetHotspotArpEntries();
+                            if (arpMap.TryGetValue(cleanMac, out var resolvedIp)) restoreIp = resolvedIp;
+                        }
+
+                        int savedPrio = 5;
+                        string savedQos = "Unlimited";
+                        lock (_clientDataUsageMap)
+                        {
+                            if (_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                            {
+                                savedPrio = stats.Priority;
+                                savedQos = stats.QosLimit;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(restoreIp) && restoreIp != "-")
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                await SetClientPriorityAsync(cleanMac, restoreIp, savedPrio);
+                                if (!string.IsNullOrEmpty(savedQos) && savedQos != "Unlimited")
+                                {
+                                    await SetClientQosLimitAsync(cleanMac, restoreIp, savedQos);
+                                }
+                            });
+                        }
+
                         return (true, $"Device {macAddress} unblocked successfully.");
                     }
                     catch (Exception ex)
@@ -2344,6 +2387,10 @@ try {{
             finally
             {
                 macLock.Release();
+                if (macLock.CurrentCount == 1)
+                {
+                    _macLocks.TryRemove(cleanMac, out _);
+                }
             }
         }
 

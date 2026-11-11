@@ -437,14 +437,27 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             if (_settings.BlockedClients != null)
             {
+                var blockedSnapshot = new List<BlockedClientInfo>();
                 foreach (var b in _settings.BlockedClients)
                 {
                     Hotspot.BlockedClients.Add(b);
                     HotspotService.RegisterBlockedMac(b.MacAddress);
                     if (!string.IsNullOrEmpty(b.IpAddress) && b.IpAddress != "-")
                     {
-                        HotspotService.EnforceIpBlock(b.MacAddress, b.IpAddress);
+                        blockedSnapshot.Add(b);
                     }
+                }
+
+                // Asynchronously enforce kernel/firewall blocks in the background to ensure cold boot is instant on HDDs
+                if (blockedSnapshot.Count > 0)
+                {
+                    _ = Task.Run(() =>
+                    {
+                        foreach (var b in blockedSnapshot)
+                        {
+                            HotspotService.EnforceIpBlock(b.MacAddress, b.IpAddress);
+                        }
+                    });
                 }
             }
 

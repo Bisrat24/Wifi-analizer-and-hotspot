@@ -54,6 +54,7 @@ namespace WifiAnalyzerHotspot.Services
                     var nicPrioEnabled = new List<string>();
                     var failures = new List<string>();
 
+                    bool hasNicPrioFail = false;
                     foreach (var raw in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                     {
                         string line = raw.Trim();
@@ -65,14 +66,21 @@ namespace WifiAnalyzerHotspot.Services
                             pacerDisabled.Add(line.Substring("PACER_DISABLED:".Length).Trim());
                         else if (line.StartsWith("NIC_PRIO_ENABLED:", StringComparison.Ordinal))
                             nicPrioEnabled.Add(line.Substring("NIC_PRIO_ENABLED:".Length).Trim());
+                        else if (line.StartsWith("NIC_PRIO_FAIL:", StringComparison.Ordinal))
+                        {
+                            hasNicPrioFail = true;
+                            failures.Add(line.Substring("NIC_PRIO_FAIL:".Length).Trim());
+                        }
                         else if (line.StartsWith("PACER_FAIL:", StringComparison.Ordinal) ||
-                                 line.StartsWith("QOS_FAIL:", StringComparison.Ordinal) ||
-                                 line.StartsWith("NIC_PRIO_FAIL:", StringComparison.Ordinal))
+                                 line.StartsWith("QOS_FAIL:", StringComparison.Ordinal))
                             failures.Add(line.Substring(line.IndexOf(':') + 1).Trim());
                     }
 
                     _isPriorityEngaged = true;
-                    _priorityVlanConfigured = true;
+                    if (!hasNicPrioFail)
+                    {
+                        _priorityVlanConfigured = true;
+                    }
 
                     var parts = new List<string>
                     {
