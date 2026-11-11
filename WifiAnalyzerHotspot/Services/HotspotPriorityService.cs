@@ -9,6 +9,7 @@ namespace WifiAnalyzerHotspot.Services
     public class HotspotPriorityService
     {
         private static bool _isPriorityEngaged = false;
+        private static bool _priorityVlanConfigured = false;
 
         public static bool IsPriorityEngaged => _isPriorityEngaged;
 
@@ -40,13 +41,17 @@ namespace WifiAnalyzerHotspot.Services
                     catch { }
 
                     // 2. System-level NetQoS & adapter routing via PowerShell script
-                    string script = EngageScript.Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false");
+                    bool checkPrioVlan = !_priorityVlanConfigured;
+                    string script = EngageScript
+                        .Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false")
+                        .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false");
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
                     var pacerEnabled = new List<string>();
                     var pacerMissing = new List<string>();
                     var pacerDisabled = new List<string>();
+                    var nicPrioEnabled = new List<string>();
                     var failures = new List<string>();
 
                     foreach (var raw in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -58,12 +63,16 @@ namespace WifiAnalyzerHotspot.Services
                             pacerMissing.Add(line.Substring("PACER_MISSING:".Length).Trim());
                         else if (line.StartsWith("PACER_DISABLED:", StringComparison.Ordinal))
                             pacerDisabled.Add(line.Substring("PACER_DISABLED:".Length).Trim());
+                        else if (line.StartsWith("NIC_PRIO_ENABLED:", StringComparison.Ordinal))
+                            nicPrioEnabled.Add(line.Substring("NIC_PRIO_ENABLED:".Length).Trim());
                         else if (line.StartsWith("PACER_FAIL:", StringComparison.Ordinal) ||
-                                 line.StartsWith("QOS_FAIL:", StringComparison.Ordinal))
+                                 line.StartsWith("QOS_FAIL:", StringComparison.Ordinal) ||
+                                 line.StartsWith("NIC_PRIO_FAIL:", StringComparison.Ordinal))
                             failures.Add(line.Substring(line.IndexOf(':') + 1).Trim());
                     }
 
                     _isPriorityEngaged = true;
+                    _priorityVlanConfigured = true;
 
                     var parts = new List<string>
                     {
@@ -71,7 +80,10 @@ namespace WifiAnalyzerHotspot.Services
                     };
 
                     if (pacerEnabled.Count > 0)
-                        parts.Add($"QoS Packet Scheduler enabled on {string.Join(", ", pacerEnabled)} (rate limits and 802.1p tagging now enforced)");
+                        parts.Add($"QoS Packet Scheduler enabled on {string.Join(", ", pacerEnabled)} (momentary link refresh; QoS tagging active)");
+
+                    if (nicPrioEnabled.Count > 0)
+                        parts.Add($"802.1p Priority & VLAN tagging enabled on physical uplink: {string.Join(", ", nicPrioEnabled)}");
 
                     if (pacerMissing.Count > 0)
                         parts.Add($"⚠️ Adapter(s) without a QoS Packet Scheduler driver: {string.Join(", ", pacerMissing)}");
@@ -81,7 +93,7 @@ namespace WifiAnalyzerHotspot.Services
 
                     if (failures.Count > 0)
                     {
-                        parts.Add($"⚠️ QoS enforcement problem: {string.Join("; ", failures)}");
+                        parts.Add($"⚠️ QoS enforcement notice: {string.Join("; ", failures)}");
                         return (false, string.Join(" • ", parts));
                     }
 
@@ -97,6 +109,7 @@ namespace WifiAnalyzerHotspot.Services
         private const string EngageScript = @"
 $ErrorActionPreference = 'SilentlyContinue'
 $allowRebind = __ALLOW_REBIND__
+$checkPriorityVlan = __CHECK_PRIO_VLAN__
 $results = New-Object System.Collections.ArrayList
 function Add-Result([string]$v) { [void]$results.Add($v) }
 
@@ -129,12 +142,39 @@ foreach ($adapter in @(Get-NetAdapter -ErrorAction SilentlyContinue)) {
     }
 }
 
-# C. Enable 802.1p Priority & VLAN Tagging on physical network adapters so drivers do not drop priority tags
-try {
-    Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue |
-        Where-Object { ($_.DisplayName -like '*Priority*' -or $_.DisplayName -like '*VLAN*') -and ($_.DisplayValue -like '*Disable*' -or $_.DisplayValue -eq 'Disabled') } |
-        Set-NetAdapterAdvancedProperty -DisplayValue 'Priority & VLAN Enabled' -ErrorAction SilentlyContinue
-} catch {}
+# C. Enable 802.1p Priority & VLAN Tagging on physical uplink adapters (checked at most once per session)
+if ($checkPriorityVlan) {
+    try {
+        $physAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })
+        foreach ($pa in $physAdapters) {
+            $props = @(Get-NetAdapterAdvancedProperty -Name $pa.Name -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like '*Priority*' -or $_.DisplayName -like '*VLAN*' })
+            foreach ($prop in $props) {
+                if ($prop.DisplayValue -notlike '*Disable*' -and $prop.DisplayValue -ne 'Disabled') {
+                    Add-Result ""NIC_PRIO_OK:$($pa.Name)""
+                    continue
+                }
+                $valid = @($prop.ValidDisplayValues)
+                $enableVal = $valid | Where-Object { $_ -like '*Priority*VLAN*Enable*' -or $_ -like '*Priority & VLAN*' } | Select-Object -First 1
+                if (-not $enableVal) {
+                    $enableVal = $valid | Where-Object { $_ -like '*Enable*' } | Select-Object -First 1
+                }
+                if ($enableVal) {
+                    try {
+                        Set-NetAdapterAdvancedProperty -Name $pa.Name -DisplayName $prop.DisplayName -DisplayValue $enableVal -ErrorAction Stop
+                        Add-Result ""NIC_PRIO_ENABLED:$($pa.Name) ($enableVal)""
+                    } catch {
+                        Add-Result ""NIC_PRIO_FAIL:$($pa.Name) $($_.Exception.Message)""
+                    }
+                } else {
+                    Add-Result ""NIC_PRIO_SKIP:$($pa.Name) (no matching enabled value)""
+                }
+            }
+        }
+    } catch {
+        Add-Result ""NIC_PRIO_FAIL:Global $($_.Exception.Message)""
+    }
+}
 
 # D. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128).
 #    Client priorities (130-240), bandwidth caps (245) and blocks (255) still take precedence.

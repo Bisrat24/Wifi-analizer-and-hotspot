@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.2.7)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.2.8)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority at startup, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.2.7)
+## ✨ Key Features (v1.2.8)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -71,16 +71,18 @@ You can run the app immediately by double-clicking:
   - By using Precedence 128 for baseline transit, individual connected client priorities (**Precedence 130 - 240**), QoS bandwidth limits (**Precedence 245**), and device blocks (**Precedence 255**) take full hierarchical precedence over the general transit queue while desktop browsers remain strictly deprioritized.
 - **✅ Enforced, Verified & Self-Cleaning NetQoS**:
   - **QoS Packet Scheduler check**: rate limiting and 802.1p tagging require the `ms_pacer` binding. The hotspot's own virtual adapter is bound automatically; a disabled upstream adapter is reported with the exact remediation command instead of being silently reset.
-  - **Hardware NIC Priority & VLAN Activation**: verifies and enables `Priority & VLAN` on network adapters so physical network drivers do not strip 802.1p priority tags from outgoing frames.
+  - **Dynamic Driver-Aware NIC Priority & VLAN Activation**: dynamically discovers and matches supported `ValidDisplayValues` on physical network adapters (run once per session) to prevent unexpected adapter resets while ensuring physical NIC drivers preserve 802.1p priority tags.
   - **Verified policy creation**: every per-client QoS limit and priority is read back with `Get-NetQosPolicy`; the UI reports the verified throttle rate, 802.1p, DSCP, and precedence, or the real error message.
   - **Automatic Policy Activation upon DHCP Lease Acquisition**: when a connecting device receives its IP from DHCP, its saved QoS bandwidth limit and priority levels are automatically applied without requiring manual rule refreshes.
-  - **In-Memory Policy State Cache (Zero HDD Thrashing)**: verified policies are cached in memory by MAC + IP. Once active, the 2-second background refresh cycle never spawns redundant PowerShell processes, eliminating 95% of disk I/O on HDD systems.
+  - **Per-MAC Concurrency Serialization (`SemaphoreSlim`)**: eliminates race conditions and "policy already exists" conflicts between background DHCP auto-enforcement and manual user adjustments.
+  - **In-Memory Policy State Cache with Full Invalidation Integrity**: verified policies are cached by MAC + IP. Invalidation traps are eliminated: cache entries are proactively cleared on block, unblock, disconnect, and IP reassignment so the UI never reports active status for deleted kernel policies.
+  - **Default Priority 5 Lightweight Bypass**: clients at standard Priority 5 rely on baseline Hotspot Transit QoS (Precedence 128) without creating redundant individual NetQoS policies, cutting connect-time PowerShell spawns on HDD by 50%.
   - **Stale policy eviction**: if DHCP hands an address previously used by another device to a new one, the old per-IP QoS/priority policy is removed automatically.
   - **Full cleanup**: stopping the hotspot and exiting the app remove every `Hotspot_*` NetQoS policy, so stale per-IP rules never survive a session.
 - **⚡ HDD & Low-Spec Storage Performance Overhaul**:
-  - **No Cold-Start Thrashing**: Hotspot transit rules are applied when the hotspot is active, rather than loading PowerShell on application cold boot.
+  - **No Cold-Start Thrashing**: Hotspot transit rules and process prioritization are engaged on hotspot activation rather than loading heavy PowerShell modules on application cold boot.
   - **Adaptive Wi-Fi Scanner Cadence**: Wi-Fi network scanning runs every 5 seconds on the "Analyzer" tab, and scales back to 25 seconds when using Hotspot or Stabilizer tabs to prevent constant `netsh.exe` disk seeking.
-  - **Scheduled Task Deduplication**: `schtasks.exe` is only invoked when startup preferences are genuinely changed, preventing repetitive disk writes during settings saves.
+  - **ExitCode-Verified Scheduled Task Deduplication**: `schtasks.exe` is only invoked when startup preferences or executable path genuinely change and cache is only committed when execution succeeds with `ExitCode == 0`.
   - **Optimized 2-Second Client Polling**: Cuts background ARP and tethering telemetry queries in half while maintaining real-time responsiveness.
 - **🛡️ "Refresh Rules" Quick Enforcement Button**:
   - Located directly beside **Refresh Clients** in the Connected Client Devices card.

@@ -88,20 +88,23 @@ namespace WifiAnalyzerHotspot.Services
         // ==================== WINDOWS STARTUP SCHEDULED TASK ====================
         // A highest-privileges logon task starts the app elevated without a UAC prompt.
         // The legacy HKCU Run entry is removed so startup is not triggered twice.
+        private static string? _lastConfiguredExePath = null;
         private static bool? _lastConfiguredStartupEnabled = null;
         private static bool? _lastConfiguredStartupMinimized = null;
 
         public static void ConfigureWindowsStartup(bool enable, bool startMinimized)
         {
-            if (_lastConfiguredStartupEnabled == enable && _lastConfiguredStartupMinimized == startMinimized)
+            string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
+
+            if (_lastConfiguredStartupEnabled == enable &&
+                _lastConfiguredStartupMinimized == startMinimized &&
+                string.Equals(_lastConfiguredExePath, exePath, StringComparison.OrdinalIgnoreCase))
             {
                 return; // State unchanged; eliminate redundant schtasks.exe process spawn and disk thrashing on HDDs
             }
 
             try
             {
-                string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
-
                 try
                 {
                     using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
@@ -144,14 +147,19 @@ namespace WifiAnalyzerHotspot.Services
                 if (p == null) return;
                 var stdout = p.StandardOutput.ReadToEndAsync();
                 var stderr = p.StandardError.ReadToEndAsync();
-                if (!p.WaitForExit(8000))
+                bool exited = p.WaitForExit(8000);
+                if (!exited)
                 {
                     try { p.Kill(true); } catch { }
                 }
                 Task.WaitAll(new[] { stdout, stderr }, 1000);
 
-                _lastConfiguredStartupEnabled = enable;
-                _lastConfiguredStartupMinimized = startMinimized;
+                if (exited && p.ExitCode == 0)
+                {
+                    _lastConfiguredStartupEnabled = enable;
+                    _lastConfiguredStartupMinimized = startMinimized;
+                    _lastConfiguredExePath = exePath;
+                }
             }
             catch { }
         }

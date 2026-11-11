@@ -1279,6 +1279,13 @@ if ($connectionProfile) {
         // In-memory cache of applied NetQoS policies to eliminate redundant PowerShell process spawns & disk thrashing on HDDs
         private static readonly ConcurrentDictionary<string, (string ip, int priority)> _appliedPriorities = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, (string ip, string limit)> _appliedQosLimits = new(StringComparer.OrdinalIgnoreCase);
+        // Per-MAC synchronization to prevent duplicate-name race conditions between auto-apply on DHCP lease and user actions
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _macLocks = new(StringComparer.OrdinalIgnoreCase);
+
+        private static SemaphoreSlim GetMacLock(string cleanMac)
+        {
+            return _macLocks.GetOrAdd(cleanMac, _ => new SemaphoreSlim(1, 1));
+        }
 
         public static void RegisterSavedPriority(string mac, int priority)
         {
@@ -1723,47 +1730,63 @@ if ($connectionProfile) {
         /// </summary>
         public async Task<(bool success, string message)> SetClientQosLimitAsync(string macAddress, string ipAddress, string limitChoice)
         {
-            return await Task.Run(() =>
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
             {
-                try
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(() =>
                 {
-                    string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    if (!IsValidMac(cleanMac))
+                    try
                     {
-                        return (false, "Invalid MAC address format.");
-                    }
-
-                    if (!TryParseQosLimit(limitChoice, out ulong bitsPerSec))
-                    {
-                        return (false, $"Unrecognized bandwidth limit '{limitChoice}'.");
-                    }
-
-                    lock (_clientDataUsageMap)
-                    {
-                        if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                        if (!TryParseQosLimit(limitChoice, out ulong bitsPerSec))
                         {
-                            stats = new ClientUsageStats();
-                            _clientDataUsageMap[cleanMac] = stats;
+                            return (false, $"Unrecognized bandwidth limit '{limitChoice}'.");
                         }
-                        stats.QosLimit = limitChoice;
-                    }
 
-                    string targetIp = ResolveClientIp(cleanMac, ipAddress);
+                        lock (_clientDataUsageMap)
+                        {
+                            if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                            {
+                                stats = new ClientUsageStats();
+                                _clientDataUsageMap[cleanMac] = stats;
+                            }
+                            stats.QosLimit = limitChoice;
+                        }
 
-                    if (bitsPerSec > 0 && string.IsNullOrEmpty(targetIp))
-                    {
-                        return (false, $"QoS limit saved, but {macAddress} has no resolved IP address yet - it will be enforced once the device obtains one.");
-                    }
+                        string targetIp = ResolveClientIp(cleanMac, ipAddress);
 
-                    // Check if identical policy was already verified and applied for this client and IP (avoids redundant PowerShell & disk thrashing)
-                    if (_appliedQosLimits.TryGetValue(cleanMac, out var cachedQos) && cachedQos.ip == targetIp && cachedQos.limit.Equals(limitChoice, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return (true, bitsPerSec > 0
-                            ? $"⚡ QoS verified (active): device capped at {limitChoice} (NetQoS precedence 245)."
-                            : "✓ QoS cap removed: device has unlimited bandwidth.");
-                    }
+                        if (bitsPerSec > 0 && string.IsNullOrEmpty(targetIp))
+                        {
+                            return (false, $"QoS limit saved, but {macAddress} has no resolved IP address yet - it will be enforced once the device obtains one.");
+                        }
 
-                    string script = $@"
+                        // Evict stale cached limit entries for any previous MAC holding this IP
+                        if (!string.IsNullOrEmpty(targetIp))
+                        {
+                            foreach (var kvp in _appliedQosLimits)
+                            {
+                                if (kvp.Value.ip == targetIp && !string.Equals(kvp.Key, cleanMac, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _appliedQosLimits.TryRemove(kvp.Key, out _);
+                                }
+                            }
+                        }
+
+                        // Check if identical policy was already verified and applied for this client and IP (avoids redundant PowerShell & disk thrashing)
+                        if (_appliedQosLimits.TryGetValue(cleanMac, out var cachedQos) && cachedQos.ip == targetIp && cachedQos.limit.Equals(limitChoice, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return (true, bitsPerSec > 0
+                                ? $"⚡ QoS verified (active): device capped at {limitChoice} (NetQoS precedence 245)."
+                                : "✓ QoS cap removed: device has unlimited bandwidth.");
+                        }
+
+                        string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_QoS_Down_{cleanMac}'
 $upName = 'Hotspot_QoS_Up_{cleanMac}'
@@ -1789,40 +1812,45 @@ try {{
     Write-Output ('FAIL:' + $_.Exception.Message)
 }}
 ";
-                    string output = RunPowerShell(script, 15000).Trim();
+                        string output = RunPowerShell(script, 15000).Trim();
 
-                    if (output == "CLEARED")
-                    {
-                        _appliedQosLimits[cleanMac] = (targetIp, "Unlimited");
-                        return (true, "✓ QoS cap removed: device has unlimited bandwidth.");
-                    }
-
-                    if (output.StartsWith("OK:", StringComparison.Ordinal))
-                    {
-                        var rates = output.Substring(3).Split(':');
-                        if (rates.Length == 2 &&
-                            ulong.TryParse(rates[0], out ulong downRate) &&
-                            ulong.TryParse(rates[1], out ulong upRate) &&
-                            downRate == bitsPerSec && upRate == bitsPerSec)
+                        if (output == "CLEARED")
                         {
-                            _appliedQosLimits[cleanMac] = (targetIp, limitChoice);
-                            return (true, $"⚡ QoS verified: device capped at {limitChoice} for download and upload (NetQoS precedence 245).");
+                            _appliedQosLimits[cleanMac] = (targetIp, "Unlimited");
+                            return (true, "✓ QoS cap removed: device has unlimited bandwidth.");
                         }
-                        return (false, $"QoS policy was created but Windows reported different rates ({output}).");
-                    }
 
-                    if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                        if (output.StartsWith("OK:", StringComparison.Ordinal))
+                        {
+                            var rates = output.Substring(3).Split(':');
+                            if (rates.Length == 2 &&
+                                ulong.TryParse(rates[0], out ulong downRate) &&
+                                ulong.TryParse(rates[1], out ulong upRate) &&
+                                downRate == bitsPerSec && upRate == bitsPerSec)
+                            {
+                                _appliedQosLimits[cleanMac] = (targetIp, limitChoice);
+                                return (true, $"⚡ QoS verified: device capped at {limitChoice} for download and upload (NetQoS precedence 245).");
+                            }
+                            return (false, $"QoS policy was created but Windows reported different rates ({output}).");
+                        }
+
+                        if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                        {
+                            return (false, $"QoS limit not applied: {output.Substring(5).Trim()}");
+                        }
+
+                        return (false, "QoS limit could not be verified (PowerShell returned no result).");
+                    }
+                    catch (Exception ex)
                     {
-                        return (false, $"QoS limit not applied: {output.Substring(5).Trim()}");
+                        return (false, $"QoS error: {ex.Message}");
                     }
-
-                    return (false, "QoS limit could not be verified (PowerShell returned no result).");
-                }
-                catch (Exception ex)
-                {
-                    return (false, $"QoS error: {ex.Message}");
-                }
-            });
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
         }
 
         /// <summary>
@@ -1832,92 +1860,134 @@ try {{
         /// </summary>
         public async Task<(bool success, string message)> SetClientPriorityAsync(string macAddress, string ipAddress, int priority)
         {
-            return await Task.Run(() =>
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
             {
-                try
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(() =>
                 {
-                    string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    if (!IsValidMac(cleanMac))
+                    try
                     {
-                        return (false, "Invalid MAC address format.");
-                    }
+                        int clamped = Math.Clamp(priority, 1, 7);
 
-                    int clamped = Math.Clamp(priority, 1, 7);
-
-                    lock (_clientDataUsageMap)
-                    {
-                        if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                        lock (_clientDataUsageMap)
                         {
-                            stats = new ClientUsageStats();
-                            _clientDataUsageMap[cleanMac] = stats;
+                            if (!_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                            {
+                                stats = new ClientUsageStats();
+                                _clientDataUsageMap[cleanMac] = stats;
+                            }
+                            stats.Priority = clamped;
                         }
-                        stats.Priority = clamped;
-                    }
 
-                    string targetIp = ResolveClientIp(cleanMac, ipAddress);
+                        string targetIp = ResolveClientIp(cleanMac, ipAddress);
 
-                    // Map user priority (1=Highest .. 7=Least) to 802.1p and DSCP
-                    // 802.1p: 7=Network Control/Voice, 6=Voice, 5=Video, 4=Controlled, 3=Best Effort, 2=Spare, 1=Background
-                    sbyte dot1p = clamped switch
-                    {
-                        1 => 7, // Highest (Network Control / Real-time Voice)
-                        2 => 6, // High (Voice / Interactive audio)
-                        3 => 5, // Elevated (Video / Streaming)
-                        4 => 4, // Above Normal (Controlled load)
-                        5 => 3, // Default (Best effort)
-                        6 => 2, // Low (Spare)
-                        7 => 1, // Least (Background / Scavenger)
-                        _ => 3
-                    };
+                        // Map user priority (1=Highest .. 7=Least) to 802.1p and DSCP
+                        // 802.1p: 7=Network Control/Voice, 6=Voice, 5=Video, 4=Controlled, 3=Best Effort, 2=Spare, 1=Background
+                        sbyte dot1p = clamped switch
+                        {
+                            1 => 7, // Highest (Network Control / Real-time Voice)
+                            2 => 6, // High (Voice / Interactive audio)
+                            3 => 5, // Elevated (Video / Streaming)
+                            4 => 4, // Above Normal (Controlled load)
+                            5 => 3, // Default (Best effort)
+                            6 => 2, // Low (Spare)
+                            7 => 1, // Least (Background / Scavenger)
+                            _ => 3
+                        };
 
-                    sbyte dscp = clamped switch
-                    {
-                        1 => 46, // EF (Expedited Forwarding)
-                        2 => 34, // AF41
-                        3 => 26, // AF31
-                        4 => 18, // AF21
-                        5 => 0,  // CS0 (Standard Best Effort)
-                        6 => 10, // AF11
-                        7 => 8,  // CS1 (Scavenger)
-                        _ => 0
-                    };
+                        sbyte dscp = clamped switch
+                        {
+                            1 => 46, // EF (Expedited Forwarding)
+                            2 => 34, // AF41
+                            3 => 26, // AF31
+                            4 => 18, // AF21
+                            5 => 0,  // CS0 (Standard Best Effort)
+                            6 => 10, // AF11
+                            7 => 8,  // CS1 (Scavenger)
+                            _ => 0
+                        };
 
-                    uint precedence = clamped switch
-                    {
-                        1 => 240,
-                        2 => 220,
-                        3 => 200,
-                        4 => 180,
-                        5 => 150,
-                        6 => 140,
-                        7 => 130,
-                        _ => 150
-                    };
+                        uint precedence = clamped switch
+                        {
+                            1 => 240,
+                            2 => 220,
+                            3 => 200,
+                            4 => 180,
+                            5 => 150,
+                            6 => 140,
+                            7 => 130,
+                            _ => 150
+                        };
 
-                    string levelName = clamped switch
-                    {
-                        1 => "Highest (Priority 1)",
-                        2 => "High (Priority 2)",
-                        3 => "Elevated (Priority 3)",
-                        4 => "Normal (Priority 4)",
-                        5 => "Default (Priority 5)",
-                        6 => "Low (Priority 6)",
-                        7 => "Lowest (Priority 7)",
-                        _ => $"Priority {clamped}"
-                    };
+                        string levelName = clamped switch
+                        {
+                            1 => "Highest (Priority 1)",
+                            2 => "High (Priority 2)",
+                            3 => "Elevated (Priority 3)",
+                            4 => "Normal (Priority 4)",
+                            5 => "Default (Priority 5)",
+                            6 => "Low (Priority 6)",
+                            7 => "Lowest (Priority 7)",
+                            _ => $"Priority {clamped}"
+                        };
 
-                    if (string.IsNullOrEmpty(targetIp))
-                    {
-                        return (false, $"Priority {levelName} saved, but {macAddress} has no resolved IP address yet - it will be applied once the device obtains one.");
-                    }
+                        if (string.IsNullOrEmpty(targetIp))
+                        {
+                            return (false, $"Priority {levelName} saved, but {macAddress} has no resolved IP address yet - it will be applied once the device obtains one.");
+                        }
 
-                    // Check if identical priority policy was already verified and applied for this client and IP (avoids redundant PowerShell & disk thrashing)
-                    if (_appliedPriorities.TryGetValue(cleanMac, out var cachedPrio) && cachedPrio.ip == targetIp && cachedPrio.priority == clamped)
-                    {
-                        return (true, $"⚡ Priority verified (active): {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
-                    }
+                        // Evict stale cached priority entries for any previous MAC holding this IP
+                        foreach (var kvp in _appliedPriorities)
+                        {
+                            if (kvp.Value.ip == targetIp && !string.Equals(kvp.Key, cleanMac, StringComparison.OrdinalIgnoreCase))
+                            {
+                                _appliedPriorities.TryRemove(kvp.Key, out _);
+                            }
+                        }
 
-                    string script = $@"
+                        // Optimization: Default priority 5 relies on Hotspot Transit QoS (Precedence 128)
+                        // without needing redundant per-client NetQoS policies, eliminating connect-time PowerShell spawns on HDDs.
+                        if (clamped == 5)
+                        {
+                            if (_appliedPriorities.TryGetValue(cleanMac, out var cachedDefault) && cachedDefault.ip == targetIp && cachedDefault.priority == 5)
+                            {
+                                return (true, "✓ Default priority verified (transit QoS: Precedence 128).");
+                            }
+
+                            string clearScript = $@"
+$downName = 'Hotspot_Prio_Down_{cleanMac}'
+$upName = 'Hotspot_Prio_Up_{cleanMac}'
+try {{
+    Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Get-NetQosPolicy -ErrorAction SilentlyContinue | Where-Object {{
+        $_.Name -like 'Hotspot_Prio_*' -and
+        ($_.IPDstPrefix -eq '{targetIp}' -or $_.IPSrcPrefix -eq '{targetIp}')
+    }} | Remove-NetQosPolicy -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Write-Output 'CLEARED'
+}} catch {{
+    Write-Output 'FAIL'
+}}
+";
+                            RunPowerShell(clearScript, 5000);
+                            _appliedPriorities[cleanMac] = (targetIp, 5);
+                            return (true, "✓ Default priority active (standard transit QoS: Precedence 128).");
+                        }
+
+                        // Check if identical custom priority policy was already verified and applied for this client and IP
+                        if (_appliedPriorities.TryGetValue(cleanMac, out var cachedPrio) && cachedPrio.ip == targetIp && cachedPrio.priority == clamped)
+                        {
+                            return (true, $"⚡ Priority verified (active): {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
+                        }
+
+                        string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_Prio_Down_{cleanMac}'
 $upName = 'Hotspot_Prio_Up_{cleanMac}'
@@ -1940,37 +2010,42 @@ try {{
     Write-Output ('FAIL:' + $_.Exception.Message)
 }}
 ";
-                    string output = RunPowerShell(script, 15000).Trim();
+                        string output = RunPowerShell(script, 15000).Trim();
 
-                    if (output.StartsWith("OK:", StringComparison.Ordinal))
-                    {
-                        var values = output.Substring(3).Split(':');
-                        if (values.Length == 4 &&
-                            int.TryParse(values[0], out int downDot1p) &&
-                            uint.TryParse(values[1], out uint downPrecedence) &&
-                            int.TryParse(values[2], out int upDot1p) &&
-                            uint.TryParse(values[3], out uint upPrecedence) &&
-                            downDot1p == dot1p && upDot1p == dot1p &&
-                            downPrecedence == precedence && upPrecedence == precedence)
+                        if (output.StartsWith("OK:", StringComparison.Ordinal))
                         {
-                            _appliedPriorities[cleanMac] = (targetIp, clamped);
-                            return (true, $"⚡ Priority verified: {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
+                            var values = output.Substring(3).Split(':');
+                            if (values.Length == 4 &&
+                                int.TryParse(values[0], out int downDot1p) &&
+                                uint.TryParse(values[1], out uint downPrecedence) &&
+                                int.TryParse(values[2], out int upDot1p) &&
+                                uint.TryParse(values[3], out uint upPrecedence) &&
+                                downDot1p == dot1p && upDot1p == dot1p &&
+                                downPrecedence == precedence && upPrecedence == precedence)
+                            {
+                                _appliedPriorities[cleanMac] = (targetIp, clamped);
+                                return (true, $"⚡ Priority verified: {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
+                            }
+                            return (false, $"Priority policy was created but Windows reported different values ({output}).");
                         }
-                        return (false, $"Priority policy was created but Windows reported different values ({output}).");
-                    }
 
-                    if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                        if (output.StartsWith("FAIL:", StringComparison.Ordinal))
+                        {
+                            return (false, $"Priority not applied: {output.Substring(5).Trim()}");
+                        }
+
+                        return (false, "Priority could not be verified (PowerShell returned no result).");
+                    }
+                    catch (Exception ex)
                     {
-                        return (false, $"Priority not applied: {output.Substring(5).Trim()}");
+                        return (false, $"Priority error: {ex.Message}");
                     }
-
-                    return (false, "Priority could not be verified (PowerShell returned no result).");
-                }
-                catch (Exception ex)
-                {
-                    return (false, $"Priority error: {ex.Message}");
-                }
-            });
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
         }
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _disconnectedMacs = new(StringComparer.OrdinalIgnoreCase);
@@ -2019,6 +2094,10 @@ try {{
             if (string.IsNullOrWhiteSpace(ip) || ip == "-" || !IsValidIp(ip)) return;
             cleanMac = HotspotModel.NormalizeMac(cleanMac);
             if (!IsValidMac(cleanMac)) return;
+
+            // Invalidate policy caches so unblocked or blocked clients never report false active QoS/priority
+            _appliedPriorities.TryRemove(cleanMac, out _);
+            _appliedQosLimits.TryRemove(cleanMac, out _);
 
             lock (_blockedMacToIps)
             {
@@ -2073,6 +2152,8 @@ try {{
                 {
                     string cleanMac = HotspotModel.NormalizeMac(macAddress);
                     _disconnectedMacs[cleanMac] = DateTime.Now;
+                    _appliedPriorities.TryRemove(cleanMac, out _);
+                    _appliedQosLimits.TryRemove(cleanMac, out _);
 
                     string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
@@ -2129,49 +2210,65 @@ try {{
         /// </summary>
         public async Task<(bool success, string message)> BlockClientAsync(string macAddress, string ipAddress)
         {
-            return await Task.Run(async () =>
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
             {
-                try
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(async () =>
                 {
-                    string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    _activeBlockedMacs.TryAdd(cleanMac, 0);
-                    _disconnectedMacs[cleanMac] = DateTime.Now;
-
-                    // Gather all candidate IPs for this MAC
-                    var targetIps = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    if (!string.IsNullOrEmpty(ipAddress) && ipAddress != "-" && ipAddress.Contains('.'))
+                    try
                     {
-                        targetIps.Add(ipAddress);
-                    }
+                        _activeBlockedMacs.TryAdd(cleanMac, 0);
+                        _disconnectedMacs[cleanMac] = DateTime.Now;
+                        _appliedPriorities.TryRemove(cleanMac, out _);
+                        _appliedQosLimits.TryRemove(cleanMac, out _);
 
-                    // Check ARP map
-                    var arpMap = NativeArpHelper.GetHotspotArpEntries();
-                    if (arpMap.TryGetValue(cleanMac, out var mapIp))
+                        // Gather all candidate IPs for this MAC
+                        var targetIps = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        if (!string.IsNullOrEmpty(ipAddress) && ipAddress != "-" && ipAddress.Contains('.'))
+                        {
+                            targetIps.Add(ipAddress);
+                        }
+
+                        // Check ARP map
+                        var arpMap = NativeArpHelper.GetHotspotArpEntries();
+                        if (arpMap.TryGetValue(cleanMac, out var mapIp))
+                        {
+                            targetIps.Add(mapIp);
+                        }
+
+                        // Probe subnet if still no IP
+                        if (targetIps.Count == 0)
+                        {
+                            var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
+                            if (!string.IsNullOrEmpty(swept)) targetIps.Add(swept);
+                        }
+
+                        // Enforce impenetrable multi-layer block on all discovered IPs
+                        foreach (var ip in targetIps)
+                        {
+                            EnforceIpBlock(cleanMac, ip);
+                        }
+
+                        string ipDisplay = targetIps.Count > 0 ? string.Join(", ", targetIps) : "IP Pending (Auto-sealed on link)";
+                        return (true, $"🚫 Device {macAddress} ({ipDisplay}) is now fully BLOCKED and severed from the hotspot.");
+                    }
+                    catch (Exception ex)
                     {
-                        targetIps.Add(mapIp);
+                        return (false, $"Block error: {ex.Message}");
                     }
-
-                    // Probe subnet if still no IP
-                    if (targetIps.Count == 0)
-                    {
-                        var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
-                        if (!string.IsNullOrEmpty(swept)) targetIps.Add(swept);
-                    }
-
-                    // Enforce impenetrable multi-layer block on all discovered IPs
-                    foreach (var ip in targetIps)
-                    {
-                        EnforceIpBlock(cleanMac, ip);
-                    }
-
-                    string ipDisplay = targetIps.Count > 0 ? string.Join(", ", targetIps) : "IP Pending (Auto-sealed on link)";
-                    return (true, $"🚫 Device {macAddress} ({ipDisplay}) is now fully BLOCKED and severed from the hotspot.");
-                }
-                catch (Exception ex)
-                {
-                    return (false, $"Block error: {ex.Message}");
-                }
-            });
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
         }
 
         /// <summary>
@@ -2179,64 +2276,75 @@ try {{
         /// </summary>
         public async Task<(bool success, string message)> UnblockClientAsync(string macAddress, string ipAddress)
         {
-            return await Task.Run(() =>
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
             {
-                try
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(() =>
                 {
-                    string cleanMac = HotspotModel.NormalizeMac(macAddress);
-                    if (!IsValidMac(cleanMac))
+                    try
                     {
-                        return (false, "Invalid MAC address format.");
-                    }
+                        _activeBlockedMacs.TryRemove(cleanMac, out _);
+                        _disconnectedMacs.TryRemove(cleanMac, out _);
+                        _appliedPriorities.TryRemove(cleanMac, out _);
+                        _appliedQosLimits.TryRemove(cleanMac, out _);
 
-                    _activeBlockedMacs.TryRemove(cleanMac, out _);
-                    _disconnectedMacs.TryRemove(cleanMac, out _);
-
-                    var ipsToRemove = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    if (!string.IsNullOrEmpty(ipAddress) && ipAddress != "-" && ipAddress.Contains('.'))
-                    {
-                        ipsToRemove.Add(ipAddress);
-                    }
-                    lock (_blockedMacToIps)
-                    {
-                        if (_blockedMacToIps.TryRemove(cleanMac, out var storedIps))
+                        var ipsToRemove = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        if (!string.IsNullOrEmpty(ipAddress) && ipAddress != "-" && ipAddress.Contains('.'))
                         {
-                            foreach (var ip in storedIps) ipsToRemove.Add(ip);
+                            ipsToRemove.Add(ipAddress);
                         }
-                    }
+                        lock (_blockedMacToIps)
+                        {
+                            if (_blockedMacToIps.TryRemove(cleanMac, out var storedIps))
+                            {
+                                foreach (var ip in storedIps) ipsToRemove.Add(ip);
+                            }
+                        }
 
-                    foreach (var ip in ipsToRemove)
-                    {
-                        // 1. Remove static ARP entry
-                        RunCommand("arp", $"-d {ip}");
-                    }
+                        foreach (var ip in ipsToRemove)
+                        {
+                            // 1. Remove static ARP entry
+                            RunCommand("arp", $"-d {ip}");
+                        }
 
-                    // 2. Delete netsh firewall rules
-                    RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_{cleanMac}\"");
-                    RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_Out_{cleanMac}\"");
-                    RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNS_{cleanMac}\"");
-                    RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNST_{cleanMac}\"");
-                    RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DHCP_{cleanMac}\"");
+                        // 2. Delete netsh firewall rules
+                        RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_{cleanMac}\"");
+                        RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_Out_{cleanMac}\"");
+                        RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNS_{cleanMac}\"");
+                        RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DNST_{cleanMac}\"");
+                        RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_Block_DHCP_{cleanMac}\"");
 
-                    // 3. Delete NetQoS policies
-                    string psUnblock = $@"
+                        // 3. Delete NetQoS policies
+                        string psUnblock = $@"
 try {{
     Remove-NetQosPolicy -Name 'Hotspot_Block_In_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Remove-NetQosPolicy -Name 'Hotspot_Block_Out_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 }} catch {{}}
 ";
-                    RunPowerShell(psUnblock, 3000);
+                        RunPowerShell(psUnblock, 3000);
 
-                    // 4. Flush ARP cache
-                    RunCommand("netsh", "interface ip delete arpcache");
+                        // 4. Flush ARP cache
+                        RunCommand("netsh", "interface ip delete arpcache");
 
-                    return (true, $"Device {macAddress} unblocked successfully.");
-                }
-                catch (Exception ex)
-                {
-                    return (false, $"Unblock error: {ex.Message}");
-                }
-            });
+                        return (true, $"Device {macAddress} unblocked successfully.");
+                    }
+                    catch (Exception ex)
+                    {
+                        return (false, $"Unblock error: {ex.Message}");
+                    }
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
         }
 
         /// <summary>
