@@ -129,7 +129,14 @@ foreach ($adapter in @(Get-NetAdapter -ErrorAction SilentlyContinue)) {
     }
 }
 
-# C. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128).
+# C. Enable 802.1p Priority & VLAN Tagging on physical network adapters so drivers do not drop priority tags
+try {
+    Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue |
+        Where-Object { ($_.DisplayName -like '*Priority*' -or $_.DisplayName -like '*VLAN*') -and ($_.DisplayValue -like '*Disable*' -or $_.DisplayValue -eq 'Disabled') } |
+        Set-NetAdapterAdvancedProperty -DisplayValue 'Priority & VLAN Enabled' -ErrorAction SilentlyContinue
+} catch {}
+
+# D. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128).
 #    Client priorities (130-240), bandwidth caps (245) and blocks (255) still take precedence.
 foreach ($policy in @(
     @{ Name = 'Hotspot_Transit_Up';   Dir = 'src' },
@@ -147,7 +154,7 @@ foreach ($policy in @(
     }
 }
 
-# D. Keep desktop browsers below hotspot transit. -AppPathNameMatchCondition does NOT support
+# E. Keep desktop browsers below hotspot transit. -AppPathNameMatchCondition does NOT support
 #    wildcards, so the plain executable name is the only form Windows can match.
 $browsers = @('chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'tor.exe')
 foreach ($b in $browsers) {
@@ -155,7 +162,6 @@ foreach ($b in $browsers) {
     try {
         Remove-NetQosPolicy -Name $name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         New-NetQosPolicy -Name $name -AppPathNameMatchCondition $b -PriorityValue8021Action 1 -DSCPAction 8 -Precedence 64 -Confirm:$false -ErrorAction Stop | Out-Null
-        Get-NetQosPolicy -Name $name -ErrorAction Stop | Out-Null
     } catch {
         Add-Result ""QOS_FAIL:$name $($_.Exception.Message)""
     }

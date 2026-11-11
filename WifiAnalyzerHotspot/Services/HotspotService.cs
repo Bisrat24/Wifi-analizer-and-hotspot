@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -1048,6 +1049,8 @@ try {{
                     _lastDirectTxBytes = 0;
                     _hasUsageBaseline = false;
                 }
+                _appliedPriorities.Clear();
+                _appliedQosLimits.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1197,6 +1200,8 @@ try {
                     _lastDirectTxBytes = 0;
                     _hasUsageBaseline = false;
                 }
+                _appliedPriorities.Clear();
+                _appliedQosLimits.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1271,6 +1276,9 @@ if ($connectionProfile) {
         }
 
         private static readonly Dictionary<string, ClientUsageStats> _clientDataUsageMap = new(StringComparer.OrdinalIgnoreCase);
+        // In-memory cache of applied NetQoS policies to eliminate redundant PowerShell process spawns & disk thrashing on HDDs
+        private static readonly ConcurrentDictionary<string, (string ip, int priority)> _appliedPriorities = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, (string ip, string limit)> _appliedQosLimits = new(StringComparer.OrdinalIgnoreCase);
 
         public static void RegisterSavedPriority(string mac, int priority)
         {
@@ -1747,6 +1755,14 @@ if ($connectionProfile) {
                         return (false, $"QoS limit saved, but {macAddress} has no resolved IP address yet - it will be enforced once the device obtains one.");
                     }
 
+                    // Check if identical policy was already verified and applied for this client and IP (avoids redundant PowerShell & disk thrashing)
+                    if (_appliedQosLimits.TryGetValue(cleanMac, out var cachedQos) && cachedQos.ip == targetIp && cachedQos.limit.Equals(limitChoice, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (true, bitsPerSec > 0
+                            ? $"⚡ QoS verified (active): device capped at {limitChoice} (NetQoS precedence 245)."
+                            : "✓ QoS cap removed: device has unlimited bandwidth.");
+                    }
+
                     string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_QoS_Down_{cleanMac}'
@@ -1777,6 +1793,7 @@ try {{
 
                     if (output == "CLEARED")
                     {
+                        _appliedQosLimits[cleanMac] = (targetIp, "Unlimited");
                         return (true, "✓ QoS cap removed: device has unlimited bandwidth.");
                     }
 
@@ -1788,6 +1805,7 @@ try {{
                             ulong.TryParse(rates[1], out ulong upRate) &&
                             downRate == bitsPerSec && upRate == bitsPerSec)
                         {
+                            _appliedQosLimits[cleanMac] = (targetIp, limitChoice);
                             return (true, $"⚡ QoS verified: device capped at {limitChoice} for download and upload (NetQoS precedence 245).");
                         }
                         return (false, $"QoS policy was created but Windows reported different rates ({output}).");
@@ -1893,6 +1911,12 @@ try {{
                         return (false, $"Priority {levelName} saved, but {macAddress} has no resolved IP address yet - it will be applied once the device obtains one.");
                     }
 
+                    // Check if identical priority policy was already verified and applied for this client and IP (avoids redundant PowerShell & disk thrashing)
+                    if (_appliedPriorities.TryGetValue(cleanMac, out var cachedPrio) && cachedPrio.ip == targetIp && cachedPrio.priority == clamped)
+                    {
+                        return (true, $"⚡ Priority verified (active): {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
+                    }
+
                     string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_Prio_Down_{cleanMac}'
@@ -1929,6 +1953,7 @@ try {{
                             downDot1p == dot1p && upDot1p == dot1p &&
                             downPrecedence == precedence && upPrecedence == precedence)
                         {
+                            _appliedPriorities[cleanMac] = (targetIp, clamped);
                             return (true, $"⚡ Priority verified: {levelName} • 802.1p {dot1p} • DSCP {dscp} • NetQoS precedence {precedence}.");
                         }
                         return (false, $"Priority policy was created but Windows reported different values ({output}).");
@@ -2232,6 +2257,8 @@ try {{
                 try
                 {
                     // 1. Re-enforce Host PC Priority & Upstream Transit Priority (over desktop browsers)
+                    _appliedPriorities.Clear();
+                    _appliedQosLimits.Clear();
                     var priorityResult = await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true);
 
                     int blocksEnforced = 0;

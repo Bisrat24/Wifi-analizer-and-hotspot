@@ -600,7 +600,21 @@ namespace WifiAnalyzerHotspot.ViewModels
                 await RefreshHotspotAsync();
             });
 
-            SetTabCommand = new RelayCommand(param => CurrentTab = param?.ToString() ?? "Analyzer");
+            SetTabCommand = new RelayCommand(param =>
+            {
+                CurrentTab = param?.ToString() ?? "Analyzer";
+                if (CurrentTab == "Analyzer")
+                {
+                    if (_scanTimer != null) _scanTimer.Interval = TimeSpan.FromSeconds(5);
+                    _ = PerformScanAsync();
+                }
+                else
+                {
+                    // When on Hotspot, Stabilizer, or SpeedTest tab, reduce Wi-Fi channel scan cadence to 25s
+                    // to eliminate continuous netsh process spawns and disk I/O thrashing on HDDs
+                    if (_scanTimer != null) _scanTimer.Interval = TimeSpan.FromSeconds(25);
+                }
+            });
             SetBandCommand = new RelayCommand(param => SelectedBand = param?.ToString() ?? "2.4 GHz");
 
             DisconnectClientCommand = new RelayCommand<HotspotClientInfo>(async client =>
@@ -1065,9 +1079,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                     // Continuous Link Speed update for Active Reconnect & Stabilizer
                     _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
 
-                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (real-time 1s cadence)
+                    // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (cadence: 2s to reduce CPU & disk I/O on HDDs)
                     _hotspotRefreshCounter++;
-                    int refreshThreshold = 1;
+                    int refreshThreshold = 2;
                     if (_hotspotRefreshCounter >= refreshThreshold)
                     {
                         _hotspotRefreshCounter = 0;
@@ -1453,6 +1467,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     if (existing != null)
                     {
                         if (!string.IsNullOrEmpty(fresh.HostName) && fresh.HostName != "Client Device") existing.HostName = fresh.HostName;
+                        bool acquiredNewIp = (string.IsNullOrEmpty(existing.IpAddress) || existing.IpAddress == "-") && (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-");
                         bool ipChanged = (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-" && existing.IpAddress != fresh.IpAddress);
                         if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-") existing.IpAddress = fresh.IpAddress;
                         existing.Status = fresh.Status;
@@ -1475,10 +1490,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                             existing.Priority = targetPriority;
                             existing.OnPriorityChanged = c => SetClientPriorityCommand.Execute(c);
                         }
-                        if (ipChanged)
+                        // Automatic Policy Activation upon DHCP Lease Acquisition or IP change
+                        if (ipChanged || acquiredNewIp)
                         {
-                            _ = _hotspotService.SetClientPriorityAsync(existing.MacAddress, existing.IpAddress, existing.Priority);
-                            if (existing.IsQosThrottled) _ = _hotspotService.SetClientQosLimitAsync(existing.MacAddress, existing.IpAddress, existing.QosLimit);
+                            _ = Task.Run(async () =>
+                            {
+                                await _hotspotService.SetClientPriorityAsync(existing.MacAddress, existing.IpAddress, existing.Priority);
+                                if (existing.IsQosThrottled)
+                                {
+                                    await _hotspotService.SetClientQosLimitAsync(existing.MacAddress, existing.IpAddress, existing.QosLimit);
+                                }
+                            });
                         }
                     }
                     else
@@ -1489,13 +1511,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                         fresh.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         Hotspot.Clients.Add(fresh);
 
+                        // Automatic Policy Activation upon connecting with a valid IP
                         if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-")
                         {
-                            _ = _hotspotService.SetClientPriorityAsync(fresh.MacAddress, fresh.IpAddress, fresh.Priority);
-                            if (fresh.IsQosThrottled)
+                            _ = Task.Run(async () =>
                             {
-                                _ = _hotspotService.SetClientQosLimitAsync(fresh.MacAddress, fresh.IpAddress, fresh.QosLimit);
-                            }
+                                await _hotspotService.SetClientPriorityAsync(fresh.MacAddress, fresh.IpAddress, fresh.Priority);
+                                if (fresh.IsQosThrottled)
+                                {
+                                    await _hotspotService.SetClientQosLimitAsync(fresh.MacAddress, fresh.IpAddress, fresh.QosLimit);
+                                }
+                            });
                         }
                     }
                 }

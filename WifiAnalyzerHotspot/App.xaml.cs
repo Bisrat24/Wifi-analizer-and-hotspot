@@ -100,17 +100,7 @@ namespace WifiAnalyzerHotspot
             }
             catch { }
 
-            // 6. Run background hotspot priority configuration
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await new Services.HotspotPriorityService().EngageHighestPriorityAsync();
-                }
-                catch { }
-            });
-
-            // 7. Session ending listener (allows Windows restart/shutdown without blocking)
+            // 6. Session ending listener (allows Windows restart/shutdown without blocking)
             SessionEnding += (s, args) =>
             {
                 IsSessionEnding = true;

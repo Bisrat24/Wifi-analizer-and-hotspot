@@ -88,8 +88,16 @@ namespace WifiAnalyzerHotspot.Services
         // ==================== WINDOWS STARTUP SCHEDULED TASK ====================
         // A highest-privileges logon task starts the app elevated without a UAC prompt.
         // The legacy HKCU Run entry is removed so startup is not triggered twice.
+        private static bool? _lastConfiguredStartupEnabled = null;
+        private static bool? _lastConfiguredStartupMinimized = null;
+
         public static void ConfigureWindowsStartup(bool enable, bool startMinimized)
         {
+            if (_lastConfiguredStartupEnabled == enable && _lastConfiguredStartupMinimized == startMinimized)
+            {
+                return; // State unchanged; eliminate redundant schtasks.exe process spawn and disk thrashing on HDDs
+            }
+
             try
             {
                 string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
@@ -141,6 +149,9 @@ namespace WifiAnalyzerHotspot.Services
                     try { p.Kill(true); } catch { }
                 }
                 Task.WaitAll(new[] { stdout, stderr }, 1000);
+
+                _lastConfiguredStartupEnabled = enable;
+                _lastConfiguredStartupMinimized = startMinimized;
             }
             catch { }
         }
