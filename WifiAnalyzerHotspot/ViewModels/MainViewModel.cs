@@ -431,6 +431,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             Stabilizer.FailureThreshold = _settings.FailureThreshold > 0 ? _settings.FailureThreshold : 3;
             if (!string.IsNullOrWhiteSpace(_settings.ReconnectStrategy)) Stabilizer.ReconnectStrategy = _settings.ReconnectStrategy;
             Stabilizer.ReconnectBufferSeconds = _settings.ReconnectBufferSeconds > 0 ? _settings.ReconnectBufferSeconds : 10;
+            Stabilizer.PreserveGigabitLinkSpeed = _settings.PreserveGigabitLinkSpeed;
 
             // Initial link speed detection
             _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
@@ -520,6 +521,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.ReconnectStrategy = Stabilizer.ReconnectStrategy;
                 else if (e.PropertyName == nameof(Stabilizer.ReconnectBufferSeconds))
                     _settings.ReconnectBufferSeconds = Stabilizer.ReconnectBufferSeconds;
+                else if (e.PropertyName == nameof(Stabilizer.PreserveGigabitLinkSpeed))
+                {
+                    _settings.PreserveGigabitLinkSpeed = Stabilizer.PreserveGigabitLinkSpeed;
+                    if (Stabilizer.PreserveGigabitLinkSpeed)
+                    {
+                        EthernetSpeedOptimizer.InvalidateAuditCache();
+                    }
+                }
 
                 _settingsService.SaveSettings(_settings);
             };

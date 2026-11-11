@@ -402,6 +402,13 @@ namespace WifiAnalyzerHotspot.Models
             set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
         }
 
+        private bool _preserveGigabitLinkSpeed = true;
+        public bool PreserveGigabitLinkSpeed
+        {
+            get => _preserveGigabitLinkSpeed;
+            set { _preserveGigabitLinkSpeed = value; OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.List<BlockedClientInfo> _blockedClients = new();
         public System.Collections.Generic.List<BlockedClientInfo> BlockedClients
         {

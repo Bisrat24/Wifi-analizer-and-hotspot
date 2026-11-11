@@ -270,6 +270,13 @@ namespace WifiAnalyzerHotspot.Models
             set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
         }
 
+        private bool _preserveGigabitLinkSpeed = true;
+        public bool PreserveGigabitLinkSpeed
+        {
+            get => _preserveGigabitLinkSpeed;
+            set { _preserveGigabitLinkSpeed = value; OnPropertyChanged(); }
+        }
+
         public string ReconnectBufferChoice
         {
             get => $"{_reconnectBufferSeconds} seconds";

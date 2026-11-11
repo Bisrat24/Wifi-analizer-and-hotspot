@@ -228,7 +228,7 @@ namespace WifiAnalyzerHotspot.Services
             {
                 if (isEthernet)
                 {
-                    await EnsureEthernetFullSpeedAsync(adapterName, model, token);
+                    await EnsureEthernetFullSpeedAsync(adapterName, model, forceRecheck: false, token);
                 }
 
                 using var ping   = new Ping();
@@ -319,7 +319,8 @@ namespace WifiAnalyzerHotspot.Services
             if (isEthLink)
             {
                 // Disarm any driver power throttles / 10 Mbps locks before executing recovery
-                await EnsureEthernetFullSpeedAsync(adapterName, model, token);
+                bool forceRecheck = reason.Contains("Manual", StringComparison.OrdinalIgnoreCase);
+                await EnsureEthernetFullSpeedAsync(adapterName, model, forceRecheck, token);
 
                 // ==================== ETHERNET RECONNECTION ====================
                 if (model.ReconnectStrategy.Contains("Adapter Reset"))
@@ -447,6 +448,7 @@ namespace WifiAnalyzerHotspot.Services
             try
             {
                 Log(model, $"[MANUAL RESET] Manual connection reset triggered by user ({model.ReconnectStrategy}).");
+                EthernetSpeedOptimizer.InvalidateAuditCache();
                 UI(() => model.ReconnectStatusText = "⚡ Executing manual reconnect & adapter reset...");
                 bool ok = await ExecuteRecoveryAsync(model, "Manual Reset Button", CancellationToken.None);
                 return ok;
@@ -518,7 +520,7 @@ namespace WifiAnalyzerHotspot.Services
                                                 primary.Description.Contains("Gigabit", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("1000", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("PCIe", StringComparison.OrdinalIgnoreCase);
-                        speedFormatted = isGigabitCapable ? "10 Mbps (Throttled/Negotiating)" : "10 Mbps";
+                        speedFormatted = isGigabitCapable ? "10 Mbps (Check cable/port)" : "10 Mbps";
                     }
                     else if (speedBps > 0)
                     {
@@ -821,134 +823,29 @@ namespace WifiAnalyzerHotspot.Services
         /// Disarms Realtek/Intel power-saving mechanisms (WOL &amp; Shutdown Link Speed downshift, Green Ethernet,
         /// Energy-Efficient Ethernet, Advanced EEE, Power Saving Mode, Gigabit Lite, and Auto Disable Gigabit)
         /// and ensures Speed &amp; Duplex is set to Auto Negotiation.
+        /// 
+        /// Respects the user's PreserveGigabitLinkSpeed opt-in preference and leverages session caching.
         /// </summary>
-        public static async Task EnsureEthernetFullSpeedAsync(string? adapterName = null, ConnectionStabilizerModel? model = null, CancellationToken token = default)
+        public static async Task EnsureEthernetFullSpeedAsync(
+            string? adapterName = null,
+            ConnectionStabilizerModel? model = null,
+            bool forceRecheck = false,
+            CancellationToken token = default)
         {
+            if (model != null && !model.PreserveGigabitLinkSpeed)
+            {
+                return;
+            }
+
             try
             {
-                string script = @"
-$target = '__TARGET_ADAPTER__'
-$adapters = if ($target) {
-    Get-NetAdapter -Name $target -Physical -ErrorAction SilentlyContinue
-} else {
-    Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { 
-        $_.MediaType -like '*802.3*' -or 
-        $_.InterfaceDescription -like '*Ethernet*' -or 
-        $_.InterfaceDescription -like '*GbE*' -or 
-        $_.InterfaceDescription -like '*Gigabit*' -or
-        $_.InterfaceDescription -like '*Realtek*' -or
-        $_.InterfaceDescription -like '*Intel*'
-    }
-}
-if (-not $adapters) {
-    $adapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.MediaType -notlike '*Native 802.11*' }
-}
-
-$results = @()
-foreach ($ea in $adapters) {
-    try {
-        # 1. Ensure Speed & Duplex is Auto Negotiation (not forced down to 10 Mbps)
-        $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {
-            Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
-            $results += ""ETH_SPEED_AUTO:$($ea.Name)""
-        }
-
-        # 2. Prevent link downshifting to 10 Mbps on reset/sleep (Realtek WOL & Shutdown Link Speed: 10 Mbps First)
-        $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($wol -and $wol.DisplayValue -eq '10 Mbps First') {
-            $targetWol = @($wol.ValidDisplayValues) | Where-Object { $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' } | Select-Object -First 1
-            if ($targetWol) {
-                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
-                $results += ""ETH_WOL_FULL:$($ea.Name):$targetWol""
-            }
-        }
-
-        # 3. Disable energy-saving throttles (Green Ethernet, Energy-Efficient Ethernet, Advanced EEE, Power Saving Mode, Gigabit Lite, Auto Disable Gigabit)
-        foreach ($pwrName in @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*', '*Auto*Disable*Gigabit*')) {
-            $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($pwr -and ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*')) {
-                $targetDis = @($pwr.ValidDisplayValues) | Where-Object { $_ -eq 'Disabled' -or $_ -like '*Disable*' } | Select-Object -First 1
-                if ($targetDis) {
-                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
-                    $results += ""ETH_DISARM_PWR:$($ea.Name):$($pwr.DisplayName):$targetDis""
-                }
-            }
-        }
-    } catch { }
-}
-foreach ($r in $results) { Write-Output $r }
-";
-                string escapedTarget = (adapterName ?? "").Replace("'", "''");
-                script = script.Replace("__TARGET_ADAPTER__", escapedTarget);
-
-                string output = await RunPowerShellAsync(script, 15000, token).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(output)) return;
-
-                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string trimmed = line.Trim();
-                    if (trimmed.StartsWith("ETH_SPEED_AUTO:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string ifName = trimmed.Substring("ETH_SPEED_AUTO:".Length);
-                        if (model != null) Log(model, $"[ANTI-10M] Restored Speed & Duplex to 'Auto Negotiation' on '{ifName}'");
-                    }
-                    else if (trimmed.StartsWith("ETH_WOL_FULL:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var parts = trimmed.Substring("ETH_WOL_FULL:".Length).Split(':');
-                        string ifName = parts[0];
-                        string val = parts.Length > 1 ? parts[1] : "Not Speed Down";
-                        if (model != null) Log(model, $"[ANTI-10M] Set WOL & Shutdown Link Speed to '{val}' (disarmed 10 Mbps First) on '{ifName}'");
-                    }
-                    else if (trimmed.StartsWith("ETH_DISARM_PWR:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var parts = trimmed.Substring("ETH_DISARM_PWR:".Length).Split(':');
-                        string ifName = parts[0];
-                        string prop = parts.Length > 1 ? parts[1] : "Power Throttle";
-                        string targetVal = parts.Length > 2 ? parts[2] : "Disabled";
-                        if (model != null) Log(model, $"[ANTI-10M] Disabled power throttle '{prop}' ({targetVal}) on '{ifName}'");
-                    }
-                }
+                await EthernetSpeedOptimizer.AuditAndOptimizeAsync(
+                    adapterName,
+                    msg => { if (model != null) Log(model, msg); },
+                    forceRecheck,
+                    token).ConfigureAwait(false);
             }
             catch { }
-        }
-
-        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000, CancellationToken token = default)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command -",
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var proc = Process.Start(psi);
-                if (proc == null) return string.Empty;
-
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                linkedCts.CancelAfter(timeoutMs);
-
-                await proc.StandardInput.WriteLineAsync(script).ConfigureAwait(false);
-                proc.StandardInput.Close();
-
-                var outTask = proc.StandardOutput.ReadToEndAsync(linkedCts.Token);
-                var errTask = proc.StandardError.ReadToEndAsync(linkedCts.Token);
-
-                await proc.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                string output = await outTask.ConfigureAwait(false);
-                _ = await errTask.ConfigureAwait(false);
-                return output.Trim();
-            }
-            catch
-            {
-                return string.Empty;
-            }
         }
 
         private static void UI(Action a)

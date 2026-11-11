@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.3.0)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.3.1)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
@@ -11,7 +11,7 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.3.0)
+## ✨ Key Features (v1.3.1)
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:
@@ -72,7 +72,7 @@ You can run the app immediately by double-clicking:
 - **✅ Enforced, Verified & Self-Cleaning NetQoS**:
   - **QoS Packet Scheduler check**: rate limiting and 802.1p tagging require the `ms_pacer` binding. The hotspot's own virtual adapter is bound automatically; a disabled upstream adapter is reported with the exact remediation command instead of being silently reset.
   - **Dynamic Driver-Aware NIC Priority & VLAN Activation**: dynamically discovers and matches supported `ValidDisplayValues` on physical network adapters, safely committing once per session only upon verified success (retries if the adapter was down) to prevent unexpected adapter resets while ensuring physical NIC drivers preserve 802.1p priority tags.
-  - **Full Gigabit Ethernet Link Speed Preservation (Anti-10Mbps Downshift)**: wired directly into both Active Reconnect recovery cycles and Hotspot Priority engines to permanently guard physical Ethernet adapters against 10 Mbps downshifting. Systematically disarms driver power-saving throttles (`WOL & Shutdown Link Speed: 10 Mbps First`, `Green Ethernet`, `Energy-Efficient Ethernet`, `Advanced EEE`, `Power Saving Mode`, `Gigabit Lite`, and `Auto Disable Gigabit`), restores `Speed & Duplex` to Auto-Negotiation, outputs detailed audit entries to Reconnect Logs, filters out dummy virtual/TAP/VPN/Bluetooth adapters, guards Default Gateway IP address detection against network transition exceptions, and honors honest `"No Link"` and `"10 Mbps (Throttled/Negotiating)"` states.
+  - **Consolidated Gigabit Ethernet Link Speed Preservation (Anti-10Mbps Downshift)**: powered by a unified `EthernetSpeedOptimizer` engine shared seamlessly across Active Reconnect and Hotspot Priority. Features driver read-back verification confirming that every property change was accepted by the driver, pipe-delimited (`|`) parsing impervious to colons in adapter or property names, session-level deduplication caching so subsequent drop recoveries on HDD take 0ms without launching cold PowerShell processes, an opt-in toggle in the Active Reconnect UI ("Preserve Gigabit Link Speed") persisted to settings, non-silent failure logging if audits time out, and actionable `"10 Mbps (Check cable/port)"` diagnostics when hardware throttles are disarmed. Systematically disarms driver power-saving throttles (`WOL & Shutdown Link Speed: 10 Mbps First`, `Green Ethernet`, `Energy-Efficient Ethernet`, `Advanced EEE`, `Power Saving Mode`, `Gigabit Lite`, and `Auto Disable Gigabit`) and restores `Speed & Duplex` to Auto-Negotiation.
   - **Verified policy creation & default-level verification**: every per-client QoS limit and priority is read back with `Get-NetQosPolicy`; default priority removals are verified before cache commit. The UI reports the verified throttle rate, 802.1p, DSCP, and precedence, or the real error message.
   - **Automatic Policy Activation upon DHCP Lease Acquisition**: when a connecting device receives its IP from DHCP, its saved QoS bandwidth limit and priority levels are automatically applied without requiring manual rule refreshes.
   - **Automatic Policy Restoration on Unblock**: unblocking a previously blocked device immediately restores its configured priority and QoS limits once an IP is known, without waiting for reconnect or manual refresh.
