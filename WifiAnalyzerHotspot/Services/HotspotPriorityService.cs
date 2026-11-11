@@ -52,6 +52,8 @@ namespace WifiAnalyzerHotspot.Services
                     var pacerMissing = new List<string>();
                     var pacerDisabled = new List<string>();
                     var nicPrioEnabled = new List<string>();
+                    var ethSpeedAuto = new List<string>();
+                    var ethWolFull = new List<string>();
                     var failures = new List<string>();
 
                     bool hasNicPrioFail = false;
@@ -66,6 +68,10 @@ namespace WifiAnalyzerHotspot.Services
                             pacerDisabled.Add(line.Substring("PACER_DISABLED:".Length).Trim());
                         else if (line.StartsWith("NIC_PRIO_ENABLED:", StringComparison.Ordinal))
                             nicPrioEnabled.Add(line.Substring("NIC_PRIO_ENABLED:".Length).Trim());
+                        else if (line.StartsWith("ETH_SPEED_AUTO:", StringComparison.Ordinal))
+                            ethSpeedAuto.Add(line.Substring("ETH_SPEED_AUTO:".Length).Trim());
+                        else if (line.StartsWith("ETH_WOL_FULL:", StringComparison.Ordinal))
+                            ethWolFull.Add(line.Substring("ETH_WOL_FULL:".Length).Trim());
                         else if (line.StartsWith("NIC_PRIO_FAIL:", StringComparison.Ordinal))
                         {
                             hasNicPrioFail = true;
@@ -92,6 +98,12 @@ namespace WifiAnalyzerHotspot.Services
 
                     if (nicPrioEnabled.Count > 0)
                         parts.Add($"802.1p Priority & VLAN tagging enabled on physical uplink: {string.Join(", ", nicPrioEnabled)}");
+
+                    if (ethSpeedAuto.Count > 0)
+                        parts.Add($"Ethernet speed restored to Auto-Negotiation on {string.Join(", ", ethSpeedAuto)}");
+
+                    if (ethWolFull.Count > 0)
+                        parts.Add($"Ethernet 10 Mbps downshift removed: {string.Join(", ", ethWolFull)}");
 
                     if (pacerMissing.Count > 0)
                         parts.Add($"⚠️ Adapter(s) without a QoS Packet Scheduler driver: {string.Join(", ", pacerMissing)}");
@@ -178,6 +190,40 @@ if ($checkPriorityVlan) {
                     Add-Result ""NIC_PRIO_SKIP:$($pa.Name) (no matching enabled value)""
                 }
             }
+        }
+
+        # D. Prevent physical Ethernet adapters from downshifting or throttling to 10 Mbps
+        $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like '*Ethernet*' -or $_.InterfaceDescription -like '*GbE*' -or $_.InterfaceDescription -like '*Gigabit*' })
+        foreach ($ea in $ethAdapters) {
+            try {
+                # 1. Ensure Speed & Duplex is Auto Negotiation (not forced down to 10 Mbps)
+                $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue
+                if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {
+                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
+                    Add-Result ""ETH_SPEED_AUTO:$($ea.Name)""
+                }
+
+                # 2. Prevent link downshifting to 10 Mbps on reset/sleep (Realtek WOL & Shutdown Link Speed: 10 Mbps First)
+                $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue
+                if ($wol -and $wol.DisplayValue -eq '10 Mbps First') {
+                    $targetWol = @($wol.ValidDisplayValues) | Where-Object { $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' } | Select-Object -First 1
+                    if ($targetWol) {
+                        Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
+                        Add-Result ""ETH_WOL_FULL:$($ea.Name) ($targetWol)""
+                    }
+                }
+
+                # 3. Disable energy-saving throttles (Green Ethernet, Energy-Efficient Ethernet, Power Saving Mode)
+                foreach ($pwrName in @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Power*Saving*Mode*')) {
+                    $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue
+                    if ($pwr -and ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*')) {
+                        $targetDis = @($pwr.ValidDisplayValues) | Where-Object { $_ -eq 'Disabled' -or $_ -like '*Disable*' } | Select-Object -First 1
+                        if ($targetDis) {
+                            Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            } catch {}
         }
     } catch {
         Add-Result ""NIC_PRIO_FAIL:Global $($_.Exception.Message)""

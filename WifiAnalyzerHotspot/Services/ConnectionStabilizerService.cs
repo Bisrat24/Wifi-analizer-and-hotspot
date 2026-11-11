@@ -322,7 +322,7 @@ namespace WifiAnalyzerHotspot.Services
                         RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
                         await Task.Delay(1500, token);
                         RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled");
-                        await Task.Delay(2500, token);
+                        await Task.Delay(4000, token); // Allow 4s for Gigabit/Fast-Ethernet auto-negotiation to complete
                     }
                     RunCmd("ipconfig", "/renew");
                 }
@@ -455,40 +455,62 @@ namespace WifiAnalyzerHotspot.Services
         }
 
         /// <summary>
-        /// Discovers the active network adapter (Ethernet or Wi-Fi) and calculates its real-time negotiated link speed.
-        /// Formats clean human-readable text like '1.0 Gbps' or '100 Mbps' at the top of Active Reconnect.
+        /// Discovers the active physical network adapter (Ethernet or Wi-Fi) carrying live internet traffic
+        /// and calculates its real-time negotiated link speed (1.0 Gbps, 100 Mbps, etc.).
+        /// Prevents misidentifying 10 Mbps virtual VPN/TAP/Bluetooth adapters as physical Ethernet.
         /// </summary>
         public void UpdateActiveLinkSpeed(ConnectionStabilizerModel model)
         {
             try
             {
                 var ifaces = NetworkInterface.GetAllNetworkInterfaces();
+                var physical = ifaces.Where(i => i.OperationalStatus == OperationalStatus.Up && !IsVirtualOrDummyAdapter(i)).ToList();
 
-                // 1. Check for Active Ethernet
-                var activeEth = ifaces.FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up
-                    && i.NetworkInterfaceType == NetworkInterfaceType.Ethernet
-                    && !i.Name.Contains('*')
-                    && !i.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
-                    && !i.Description.Contains("Loopback", StringComparison.OrdinalIgnoreCase));
+                // 1. Prioritize physical adapter holding the active IPv4 Default Gateway (carrying live internet traffic)
+                var gatewayAdapter = physical.FirstOrDefault(i =>
+                {
+                    try
+                    {
+                        var props = i.GetIPProperties();
+                        return props != null && props.GatewayAddresses != null &&
+                               props.GatewayAddresses.Any(g => g.Address != null &&
+                                                              g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                                                              !g.Address.Equals(System.Net.IPAddress.Any) &&
+                                                              !g.Address.Equals(System.Net.IPAddress.None));
+                    }
+                    catch { return false; }
+                });
 
-                // 2. Check for Active Wi-Fi
-                var activeWifi = ifaces.FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up
-                    && i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211
-                    && !i.Name.Contains('*'));
+                var activeEth = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet);
+                var activeWifi = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211);
 
-                var primary = activeEth ?? activeWifi;
+                // Priority: Active Gateway adapter > Physical Ethernet > Physical Wi-Fi > Fallback non-virtual
+                var primary = gatewayAdapter ?? activeEth ?? activeWifi ?? ifaces.FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up && !IsVirtualOrDummyAdapter(i));
                 if (primary != null)
                 {
                     long speedBps = primary.Speed;
                     bool isEth = primary.NetworkInterfaceType == NetworkInterfaceType.Ethernet;
                     string speedFormatted;
+
                     if (speedBps >= 1_000_000_000)
                     {
                         speedFormatted = $"{speedBps / 1_000_000_000.0:0.#} Gbps";
                     }
-                    else if (speedBps >= 1_000_000)
+                    else if (speedBps >= 100_000_000)
                     {
                         speedFormatted = $"{speedBps / 1_000_000.0:0} Mbps";
+                    }
+                    else if (speedBps > 10_000_000)
+                    {
+                        speedFormatted = $"{speedBps / 1_000_000.0:0} Mbps";
+                    }
+                    else if (speedBps == 10_000_000)
+                    {
+                        bool isGigabitCapable = primary.Description.Contains("GbE", StringComparison.OrdinalIgnoreCase) ||
+                                                primary.Description.Contains("Gigabit", StringComparison.OrdinalIgnoreCase) ||
+                                                primary.Description.Contains("1000", StringComparison.OrdinalIgnoreCase) ||
+                                                primary.Description.Contains("PCIe", StringComparison.OrdinalIgnoreCase);
+                        speedFormatted = isGigabitCapable ? "10 Mbps (Auto-negotiating...)" : "10 Mbps";
                     }
                     else if (speedBps > 0)
                     {
@@ -496,12 +518,12 @@ namespace WifiAnalyzerHotspot.Services
                     }
                     else
                     {
-                        speedFormatted = isEth ? "1.0 Gbps" : "Auto";
+                        speedFormatted = isEth ? "1.0 Gbps (Auto)" : "Auto";
                     }
 
                     string ifType = isEth ? "Ethernet" : "Wi-Fi";
                     string netName = isEth ? primary.Name : (string.IsNullOrWhiteSpace(model.TargetSsid) ? primary.Name : model.TargetSsid);
-                    string detail = isEth ? "(Ethernet)" : $"(Wi-Fi: {netName})";
+                    string detail = isEth ? $"(Ethernet: {primary.Name})" : $"(Wi-Fi: {netName})";
 
                     UI(() =>
                     {
@@ -522,6 +544,31 @@ namespace WifiAnalyzerHotspot.Services
                 }
             }
             catch { }
+        }
+
+        private static bool IsVirtualOrDummyAdapter(NetworkInterface i)
+        {
+            if (i.Name.Contains('*')) return true;
+            string desc = i.Description ?? "";
+            string name = i.Name ?? "";
+            return desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Loopback", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Pseudo", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("TAP", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("VPN", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("AnyConnect", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("WireGuard", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Tunnel", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Tailscale", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("ZeroTier", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("VMware", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("PANGP", StringComparison.OrdinalIgnoreCase)
+                || desc.Contains("WFP", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase);
         }
 
         public void StopActiveReconnect()
@@ -573,20 +620,37 @@ namespace WifiAnalyzerHotspot.Services
             try
             {
                 var ifaces = NetworkInterface.GetAllNetworkInterfaces();
+                var physical = ifaces.Where(i => !IsVirtualOrDummyAdapter(i)).ToList();
 
                 bool targetEthernet = target.Contains("Ethernet", StringComparison.OrdinalIgnoreCase);
 
                 if (targetEthernet)
                 {
-                    var eth = ifaces.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet 
-                        && !i.Name.Contains('*') 
-                        && i.OperationalStatus != OperationalStatus.NotPresent);
+                    var eth = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet 
+                        && i.OperationalStatus == OperationalStatus.Up);
                     if (eth != null) return (eth.Name, true);
+
+                    var ethFallback = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet);
+                    if (ethFallback != null) return (ethFallback.Name, true);
+                }
+
+                // Check active adapter with Default Gateway first (carrying live internet traffic)
+                var gatewayAdapter = physical.FirstOrDefault(i =>
+                    i.OperationalStatus == OperationalStatus.Up &&
+                    i.GetIPProperties()?.GatewayAddresses != null &&
+                    i.GetIPProperties().GatewayAddresses.Any(g => g.Address != null &&
+                        g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                        !g.Address.Equals(System.Net.IPAddress.Any) &&
+                        !g.Address.Equals(System.Net.IPAddress.None)));
+
+                if (gatewayAdapter != null)
+                {
+                    bool isEth = gatewayAdapter.NetworkInterfaceType == NetworkInterfaceType.Ethernet;
+                    return (gatewayAdapter.Name, isEth);
                 }
 
                 // Check active Wi-Fi connection
-                var wifi = ifaces.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 
-                    && !i.Name.Contains('*') 
+                var wifi = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 
                     && i.OperationalStatus == OperationalStatus.Up);
                 if (wifi != null && !targetEthernet)
                 {
@@ -594,8 +658,7 @@ namespace WifiAnalyzerHotspot.Services
                 }
 
                 // Check active Ethernet connection
-                var activeEth = ifaces.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet 
-                    && !i.Name.Contains('*') 
+                var activeEth = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet 
                     && i.OperationalStatus == OperationalStatus.Up);
                 if (activeEth != null)
                 {
@@ -603,11 +666,11 @@ namespace WifiAnalyzerHotspot.Services
                 }
 
                 // Fallbacks
-                var fallbackEth = ifaces.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet && !i.Name.Contains('*'));
-                if (fallbackEth != null) return (fallbackEth.Name, true);
-
-                var fallbackWifi = ifaces.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && !i.Name.Contains('*'));
+                var fallbackWifi = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211);
                 if (fallbackWifi != null) return (fallbackWifi.Name, false);
+
+                var fallbackEth = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet);
+                if (fallbackEth != null) return (fallbackEth.Name, true);
             }
             catch { }
             return (string.Empty, false);
