@@ -197,14 +197,14 @@ if ($checkPriorityVlan) {
         foreach ($ea in $ethAdapters) {
             try {
                 # 1. Ensure Speed & Duplex is Auto Negotiation (not forced down to 10 Mbps)
-                $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue
+                $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {
                     Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
                     Add-Result ""ETH_SPEED_AUTO:$($ea.Name)""
                 }
 
                 # 2. Prevent link downshifting to 10 Mbps on reset/sleep (Realtek WOL & Shutdown Link Speed: 10 Mbps First)
-                $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue
+                $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($wol -and $wol.DisplayValue -eq '10 Mbps First') {
                     $targetWol = @($wol.ValidDisplayValues) | Where-Object { $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' } | Select-Object -First 1
                     if ($targetWol) {
@@ -213,9 +213,9 @@ if ($checkPriorityVlan) {
                     }
                 }
 
-                # 3. Disable energy-saving throttles (Green Ethernet, Energy-Efficient Ethernet, Power Saving Mode)
-                foreach ($pwrName in @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Power*Saving*Mode*')) {
-                    $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue
+                # 3. Disable energy-saving throttles (Green Ethernet, Energy-Efficient Ethernet, Advanced EEE, Power Saving Mode, Gigabit Lite, Auto Disable Gigabit)
+                foreach ($pwrName in @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*', '*Auto*Disable*Gigabit*')) {
+                    $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue | Select-Object -First 1
                     if ($pwr -and ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*')) {
                         $targetDis = @($pwr.ValidDisplayValues) | Where-Object { $_ -eq 'Disabled' -or $_ -like '*Disable*' } | Select-Object -First 1
                         if ($targetDis) {

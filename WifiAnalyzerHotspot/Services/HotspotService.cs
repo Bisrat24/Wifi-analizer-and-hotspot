@@ -2161,7 +2161,6 @@ try {{
                     _disconnectedMacs[cleanMac] = DateTime.Now;
                     _appliedPriorities.TryRemove(cleanMac, out _);
                     _appliedQosLimits.TryRemove(cleanMac, out _);
-                    _macLocks.TryRemove(cleanMac, out _);
 
                     string targetIp = ipAddress;
                     if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
@@ -2387,10 +2386,6 @@ try {{
             finally
             {
                 macLock.Release();
-                if (macLock.CurrentCount == 1)
-                {
-                    _macLocks.TryRemove(cleanMac, out _);
-                }
             }
         }
 

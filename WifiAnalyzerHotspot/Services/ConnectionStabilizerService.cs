@@ -226,6 +226,11 @@ namespace WifiAnalyzerHotspot.Services
 
             Task.Run(async () =>
             {
+                if (isEthernet)
+                {
+                    await EnsureEthernetFullSpeedAsync(adapterName, model, token);
+                }
+
                 using var ping   = new Ping();
                 int  fails       = 0;
                 int  checkCycle  = 0;
@@ -313,6 +318,9 @@ namespace WifiAnalyzerHotspot.Services
             // ── Execute Recovery strategies ────────────────
             if (isEthLink)
             {
+                // Disarm any driver power throttles / 10 Mbps locks before executing recovery
+                await EnsureEthernetFullSpeedAsync(adapterName, model, token);
+
                 // ==================== ETHERNET RECONNECTION ====================
                 if (model.ReconnectStrategy.Contains("Adapter Reset"))
                 {
@@ -510,7 +518,7 @@ namespace WifiAnalyzerHotspot.Services
                                                 primary.Description.Contains("Gigabit", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("1000", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("PCIe", StringComparison.OrdinalIgnoreCase);
-                        speedFormatted = isGigabitCapable ? "10 Mbps (Auto-negotiating...)" : "10 Mbps";
+                        speedFormatted = isGigabitCapable ? "10 Mbps (Throttled/Negotiating)" : "10 Mbps";
                     }
                     else if (speedBps > 0)
                     {
@@ -518,12 +526,14 @@ namespace WifiAnalyzerHotspot.Services
                     }
                     else
                     {
-                        speedFormatted = isEth ? "1.0 Gbps (Auto)" : "Auto";
+                        speedFormatted = "No Link";
                     }
 
                     string ifType = isEth ? "Ethernet" : "Wi-Fi";
                     string netName = isEth ? primary.Name : (string.IsNullOrWhiteSpace(model.TargetSsid) ? primary.Name : model.TargetSsid);
-                    string detail = isEth ? $"(Ethernet: {primary.Name})" : $"(Wi-Fi: {netName})";
+                    string detail = speedBps <= 0 
+                        ? $"(No active link on {primary.Name})" 
+                        : (isEth ? $"(Ethernet: {primary.Name})" : $"(Wi-Fi: {netName})");
 
                     UI(() =>
                     {
@@ -636,12 +646,19 @@ namespace WifiAnalyzerHotspot.Services
 
                 // Check active adapter with Default Gateway first (carrying live internet traffic)
                 var gatewayAdapter = physical.FirstOrDefault(i =>
-                    i.OperationalStatus == OperationalStatus.Up &&
-                    i.GetIPProperties()?.GatewayAddresses != null &&
-                    i.GetIPProperties().GatewayAddresses.Any(g => g.Address != null &&
-                        g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                        !g.Address.Equals(System.Net.IPAddress.Any) &&
-                        !g.Address.Equals(System.Net.IPAddress.None)));
+                {
+                    try
+                    {
+                        if (i.OperationalStatus != OperationalStatus.Up) return false;
+                        var props = i.GetIPProperties();
+                        return props != null && props.GatewayAddresses != null &&
+                               props.GatewayAddresses.Any(g => g.Address != null &&
+                                                              g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                                                              !g.Address.Equals(System.Net.IPAddress.Any) &&
+                                                              !g.Address.Equals(System.Net.IPAddress.None));
+                    }
+                    catch { return false; }
+                });
 
                 if (gatewayAdapter != null)
                 {
@@ -796,6 +813,141 @@ namespace WifiAnalyzerHotspot.Services
             lock (_adapterResetLock)
             {
                 _adapterResetHistory.Remove(adapterName);
+            }
+        }
+
+        /// <summary>
+        /// Audits and optimizes physical Ethernet adapters to permanently prevent 10 Mbps link throttling.
+        /// Disarms Realtek/Intel power-saving mechanisms (WOL &amp; Shutdown Link Speed downshift, Green Ethernet,
+        /// Energy-Efficient Ethernet, Advanced EEE, Power Saving Mode, Gigabit Lite, and Auto Disable Gigabit)
+        /// and ensures Speed &amp; Duplex is set to Auto Negotiation.
+        /// </summary>
+        public static async Task EnsureEthernetFullSpeedAsync(string? adapterName = null, ConnectionStabilizerModel? model = null, CancellationToken token = default)
+        {
+            try
+            {
+                string script = @"
+$target = '__TARGET_ADAPTER__'
+$adapters = if ($target) {
+    Get-NetAdapter -Name $target -Physical -ErrorAction SilentlyContinue
+} else {
+    Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { 
+        $_.MediaType -like '*802.3*' -or 
+        $_.InterfaceDescription -like '*Ethernet*' -or 
+        $_.InterfaceDescription -like '*GbE*' -or 
+        $_.InterfaceDescription -like '*Gigabit*' -or
+        $_.InterfaceDescription -like '*Realtek*' -or
+        $_.InterfaceDescription -like '*Intel*'
+    }
+}
+if (-not $adapters) {
+    $adapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.MediaType -notlike '*Native 802.11*' }
+}
+
+$results = @()
+foreach ($ea in $adapters) {
+    try {
+        # 1. Ensure Speed & Duplex is Auto Negotiation (not forced down to 10 Mbps)
+        $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {
+            Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
+            $results += ""ETH_SPEED_AUTO:$($ea.Name)""
+        }
+
+        # 2. Prevent link downshifting to 10 Mbps on reset/sleep (Realtek WOL & Shutdown Link Speed: 10 Mbps First)
+        $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($wol -and $wol.DisplayValue -eq '10 Mbps First') {
+            $targetWol = @($wol.ValidDisplayValues) | Where-Object { $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' } | Select-Object -First 1
+            if ($targetWol) {
+                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
+                $results += ""ETH_WOL_FULL:$($ea.Name):$targetWol""
+            }
+        }
+
+        # 3. Disable energy-saving throttles (Green Ethernet, Energy-Efficient Ethernet, Advanced EEE, Power Saving Mode, Gigabit Lite, Auto Disable Gigabit)
+        foreach ($pwrName in @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*', '*Auto*Disable*Gigabit*')) {
+            $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($pwr -and ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*')) {
+                $targetDis = @($pwr.ValidDisplayValues) | Where-Object { $_ -eq 'Disabled' -or $_ -like '*Disable*' } | Select-Object -First 1
+                if ($targetDis) {
+                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
+                    $results += ""ETH_DISARM_PWR:$($ea.Name):$($pwr.DisplayName):$targetDis""
+                }
+            }
+        }
+    } catch { }
+}
+foreach ($r in $results) { Write-Output $r }
+";
+                string escapedTarget = (adapterName ?? "").Replace("'", "''");
+                script = script.Replace("__TARGET_ADAPTER__", escapedTarget);
+
+                string output = await RunPowerShellAsync(script, 15000, token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(output)) return;
+
+                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.StartsWith("ETH_SPEED_AUTO:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string ifName = trimmed.Substring("ETH_SPEED_AUTO:".Length);
+                        if (model != null) Log(model, $"[ANTI-10M] Restored Speed & Duplex to 'Auto Negotiation' on '{ifName}'");
+                    }
+                    else if (trimmed.StartsWith("ETH_WOL_FULL:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = trimmed.Substring("ETH_WOL_FULL:".Length).Split(':');
+                        string ifName = parts[0];
+                        string val = parts.Length > 1 ? parts[1] : "Not Speed Down";
+                        if (model != null) Log(model, $"[ANTI-10M] Set WOL & Shutdown Link Speed to '{val}' (disarmed 10 Mbps First) on '{ifName}'");
+                    }
+                    else if (trimmed.StartsWith("ETH_DISARM_PWR:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = trimmed.Substring("ETH_DISARM_PWR:".Length).Split(':');
+                        string ifName = parts[0];
+                        string prop = parts.Length > 1 ? parts[1] : "Power Throttle";
+                        string targetVal = parts.Length > 2 ? parts[2] : "Disabled";
+                        if (model != null) Log(model, $"[ANTI-10M] Disabled power throttle '{prop}' ({targetVal}) on '{ifName}'");
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000, CancellationToken token = default)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command -",
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var proc = Process.Start(psi);
+                if (proc == null) return string.Empty;
+
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                linkedCts.CancelAfter(timeoutMs);
+
+                await proc.StandardInput.WriteLineAsync(script).ConfigureAwait(false);
+                proc.StandardInput.Close();
+
+                var outTask = proc.StandardOutput.ReadToEndAsync(linkedCts.Token);
+                var errTask = proc.StandardError.ReadToEndAsync(linkedCts.Token);
+
+                await proc.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+                string output = await outTask.ConfigureAwait(false);
+                _ = await errTask.ConfigureAwait(false);
+                return output.Trim();
+            }
+            catch
+            {
+                return string.Empty;
             }
         }
 
