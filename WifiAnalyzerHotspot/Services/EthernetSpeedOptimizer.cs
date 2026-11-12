@@ -36,9 +36,12 @@ namespace WifiAnalyzerHotspot.Services
     public static class EthernetSpeedOptimizer
     {
         private static readonly ConcurrentDictionary<string, DateTime> _auditedAdapters = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, DateTime> _skippedAdapters = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, string> _originalValuesBackup = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _auditLock = new(1, 1);
         public static readonly TimeSpan AuditTtl = TimeSpan.FromMinutes(30);
+        public static readonly TimeSpan SkippedTtl = TimeSpan.FromMinutes(5);
+        private static DateTime _lastFullAuditUtc = DateTime.MinValue;
 
         static EthernetSpeedOptimizer()
         {
@@ -64,15 +67,20 @@ namespace WifiAnalyzerHotspot.Services
             if (string.IsNullOrWhiteSpace(adapterName))
             {
                 _auditedAdapters.Clear();
+                _skippedAdapters.Clear();
+                _lastFullAuditUtc = DateTime.MinValue;
             }
             else
             {
                 _auditedAdapters.TryRemove(adapterName.Trim(), out _);
+                _skippedAdapters.TryRemove(adapterName.Trim(), out _);
+                _lastFullAuditUtc = DateTime.MinValue;
             }
         }
 
         /// <summary>
         /// Checks if an adapter was already audited within the TTL window.
+        /// Fully audited adapters use 30-minute TTL; skipped adapters (no recognized properties) use 5-minute TTL.
         /// </summary>
         public static bool IsAdapterAudited(string? adapterName)
         {
@@ -85,6 +93,14 @@ namespace WifiAnalyzerHotspot.Services
                     return true;
                 }
                 _auditedAdapters.TryRemove(key, out _);
+            }
+            if (_skippedAdapters.TryGetValue(key, out var skipTimestamp))
+            {
+                if (DateTime.UtcNow - skipTimestamp < SkippedTtl)
+                {
+                    return true;
+                }
+                _skippedAdapters.TryRemove(key, out _);
             }
             return false;
         }
@@ -122,21 +138,31 @@ namespace WifiAnalyzerHotspot.Services
 
         /// <summary>
         /// Registers successfully audited adapters into the session cache.
-        /// Adapters with failed properties or adapters that skipped all properties are excluded from caching.
+        /// Adapters with failed properties are excluded from caching.
+        /// Adapters with no recognized properties are cached in _skippedAdapters with a 5-minute TTL.
         /// </summary>
         public static void RegisterAuditedAdapters(IEnumerable<EthernetOptimizationResult> results)
         {
             if (results == null) return;
-            var uncacheableAdapters = new HashSet<string>(
-                results.Where(r => (!r.Success && r.Property != "None") || r.Property == "None")
-                       .Select(r => r.Adapter),
+            var failedAdapters = new HashSet<string>(
+                results.Where(r => !r.Success && r.Property != "None").Select(r => r.Adapter),
+                StringComparer.OrdinalIgnoreCase);
+
+            var skippedAdapters = new HashSet<string>(
+                results.Where(r => r.Property == "None").Select(r => r.Adapter),
                 StringComparer.OrdinalIgnoreCase);
 
             foreach (var r in results)
             {
-                if (r.Success && !string.IsNullOrEmpty(r.Adapter) && !uncacheableAdapters.Contains(r.Adapter))
+                if (string.IsNullOrEmpty(r.Adapter)) continue;
+
+                if (r.Success && !failedAdapters.Contains(r.Adapter) && !skippedAdapters.Contains(r.Adapter))
                 {
                     _auditedAdapters[r.Adapter] = DateTime.UtcNow;
+                }
+                else if (skippedAdapters.Contains(r.Adapter) && !failedAdapters.Contains(r.Adapter))
+                {
+                    _skippedAdapters[r.Adapter] = DateTime.UtcNow;
                 }
             }
         }
@@ -368,6 +394,7 @@ foreach ($ea in $ethAdapters) {{
         /// <summary>
         /// Audits and optimizes the given adapter (or all physical Ethernet adapters).
         /// Respects the session cache so subsequent recoveries on the same adapter are instant (0ms).
+        /// Full audits (adapterName = null) also hit the session cache for 30 minutes unless invalidated.
         /// Synchronized via SemaphoreSlim to prevent concurrent audit processes.
         /// </summary>
         public static async Task<List<EthernetOptimizationResult>> AuditAndOptimizeAsync(
@@ -379,18 +406,32 @@ foreach ($ea in $ethAdapters) {{
             string cleanAdapter = (adapterName ?? string.Empty).Trim();
 
             // Quick check outside lock
-            if (!forceRecheck && !string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
+            if (!forceRecheck)
             {
-                return new List<EthernetOptimizationResult>();
+                if (!string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
+                {
+                    return new List<EthernetOptimizationResult>();
+                }
+                if (string.IsNullOrEmpty(cleanAdapter) && (DateTime.UtcNow - _lastFullAuditUtc) < AuditTtl)
+                {
+                    return new List<EthernetOptimizationResult>();
+                }
             }
 
             await _auditLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 // Double-check inside lock
-                if (!forceRecheck && !string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
+                if (!forceRecheck)
                 {
-                    return new List<EthernetOptimizationResult>();
+                    if (!string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
+                    {
+                        return new List<EthernetOptimizationResult>();
+                    }
+                    if (string.IsNullOrEmpty(cleanAdapter) && (DateTime.UtcNow - _lastFullAuditUtc) < AuditTtl)
+                    {
+                        return new List<EthernetOptimizationResult>();
+                    }
                 }
 
                 string script = GetPowerShellScript(cleanAdapter, isSnippet: false);
@@ -435,8 +476,13 @@ foreach ($ea in $ethAdapters) {{
                     }
                 }
 
-                // Unified cache registration: excludes failed or skipped adapters
+                // Unified cache registration: caches successful adapters (30m) and skipped adapters (5m)
                 RegisterAuditedAdapters(results);
+
+                if (string.IsNullOrEmpty(cleanAdapter) && !results.Any(r => !r.Success && r.Property != "None"))
+                {
+                    _lastFullAuditUtc = DateTime.UtcNow;
+                }
 
                 return results;
             }
@@ -449,47 +495,121 @@ foreach ($ea in $ethAdapters) {{
         /// <summary>
         /// Restores all previously backed up original driver property values when the user disables the toggle
         /// or clicks Restore Defaults.
+        /// If no backup is recorded (e.g. upgraded from v1.3.1/v1.3.2), falls back to standard manufacturer defaults
+        /// (Power Saving/EEE: Enabled, WOL: 10 Mbps First) across physical Ethernet adapters.
         /// </summary>
         public static async Task<List<EthernetOptimizationResult>> RestoreDefaultsAsync(
             Action<string>? onLog,
             CancellationToken token = default)
         {
-            if (_originalValuesBackup.IsEmpty)
-            {
-                onLog?.Invoke("[ANTI-10M] No modified driver properties to restore (driver settings unchanged).");
-                return new List<EthernetOptimizationResult>();
-            }
-
             await _auditLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                var snapshot = _originalValuesBackup.ToArray();
                 var scriptLines = new List<string>
                 {
                     "function Add-Result { param([string]$msg) $script:results += $msg }",
                     "$script:results = @()"
                 };
 
-                foreach (var item in snapshot)
-                {
-                    var parts = item.Key.Split('|', 2);
-                    if (parts.Length < 2) continue;
-                    string adapter = parts[0].Replace("'", "''");
-                    string property = parts[1].Replace("'", "''");
-                    string originalValue = item.Value.Replace("'", "''");
+                bool hasRecordedBackups = !_originalValuesBackup.IsEmpty;
+                var snapshot = _originalValuesBackup.ToArray();
 
-                    scriptLines.Add($@"
+                if (hasRecordedBackups)
+                {
+                    foreach (var item in snapshot)
+                    {
+                        var parts = item.Key.Split('|', 2);
+                        if (parts.Length < 2) continue;
+                        string adapter = parts[0].Replace("'", "''");
+                        string property = parts[1].Replace("'", "''");
+                        string originalValue = item.Value.Replace("'", "''");
+
+                        scriptLines.Add($@"
 try {{
     Set-NetAdapterAdvancedProperty -Name '{adapter}' -DisplayName '{property}' -DisplayValue '{originalValue}' -ErrorAction SilentlyContinue
-    $verify = Get-NetAdapterAdvancedProperty -Name '{adapter}' -DisplayName '{property}' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($verify -and $verify.DisplayValue -eq '{originalValue}') {{
+    $applied = $false
+    for ($retry = 0; $retry -lt 3; $retry++) {{
+        $verify = Get-NetAdapterAdvancedProperty -Name '{adapter}' -DisplayName '{property}' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($verify -and $verify.DisplayValue -eq '{originalValue}') {{ $applied = $true; break }}
+        if ($retry -lt 2) {{ Start-Sleep -Milliseconds 150 }}
+    }}
+    if ($applied) {{
         Add-Result 'ETH_MODIFIED|{adapter}|{property}|Current|{originalValue}'
     }} else {{
         Add-Result 'ETH_FAIL|{adapter}|{property}|{originalValue}|Driver rejected restoring default'
     }}
 }} catch {{
-    Add-Result 'ETH_FAIL|{adapter}|{property}|{originalValue}|$($_.Exception.Message)'
+    Add-Result ('ETH_FAIL|{adapter}|{property}|{originalValue}|' + $_.Exception.Message)
 }}");
+                    }
+                }
+                else
+                {
+                    // Fallback for v1.3.1/v1.3.2 modifications where no backup was recorded:
+                    // Restore physical 802.3 Ethernet adapters to manufacturer defaults (WOL: 10 Mbps First, Power Saving: Enabled)
+                    onLog?.Invoke("[ANTI-10M] No backup found (e.g. from v1.3.1/v1.3.2); restoring standard manufacturer defaults (Power Saving/EEE: Enabled, WOL: 10 Mbps First)...");
+
+                    scriptLines.Add(@"
+$ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
+    ($_.InterfaceDescription -like '*Ethernet*' -or
+     $_.InterfaceDescription -like '*GbE*' -or
+     $_.InterfaceDescription -like '*Gigabit*' -or
+     $_.InterfaceDescription -like '*Realtek*' -or
+     $_.InterfaceDescription -like '*Intel*') -and
+    $_.MediaType -notlike '*Native 802.11*' -and
+    $_.MediaType -notlike '*Wireless*'
+})
+if (-not $ethAdapters -or $ethAdapters.Count -eq 0) {
+    $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
+        $_.MediaType -like '*802.3*' -and
+        $_.MediaType -notlike '*Native 802.11*' -and
+        $_.MediaType -notlike '*Wireless*'
+    })
+}
+foreach ($ea in $ethAdapters) {
+    try {
+        # Restore WOL & Shutdown Link Speed to 10 Mbps First if available
+        $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($wol -and $wol.DisplayValue -ne '10 Mbps First') {
+            $target = @($wol.ValidDisplayValues) | Where-Object { $_ -eq '10 Mbps First' } | Select-Object -First 1
+            if ($target) {
+                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $target -ErrorAction SilentlyContinue
+                $applied = $false
+                for ($retry = 0; $retry -lt 3; $retry++) {
+                    $verify = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($verify -and $verify.DisplayValue -eq $target) { $applied = $true; break }
+                    if ($retry -lt 2) { Start-Sleep -Milliseconds 150 }
+                }
+                if ($applied) {
+                    Add-Result ('ETH_MODIFIED|' + $ea.Name + '|' + $wol.DisplayName + '|Current|' + $target)
+                }
+            }
+        }
+
+        # Restore Power Saving / Green Ethernet / EEE / Gigabit Lite to Enabled if available
+        $patterns = @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*')
+        foreach ($pattern in $patterns) {
+            $prop = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($prop -and $prop.DisplayValue -eq 'Disabled') {
+                $target = @($prop.ValidDisplayValues) | Where-Object { $_ -eq 'Enabled' } | Select-Object -First 1
+                if ($target) {
+                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $prop.DisplayName -DisplayValue $target -ErrorAction SilentlyContinue
+                    $applied = $false
+                    for ($retry = 0; $retry -lt 3; $retry++) {
+                        $verify = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $prop.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($verify -and $verify.DisplayValue -eq $target) { $applied = $true; break }
+                        if ($retry -lt 2) { Start-Sleep -Milliseconds 150 }
+                    }
+                    if ($applied) {
+                        Add-Result ('ETH_MODIFIED|' + $ea.Name + '|' + $prop.DisplayName + '|Current|' + $target)
+                    }
+                }
+            }
+        }
+    } catch {
+        Add-Result ('ETH_FAIL|' + $ea.Name + '|Defaults|Enabled|' + $_.Exception.Message)
+    }
+}");
                 }
 
                 scriptLines.Add("foreach ($r in $script:results) { Write-Output $r }");
@@ -509,6 +629,11 @@ try {{
                     {
                         onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to restore '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
                     }
+                }
+
+                if (results.Count == 0 && !hasRecordedBackups)
+                {
+                    onLog?.Invoke("[ANTI-10M] Driver settings already at standard manufacturer defaults.");
                 }
 
                 // Invalidate session cache after restoring defaults

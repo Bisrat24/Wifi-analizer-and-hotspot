@@ -526,10 +526,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                 else if (e.PropertyName == nameof(Stabilizer.PreserveGigabitLinkSpeed))
                 {
                     _settings.PreserveGigabitLinkSpeed = Stabilizer.PreserveGigabitLinkSpeed;
+                    _settings.HasMigratedGigabitOptIn = true;
                     HotspotPriorityService.PreserveGigabitLinkSpeed = Stabilizer.PreserveGigabitLinkSpeed;
                     if (Stabilizer.PreserveGigabitLinkSpeed)
                     {
                         EthernetSpeedOptimizer.InvalidateAuditCache();
+                        _settingsService.SaveSettings(_settings);
                     }
                     else
                     {
@@ -549,6 +551,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                             _settingsService.SaveSettings(_settings);
                         });
                     }
+                    return;
                 }
 
                 _settingsService.SaveSettings(_settings);
@@ -772,7 +775,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             RestoreDriverDefaultsCommand = new RelayCommand(async () =>
             {
                 Stabilizer.ReconnectStatusText = "Restoring driver defaults...";
-                await EthernetSpeedOptimizer.RestoreDefaultsAsync(msg =>
+                var results = await EthernetSpeedOptimizer.RestoreDefaultsAsync(msg =>
                 {
                     Dispatch(() =>
                     {
@@ -783,7 +786,22 @@ namespace WifiAnalyzerHotspot.ViewModels
                 });
                 _settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
                 _settingsService.SaveSettings(_settings);
-                Stabilizer.ReconnectStatusText = "Driver defaults restored";
+
+                int modifiedCount = results.Count(r => r.Success && r.Property != "All" && r.Property != "None");
+                int failedCount = results.Count(r => !r.Success);
+
+                if (results.Count == 0 || (modifiedCount == 0 && failedCount == 0))
+                {
+                    Stabilizer.ReconnectStatusText = "Driver settings already at defaults";
+                }
+                else if (failedCount == 0)
+                {
+                    Stabilizer.ReconnectStatusText = $"Driver defaults restored ({modifiedCount} modified)";
+                }
+                else
+                {
+                    Stabilizer.ReconnectStatusText = $"Driver restore completed with warnings ({failedCount} failed)";
+                }
             });
 
             ToggleSettingsCommand = new RelayCommand(() => IsSettingsOpen = !IsSettingsOpen);

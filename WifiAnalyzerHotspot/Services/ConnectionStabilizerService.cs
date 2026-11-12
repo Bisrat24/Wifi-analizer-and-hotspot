@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -32,8 +33,8 @@ namespace WifiAnalyzerHotspot.Services
 
         // Rotating ping targets — if one is blocked by ISP we fail-over
         private static readonly string[] _pingTargets = { "1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222" };
-        private static long _lastObservedSpeedBps = -1;
-        private static DateTime _last10MInvalidation = DateTime.MinValue;
+        private static readonly ConcurrentDictionary<string, long> _lastObservedSpeedByAdapter = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, DateTime> _last10MInvalidationByAdapter = new(StringComparer.OrdinalIgnoreCase);
 
         // ═══════════════════════════════════════════════════════════════════
         //  ACTIVE KEEP-ALIVE
@@ -525,11 +526,14 @@ namespace WifiAnalyzerHotspot.Services
                                                 primary.Description.Contains("Intel(R) Ethernet", StringComparison.OrdinalIgnoreCase);
                         if (isGigabitCapable)
                         {
-                            // Invalidate session cache only on transition into 10 Mbps or after 10-minute backoff
+                            // Invalidate session cache only on transition into 10 Mbps or after 10-minute backoff per adapter
                             // Prevents continuous cache thrashing on genuinely 10 Mbps switches/cables
-                            if (_lastObservedSpeedBps != 10_000_000 || (DateTime.UtcNow - _last10MInvalidation) > TimeSpan.FromMinutes(10))
+                            _lastObservedSpeedByAdapter.TryGetValue(primary.Name, out long lastSpeed);
+                            _last10MInvalidationByAdapter.TryGetValue(primary.Name, out DateTime last10MTime);
+
+                            if (lastSpeed != 10_000_000 || (DateTime.UtcNow - last10MTime) > TimeSpan.FromMinutes(10))
                             {
-                                _last10MInvalidation = DateTime.UtcNow;
+                                _last10MInvalidationByAdapter[primary.Name] = DateTime.UtcNow;
                                 EthernetSpeedOptimizer.InvalidateAuditCache(primary.Name);
                             }
                         }
@@ -544,7 +548,7 @@ namespace WifiAnalyzerHotspot.Services
                         speedFormatted = "No Link";
                     }
 
-                    _lastObservedSpeedBps = speedBps;
+                    _lastObservedSpeedByAdapter[primary.Name] = speedBps;
 
                     string ifType = isEth ? "Ethernet" : "Wi-Fi";
                     string netName = isEth ? primary.Name : (string.IsNullOrWhiteSpace(model.TargetSsid) ? primary.Name : model.TargetSsid);

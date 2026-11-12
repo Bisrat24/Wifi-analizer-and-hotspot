@@ -36,6 +36,8 @@ namespace WifiAnalyzerHotspot.Services
         }
 
         // ==================== PERSISTENCE ====================
+        private static readonly object _saveLock = new();
+
         public AppSettingsModel LoadSettings()
         {
             try
@@ -65,37 +67,48 @@ namespace WifiAnalyzerHotspot.Services
             }
             catch { }
 
-            var defaults = new AppSettingsModel();
+            // Fresh profile (no prior settings file): start with migration flag set so user's explicit choices persist
+            var defaults = new AppSettingsModel { HasMigratedGigabitOptIn = true };
             ApplyProxy(defaults);
             return defaults;
         }
 
         public void SaveSettings(AppSettingsModel settings)
         {
-            try
+            lock (_saveLock)
             {
-                // Sync current driver backup into settings model for persistence
-                settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
-
-                Directory.CreateDirectory(SettingsDirectory);
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                string json;
-                if (JsonSerializer.SerializeToNode(settings, options) is System.Text.Json.Nodes.JsonObject node)
+                try
                 {
-                    node["ProxyPassword"] = DpapiSecret.Protect(settings.ProxyPassword);
-                    node["HotspotPassword"] = DpapiSecret.Protect(settings.HotspotPassword);
-                    json = node.ToJsonString(options);
-                }
-                else
-                {
-                    json = JsonSerializer.Serialize(settings, options);
-                }
-                File.WriteAllText(SettingsFilePath, json);
+                    // Ensure migration flag is set on any saved settings
+                    settings.HasMigratedGigabitOptIn = true;
 
-                ApplyProxy(settings);
-                ConfigureWindowsStartup(settings.StartWithWindows, settings.StartMinimized);
+                    // Sync current driver backup into settings model for persistence
+                    settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+
+                    Directory.CreateDirectory(SettingsDirectory);
+                    var options = new JsonSerializerOptions { WriteIndented = true };
+                    string json;
+                    if (JsonSerializer.SerializeToNode(settings, options) is System.Text.Json.Nodes.JsonObject node)
+                    {
+                        node["ProxyPassword"] = DpapiSecret.Protect(settings.ProxyPassword);
+                        node["HotspotPassword"] = DpapiSecret.Protect(settings.HotspotPassword);
+                        json = node.ToJsonString(options);
+                    }
+                    else
+                    {
+                        json = JsonSerializer.Serialize(settings, options);
+                    }
+
+                    // Atomic write to prevent file corruption or racing reads
+                    string tempPath = SettingsFilePath + ".tmp";
+                    File.WriteAllText(tempPath, json);
+                    File.Move(tempPath, SettingsFilePath, overwrite: true);
+
+                    ApplyProxy(settings);
+                    ConfigureWindowsStartup(settings.StartWithWindows, settings.StartMinimized);
+                }
+                catch { }
             }
-            catch { }
         }
 
         // ==================== WINDOWS STARTUP SCHEDULED TASK ====================
