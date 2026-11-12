@@ -472,6 +472,20 @@ namespace WifiAnalyzerHotspot.Models
             set { _measuredUploadMbps = value; OnPropertyChanged(); }
         }
 
+        private string? _measuredNetworkSignature;
+        public string? MeasuredNetworkSignature
+        {
+            get => _measuredNetworkSignature;
+            set { _measuredNetworkSignature = value; OnPropertyChanged(); }
+        }
+
+        private DateTime? _measuredSpeedTimestampUtc;
+        public DateTime? MeasuredSpeedTimestampUtc
+        {
+            get => _measuredSpeedTimestampUtc;
+            set { _measuredSpeedTimestampUtc = value; OnPropertyChanged(); }
+        }
+
         private bool _enableZeroLatencyDns = true;
         public bool EnableZeroLatencyDns
         {

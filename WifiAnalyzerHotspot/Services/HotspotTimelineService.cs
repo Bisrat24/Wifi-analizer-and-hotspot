@@ -20,6 +20,8 @@ namespace WifiAnalyzerHotspot.Services
 
         private static readonly object _fileLock = new();
         private static readonly SemaphoreSlim _saveLock = new(1, 1);
+        private long _saveGeneration = 0;
+        private long _lastSavedGeneration = 0;
         private readonly ConcurrentDictionary<string, DateTime> _sessionStartTimes = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, byte> _baselineMacs = new(StringComparer.OrdinalIgnoreCase);
 
@@ -173,14 +175,16 @@ namespace WifiAnalyzerHotspot.Services
                     Events.RemoveAt(Events.Count - 1);
                 }
                 var snapshot = Events.Take(500).ToList();
-                _ = Task.Run(async () => await SaveEventsAsync(snapshot));
+                long gen = Interlocked.Increment(ref _saveGeneration);
+                _ = Task.Run(async () => await SaveEventsAsync(snapshot, gen));
             });
         }
 
         public void ClearEvents()
         {
             Events.Clear();
-            _ = Task.Run(async () => await SaveEventsAsync(new List<HotspotTimelineEvent>()));
+            long gen = Interlocked.Increment(ref _saveGeneration);
+            _ = Task.Run(async () => await SaveEventsAsync(new List<HotspotTimelineEvent>(), gen));
         }
 
         public static string FormatDuration(TimeSpan duration)
@@ -260,14 +264,20 @@ namespace WifiAnalyzerHotspot.Services
             catch { }
         }
 
-        private async Task SaveEventsAsync(List<HotspotTimelineEvent>? snapshot = null)
+        private async Task SaveEventsAsync(List<HotspotTimelineEvent> snapshot, long generation)
         {
             await _saveLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                if (generation < _lastSavedGeneration)
+                {
+                    // Stale snapshot superseded by a newer save; skip writing older state
+                    return;
+                }
+                _lastSavedGeneration = generation;
+
                 Directory.CreateDirectory(TimelineDirectory);
-                var listToSave = snapshot ?? Events.Take(500).ToList();
-                string json = JsonSerializer.Serialize(listToSave, new JsonSerializerOptions { WriteIndented = true });
+                string json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
                 string tempPath = TimelineFilePath + ".tmp";
                 await File.WriteAllTextAsync(tempPath, json).ConfigureAwait(false);
                 File.Move(tempPath, TimelineFilePath, overwrite: true);

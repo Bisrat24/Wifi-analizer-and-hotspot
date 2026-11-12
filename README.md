@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.4.2)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.4.3)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Host PC Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping, Zero-Latency Local & Corporate DNS Cache, Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
@@ -11,23 +11,26 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.4.2)
+## ✨ Key Features (v1.4.3)
 
-### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (v1.4.2)
+### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (v1.4.3)
 - **⚡ Host PC Zero-Jitter Engine (Gaming & Desktop TCP Tuning)**:
   - Eliminates delayed ACKs and Nagle buffering on host and upstream adapters for lag-free PC gaming, voice chat, and desktop network responsiveness:
     - `TcpAckFrequency = 1`: Disables delayed ACKs, sending ACK packets immediately without Windows' 200ms batch delay.
     - `TCPNoDelay = 1`: Disables the Nagle algorithm, pushing small 64-byte interactive gaming and VoIP packets onto the wire instantly.
     - `TcpDelAckTicks = 0`: Removes delayed ACK timer ticks in the kernel.
     - `ECNCapability = Enabled`: Enables Explicit Congestion Notification to avoid dropped-packet ping spikes.
-  - Queries and captures prior global ECN state (`netsh int tcp show global`), verifies all registry writes with read-backs, and provides 100% reversible one-click restoration.
-- **🛡️ Anti-Bufferbloat Dynamic Queue Clamping (with Asymmetric Up/Down Support)**:
+  - Queries and captures prior global ECN state (`netsh int tcp show global` with PowerShell .NET enum fallback for non-English Windows), verifies all registry writes with read-backs, and provides 100% reversible one-click restoration.
+- **🛡️ Anti-Bufferbloat Dynamic Queue Clamping (Scoped Network Sync)**:
   - Dynamically clamps hotspot transit traffic (`Hotspot_Transit_Up` / `Hotspot_Transit_Down`) to **90% of line speed** via Windows NetQoS kernel queues.
-  - **Dynamic Speed Sync**: In "Auto" mode, automatically syncs separate download and upload line rates from real-world Multi-CDN speed test throughput (`DownloadMbps` / `UploadMbps`), preventing bufferbloat on asymmetric connections (e.g. 500/50 Mbps) and never imposing an unmeasured 90 Mbps false cap.
-- **⚡ Zero-Latency Local & Corporate DNS Cache**:
-  - High-performance asynchronous UDP DNS caching forwarder bound to the hotspot interface (`192.168.137.1:53`), synchronized with the hotspot lifecycle.
-  - **Enterprise / Corporate Network Ready**: Automatically detects and queries the local upstream DNS servers configured on physical adapters (e.g. corporate domain controllers or ISP routers), allowing internal intranet hostnames and enterprise domains to resolve without being blocked by firewalls.
-  - Returns NXDOMAIN, SERVFAIL, and truncated packets to clients immediately without hanging, with negative caching for non-existent domains.
+  - **Dynamic Speed Sync**: In "Auto" mode, automatically syncs separate download and upload line rates from real-world Multi-CDN speed test throughput (`DownloadMbps` / `UploadMbps`), distinguishing measured upload from 20% fallback estimates.
+  - **Network Scoping**: Persisted speed measurements are bound to the upstream gateway and network signature (24h TTL); moving to a new network automatically awaits a fresh test rather than under-clamping faster connections.
+- **⚡ Zero-Latency Local & Corporate DNS Cache (UDP + TCP Relay)**:
+  - High-performance asynchronous UDP and TCP DNS caching forwarder bound to the hotspot interface (`192.168.137.1:53`), synchronized with the hotspot lifecycle.
+  - **Deterministic Local-First Resolution**: Queries physical adapter DNS servers (corporate domain controllers / ISP routers) with a dedicated grace window before falling back to Anycast (1.1.1.1 / 8.8.8.8), protecting split-horizon intranet hostnames from public poisoning.
+  - **UDP + TCP Relay**: Supports both UDP and TCP DNS lookups with 4096-byte buffers to accommodate oversized DNSSEC and TXT responses.
+  - **Instant SERVFAIL Synthesis**: Emits an RFC-compliant SERVFAIL response when upstreams time out, preventing client resolvers from hanging for 2–5 seconds.
+  - **Dynamic Network Refresh**: Automatically refreshes upstream servers on `NetworkAddressChanged` events when switching adapters or toggling VPNs.
 - **🎯 Smart Band Auto-Steering (Wi-Fi Analyzer Synergy)**:
   - Cross-analyzes real-time 2.4 GHz vs 5 GHz RF spectral congestion measured by the Wi-Fi Analyzer.
   - Recommendations are verified against real 5 GHz AP evidence and directly match options in the Hotspot Channel selector.
@@ -35,12 +38,12 @@ You can run the app immediately by double-clicking:
 - **🕒 Persistent Join/Leave Timeline Event Log & CSV Export**:
   - Automatically records timestamped history of all client connections, disconnections, timed pauses, unpauses, and blocks in `%APPDATA%\WifiAnalyzerHotspot\hotspot_timeline.json`.
   - **Baseline Seeding**: Connects existing devices on startup without emitting false "Joined" event spam.
-  - **Grace Period**: 2-cycle hysteresis prevents transient ARP blips from triggering false "Left" events.
+  - **Generation Guard**: Protects timeline saves against race conditions and out-of-order in-flight writes.
   - **Serialized Storage & CSV Hardening**: Writes are serialized through an async semaphore queue with formula injection protection (`=`, `+`, `-`, `@`).
-- **⏸️ One-Click Timed Client Internet Pause (with Reliable Auto-Resume)**:
+- **⏸️ One-Click Timed Client Internet Pause (Single-Owner Auto-Resume)**:
   - Temporarily pause internet access for any client device for **15m**, **30m**, **1 hour**, or **2 hours**.
   - Uses Windows Kernel NetQoS (8 bps, Precedence 250) so the client remains associated to Wi-Fi without disconnect loops or DHCP lease churn.
-  - **Reliable Auto-Resume**: Service-driven expiration watchdog automatically lifts the NetQoS clamp when the timer expires and restores previous bandwidth caps.
+  - **Single-Owner Auto-Resume**: Service-driven background watchdog automatically lifts the NetQoS clamp when the timer expires, while UI gracefully mirrors state and logs timeline events without duplicate executions.
   - Non-blocking stale policy eviction purges NetQoS rules when devices leave to prevent IP leaks to subsequent DHCP leases.
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer

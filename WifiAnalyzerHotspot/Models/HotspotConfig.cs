@@ -510,7 +510,7 @@ namespace WifiAnalyzerHotspot.Models
             set { _bufferbloatHeadroomText = value; OnPropertyChanged(); }
         }
 
-        public (long downBits, long upBits) GetBufferbloatThrottleBits(double? measuredDownMbps = null, double? measuredUpMbps = null)
+        public (long downBits, long upBits) GetBufferbloatThrottleBits(double? measuredDownMbps = null, double? measuredUpMbps = null, bool networkChanged = false)
         {
             string choice = BufferbloatLineSpeed ?? "";
 
@@ -521,34 +521,42 @@ namespace WifiAnalyzerHotspot.Models
                     long downBps = (long)(measuredDownMbps.Value * 1_000_000);
                     long downThrottle = (long)(downBps * 0.90);
 
-                    // Separate upload clamp: use measured upload if available, else estimate 20%
+                    // Separate upload clamp: distinguish real measured upload from 20% fallback estimate
+                    bool isMeasuredUp = measuredUpMbps.HasValue && measuredUpMbps.Value > 0.5;
                     double upMbps = (measuredUpMbps.HasValue && measuredUpMbps.Value > 0.5)
                         ? measuredUpMbps.Value
                         : Math.Max(1.0, measuredDownMbps.Value * 0.20);
                     long upBps = (long)(upMbps * 1_000_000);
                     long upThrottle = (long)(upBps * 0.90);
 
-                    BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ / {upMbps:F1}M↑ (Cap 90%)";
+                    string upTag = isMeasuredUp ? "measured" : "est 20%";
+                    BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ / {upMbps:F1}M↑ (Cap 90%, {upTag})";
                     return (downThrottle, upThrottle);
                 }
                 else
                 {
-                    BufferbloatHeadroomText = "Auto: Awaiting speed test (Transit unthrottled)";
+                    BufferbloatHeadroomText = networkChanged
+                        ? "Auto: Network changed (Run Speed Test to clamp)"
+                        : "Auto: Awaiting speed test (Transit unthrottled)";
                     return (0, 0); // Do not apply arbitrary throttle before measuring
                 }
             }
 
-            long lineBps = 100_000_000;
-            if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
-            else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
-            else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
-            else if (choice.Contains("250 Mbps")) lineBps = 250_000_000;
-            else if (choice.Contains("500 Mbps")) lineBps = 500_000_000;
-            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) lineBps = 1_000_000_000;
+            // Fixed line-speed presets with standard asymmetrical consumer broadband ratios
+            long downLineBps = 100_000_000;
+            long upLineBps = 20_000_000;
 
-            long fixedThrottle = (long)(lineBps * 0.90);
-            BufferbloatHeadroomText = $"10% Reserved for Ping (Cap: {fixedThrottle / 1_000_000.0:0.##} Mbps)";
-            return (fixedThrottle, fixedThrottle);
+            if (choice.Contains("25 Mbps")) { downLineBps = 25_000_000; upLineBps = 5_000_000; }
+            else if (choice.Contains("50 Mbps")) { downLineBps = 50_000_000; upLineBps = 10_000_000; }
+            else if (choice.Contains("100 Mbps")) { downLineBps = 100_000_000; upLineBps = 20_000_000; }
+            else if (choice.Contains("250 Mbps")) { downLineBps = 250_000_000; upLineBps = 35_000_000; }
+            else if (choice.Contains("500 Mbps")) { downLineBps = 500_000_000; upLineBps = 50_000_000; }
+            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) { downLineBps = 1_000_000_000; upLineBps = 200_000_000; }
+
+            long downThrottleFixed = (long)(downLineBps * 0.90);
+            long upThrottleFixed = (long)(upLineBps * 0.90);
+            BufferbloatHeadroomText = $"{downThrottleFixed / 1_000_000.0:0.##}M↓ / {upThrottleFixed / 1_000_000.0:0.##}M↑ (10% Ping Headroom)";
+            return (downThrottleFixed, upThrottleFixed);
         }
 
         // ── Zero-Latency DNS Caching ──
@@ -559,7 +567,7 @@ namespace WifiAnalyzerHotspot.Models
             set { _isZeroLatencyDnsEnabled = value; OnPropertyChanged(); }
         }
 
-        private string _dnsStatsText = "Active (Local / Corporate DNS)";
+        private string _dnsStatsText = "Inactive (Starts with Hotspot)";
         public string DnsStatsText
         {
             get => _dnsStatsText;

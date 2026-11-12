@@ -173,9 +173,9 @@ namespace WifiAnalyzerHotspot.Services
                     }
                 }
 
-                // Restore ECN capability only if an original state was backed up
+                // Restore ECN capability only if a known original state was backed up
                 if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) &&
-                    !string.IsNullOrEmpty(savedEcn) && savedEcn != "__MISSING__")
+                    !string.IsNullOrEmpty(savedEcn) && savedEcn != "__MISSING__" && savedEcn != "__UNKNOWN__")
                 {
                     try
                     {
@@ -244,6 +244,7 @@ namespace WifiAnalyzerHotspot.Services
 
         private static async Task<string> QueryCurrentEcnCapabilityAsync(CancellationToken token = default)
         {
+            // 1. Try netsh show global
             try
             {
                 var psi = new ProcessStartInfo
@@ -276,7 +277,31 @@ namespace WifiAnalyzerHotspot.Services
                 }
             }
             catch { }
-            return "disabled";
+
+            // 2. Fallback: PowerShell Get-NetTCPSetting (language-independent .NET enum)
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -NonInteractive -Command \"(Get-NetTCPSetting -SettingName Internet).EcnCapability\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc != null)
+                {
+                    string output = (await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false)).Trim().ToLowerInvariant();
+                    await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                    if (output.Contains("enabled")) return "enabled";
+                    if (output.Contains("disabled")) return "disabled";
+                    if (output.Contains("default")) return "default";
+                }
+            }
+            catch { }
+
+            return "__UNKNOWN__";
         }
 
         private static List<string> GetTargetInterfaceGuids()

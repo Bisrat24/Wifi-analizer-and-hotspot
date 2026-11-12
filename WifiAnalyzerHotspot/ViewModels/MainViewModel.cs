@@ -466,9 +466,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             if (Hotspot.IsAntiBufferbloatEnabled)
             {
                 HotspotPriorityService.EnableAntiBufferbloat = true;
-                double? downVal = _settings.MeasuredDownloadMbps > 1.0 ? _settings.MeasuredDownloadMbps : (double?)null;
-                double? upVal = _settings.MeasuredUploadMbps > 0.5 ? _settings.MeasuredUploadMbps : (double?)null;
-                var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal);
+                var (downVal, upVal, netChanged) = GetScopedMeasuredSpeeds();
+                var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal, netChanged);
                 HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
                 HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
             }
@@ -591,9 +590,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settingsService.SaveSettings(_settings);
 
                     HotspotPriorityService.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
-                    double? downVal = SpeedMetrics.DownloadMbps > 1.0 ? SpeedMetrics.DownloadMbps : (_settings.MeasuredDownloadMbps > 1.0 ? _settings.MeasuredDownloadMbps : (double?)null);
-                    double? upVal = SpeedMetrics.UploadMbps > 0.5 ? SpeedMetrics.UploadMbps : (_settings.MeasuredUploadMbps > 0.5 ? _settings.MeasuredUploadMbps : (double?)null);
-                    var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal);
+                    var (downVal, upVal, netChanged) = GetScopedMeasuredSpeeds();
+                    var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal, netChanged);
                     HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
                     HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
 
@@ -1402,6 +1400,64 @@ namespace WifiAnalyzerHotspot.ViewModels
             }, DispatcherPriority.Background);
         }
 
+        public static string GetActiveNetworkSignature()
+        {
+            try
+            {
+                foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                    if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+                    string desc = nic.Description ?? "";
+                    string name = nic.Name ?? "";
+                    if (desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase) ||
+                        desc.Contains("Direct", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Local Area Connection*")) continue;
+
+                    var props = nic.GetIPProperties();
+                    var gw = props.GatewayAddresses?.FirstOrDefault(g => g.Address != null &&
+                        g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                        !g.Address.Equals(System.Net.IPAddress.Any) && !g.Address.Equals(System.Net.IPAddress.None));
+
+                    if (gw != null)
+                    {
+                        return $"{gw.Address}|{nic.Id}";
+                    }
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        private (double? down, double? up, bool networkChanged) GetScopedMeasuredSpeeds()
+        {
+            if (SpeedMetrics.DownloadMbps > 1.0)
+            {
+                return (SpeedMetrics.DownloadMbps, SpeedMetrics.UploadMbps > 0.5 ? SpeedMetrics.UploadMbps : null, false);
+            }
+
+            if (_settings.MeasuredDownloadMbps > 1.0 && _settings.MeasuredSpeedTimestampUtc.HasValue)
+            {
+                if (DateTime.UtcNow - _settings.MeasuredSpeedTimestampUtc.Value < TimeSpan.FromHours(24))
+                {
+                    string currentSig = GetActiveNetworkSignature();
+                    if (!string.IsNullOrEmpty(currentSig) &&
+                        string.Equals(currentSig, _settings.MeasuredNetworkSignature, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (_settings.MeasuredDownloadMbps, _settings.MeasuredUploadMbps > 0.5 ? _settings.MeasuredUploadMbps : null, false);
+                    }
+                    else if (!string.IsNullOrEmpty(currentSig) && !string.IsNullOrEmpty(_settings.MeasuredNetworkSignature))
+                    {
+                        // Network changed: invalidates prior measurement to prevent under-clamping
+                        return (null, null, true);
+                    }
+                }
+            }
+
+            return (null, null, false);
+        }
+
         public void UpdateAvailableHotspotChannels(int activeChannel)
         {
             var previousChoice = HotspotChannelChoice;
@@ -1691,14 +1747,13 @@ namespace WifiAnalyzerHotspot.ViewModels
                     val => Application.Current?.Dispatcher.Invoke(() => SpeedMetrics.GaugeValue = val),
                     _speedTestCts.Token);
 
-                // Persist measured speeds for future app sessions
+                // Persist measured speeds for future app sessions with upstream network scope
                 if (SpeedMetrics.DownloadMbps > 1.0)
                 {
                     _settings.MeasuredDownloadMbps = SpeedMetrics.DownloadMbps;
-                    if (SpeedMetrics.UploadMbps > 0.5)
-                    {
-                        _settings.MeasuredUploadMbps = SpeedMetrics.UploadMbps;
-                    }
+                    _settings.MeasuredUploadMbps = SpeedMetrics.UploadMbps > 0.5 ? SpeedMetrics.UploadMbps : 0;
+                    _settings.MeasuredNetworkSignature = GetActiveNetworkSignature();
+                    _settings.MeasuredSpeedTimestampUtc = DateTime.UtcNow;
                     _settingsService.SaveSettings(_settings);
                 }
 
@@ -1762,6 +1817,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     _dnsCacheService.Stop();
                 }
+                Hotspot.DnsStatsText = _dnsCacheService.GetStatsSummary();
 
                 if (string.IsNullOrEmpty(HotspotSsidInput) || HotspotSsidInput == "Wifi_Hotspot")
                 {
@@ -1816,26 +1872,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.TotalDataFormatted = fresh.TotalDataFormatted;
                         existing.DataBreakdown = fresh.DataBreakdown;
                         bool wasPaused = existing.IsPaused;
-                        DateTime? priorExpiry = existing.PauseExpiresAt ?? fresh.PauseExpiresAt;
-
-                        // Check automatic resumption if pause expired
-                        if (wasPaused && priorExpiry.HasValue && DateTime.UtcNow >= priorExpiry.Value)
+                        if (wasPaused && !fresh.IsPaused)
                         {
-                            _ = Task.Run(async () =>
-                            {
-                                await _hotspotService.ResumeClientAsync(existing.MacAddress, existing.IpAddress);
-                                _timelineService.RecordEvent("Resumed", existing.HostName, existing.MacAddress, existing.IpAddress, "Timer expired (Auto-resumed)");
-                            });
-                            existing.IsPaused = false;
-                            existing.PauseExpiresAt = null;
-                            existing.PauseStatusText = string.Empty;
+                            // Automatically resumed by HotspotService watchdog on expiration
+                            _timelineService.RecordEvent("Resumed", existing.HostName, existing.MacAddress, existing.IpAddress, "Timer expired (Auto-resumed)");
                         }
-                        else
-                        {
-                            existing.IsPaused = fresh.IsPaused;
-                            existing.PauseExpiresAt = fresh.PauseExpiresAt;
-                            existing.PauseStatusText = fresh.PauseStatusText;
-                        }
+                        existing.IsPaused = fresh.IsPaused;
+                        existing.PauseExpiresAt = fresh.PauseExpiresAt;
+                        existing.PauseStatusText = fresh.PauseStatusText;
 
                         if (existing.OnQosChanged == null)
                         {

@@ -13,9 +13,11 @@ namespace WifiAnalyzerHotspot.Services
 {
     /// <summary>
     /// Ultra-Low-Latency DNS Caching Forwarder for Hotspot Clients.
-    /// Intercepts DNS queries on the hotspot subnet (192.168.137.1:53), resolves them via
-    /// Local / Corporate DNS servers (discovered from active host adapters for enterprise intranet compatibility)
-    /// with Anycast fallback, validates responses, and caches in memory for sub-millisecond repeated lookups.
+    /// Intercepts DNS queries on the hotspot subnet (192.168.137.1:53).
+    /// Resolves via Local / Corporate DNS servers (discovered from active host adapters for enterprise intranet compatibility)
+    /// with graceful Anycast fallback (Cloudflare 1.1.1.1 / Google 8.8.8.8), validates responses, and caches in memory
+    /// for sub-millisecond repeated lookups.
+    /// Provides UDP + TCP listeners, RFC-compliant SERVFAIL synthesis on timeout, and dynamic upstream refresh on network changes.
     /// Safely reports inactive when port 53 is exclusively bound by Windows ICS.
     /// </summary>
     public class HotspotDnsCacheService : IDisposable
@@ -28,13 +30,15 @@ namespace WifiAnalyzerHotspot.Services
         };
 
         private const int MaxCacheEntries = 2000;
-        private readonly ConcurrentDictionary<string, (byte[] Response, DateTime ExpiresAt)> _cache = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, (byte[] Response, DateTime ExpiresAt, bool IsLocal)> _cache = new(StringComparer.Ordinal);
         private readonly SemaphoreSlim _concurrencyLimiter = new(16, 16);
-        private readonly List<IPEndPoint> _activeUpstreamServers = new();
+        private volatile IPEndPoint[] _localUpstreamServers = Array.Empty<IPEndPoint>();
         private string _upstreamDescription = "Local / Corporate DNS";
         private Socket? _listenerSocket;
+        private Socket? _tcpListenerSocket;
         private CancellationTokenSource? _cts;
         private volatile bool _isRunning;
+        private bool _networkEventsSubscribed;
         private long _totalQueries;
         private long _cacheHits;
 
@@ -102,6 +106,34 @@ namespace WifiAnalyzerHotspot.Services
             return servers;
         }
 
+        public void RefreshUpstreamServers()
+        {
+            var local = GetLocalDnsServers();
+            _localUpstreamServers = local.ToArray();
+            if (_localUpstreamServers.Length > 0)
+            {
+                string serverIps = string.Join(", ", _localUpstreamServers.Take(2).Select(s => s.Address.ToString()));
+                _upstreamDescription = $"Local/Corporate DNS ({serverIps})";
+            }
+            else
+            {
+                _upstreamDescription = "Cloudflare (1.1.1.1) / Google (8.8.8.8)";
+            }
+        }
+
+        private void OnNetworkChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (_isRunning)
+                {
+                    RefreshUpstreamServers();
+                    OnLog?.Invoke($"[DNS-Cache] Network change detected. Active upstream: {_upstreamDescription}");
+                }
+            }
+            catch { }
+        }
+
         /// <summary>
         /// Attempts to bind to the Hotspot gateway IP (192.168.137.1:53).
         /// Returns true if bound and active; false if binding failed (e.g. held by ICS).
@@ -129,23 +161,19 @@ namespace WifiAnalyzerHotspot.Services
                 }
 
                 // Discover local / corporate DNS servers from active network adapters
-                var localServers = GetLocalDnsServers();
-                _activeUpstreamServers.Clear();
-                if (localServers.Count > 0)
+                RefreshUpstreamServers();
+
+                if (!_networkEventsSubscribed)
                 {
-                    _activeUpstreamServers.AddRange(localServers);
-                    string serverIps = string.Join(", ", localServers.Take(2).Select(s => s.Address.ToString()));
-                    _upstreamDescription = $"Local/Corporate DNS ({serverIps})";
-                }
-                else
-                {
-                    _activeUpstreamServers.AddRange(DefaultAnycastDnsServers);
-                    _upstreamDescription = "Cloudflare (1.1.1.1) / Google (8.8.8.8)";
+                    NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+                    NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
+                    _networkEventsSubscribed = true;
                 }
 
                 _cts = new CancellationTokenSource();
                 var token = _cts.Token;
 
+                // 1. UDP Listener on port 53
                 _listenerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
                 _listenerSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
@@ -157,6 +185,10 @@ namespace WifiAnalyzerHotspot.Services
                 OnLog?.Invoke($"[DNS-Cache] Zero-Latency DNS Cache active on {listenAddress}:53 (Upstream: {_upstreamDescription})");
 
                 Task.Run(() => ListenLoopAsync(_listenerSocket, token), token);
+
+                // 2. TCP Listener on port 53 (handles truncated query fallback & DNSSEC lookups)
+                StartTcpListener(listenAddress, token);
+
                 return true;
             }
             catch (Exception ex)
@@ -184,10 +216,38 @@ namespace WifiAnalyzerHotspot.Services
             }
         }
 
+        private void StartTcpListener(IPAddress listenAddress, CancellationToken token)
+        {
+            try
+            {
+                _tcpListenerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                _tcpListenerSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _tcpListenerSocket.Bind(new IPEndPoint(listenAddress, 53));
+                _tcpListenerSocket.Listen(16);
+                Task.Run(() => TcpListenLoopAsync(_tcpListenerSocket, token), token);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"TCP DNS listener bind skipped: {ex.Message}");
+            }
+        }
+
         public void Stop()
         {
             if (!_isRunning) return;
             _isRunning = false;
+
+            if (_networkEventsSubscribed)
+            {
+                try
+                {
+                    NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
+                    NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
+                    _networkEventsSubscribed = false;
+                }
+                catch { }
+            }
+
             try
             {
                 _cts?.Cancel();
@@ -203,12 +263,21 @@ namespace WifiAnalyzerHotspot.Services
                 _listenerSocket = null;
             }
             catch { }
+
+            try
+            {
+                _tcpListenerSocket?.Close();
+                _tcpListenerSocket?.Dispose();
+                _tcpListenerSocket = null;
+            }
+            catch { }
+
             OnLog?.Invoke("[DNS-Cache] DNS Cache service stopped.");
         }
 
         private async Task ListenLoopAsync(Socket socket, CancellationToken token)
         {
-            byte[] buffer = new byte[2048];
+            byte[] buffer = new byte[4096];
             EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
 
             while (!token.IsCancellationRequested && _isRunning)
@@ -246,6 +315,58 @@ namespace WifiAnalyzerHotspot.Services
             }
         }
 
+        private async Task TcpListenLoopAsync(Socket listener, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested && _isRunning)
+            {
+                try
+                {
+                    var clientSocket = await listener.AcceptAsync().ConfigureAwait(false);
+                    _ = Task.Run(async () =>
+                    {
+                        using (clientSocket)
+                        {
+                            clientSocket.ReceiveTimeout = 3000;
+                            clientSocket.SendTimeout = 3000;
+
+                            byte[] lenBuf = new byte[2];
+                            int read = await ReceiveExactAsync(clientSocket, lenBuf, 0, 2).ConfigureAwait(false);
+                            if (read < 2) return;
+                            int queryLen = (lenBuf[0] << 8) | lenBuf[1];
+                            if (queryLen <= 12 || queryLen > 4096) return;
+
+                            byte[] queryBytes = new byte[queryLen];
+                            read = await ReceiveExactAsync(clientSocket, queryBytes, 0, queryLen).ConfigureAwait(false);
+                            if (read < queryLen) return;
+
+                            Interlocked.Increment(ref _totalQueries);
+                            var (response, _) = await ForwardQueryAsync(queryBytes, token).ConfigureAwait(false);
+                            response ??= SynthesizeServFail(queryBytes);
+
+                            byte[] respLenBuf = new byte[2] { (byte)(response.Length >> 8), (byte)(response.Length & 0xFF) };
+                            await clientSocket.SendAsync(respLenBuf, SocketFlags.None).ConfigureAwait(false);
+                            await clientSocket.SendAsync(response, SocketFlags.None).ConfigureAwait(false);
+                        }
+                    }, token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch when (!_isRunning) { break; }
+                catch { }
+            }
+        }
+
+        private static async Task<int> ReceiveExactAsync(Socket socket, byte[] buffer, int offset, int count)
+        {
+            int total = 0;
+            while (total < count)
+            {
+                int bytes = await socket.ReceiveAsync(new ArraySegment<byte>(buffer, offset + total, count - total), SocketFlags.None).ConfigureAwait(false);
+                if (bytes == 0) break;
+                total += bytes;
+            }
+            return total;
+        }
+
         private async Task HandleQueryAsync(Socket socket, byte[] query, EndPoint clientEp, CancellationToken token)
         {
             try
@@ -273,8 +394,8 @@ namespace WifiAnalyzerHotspot.Services
                     }
                 }
 
-                // 2. Upstream Parallel Query (using Local / Corporate DNS first)
-                byte[]? upstreamResponse = await ForwardQueryParallelAsync(query, token).ConfigureAwait(false);
+                // 2. Upstream Resolution (Local/Corporate DNS first with Anycast fallback)
+                var (upstreamResponse, isLocal) = await ForwardQueryAsync(query, token).ConfigureAwait(false);
                 if (upstreamResponse != null && upstreamResponse.Length >= 12)
                 {
                     // Rewrite transaction ID to match incoming client query
@@ -298,19 +419,25 @@ namespace WifiAnalyzerHotspot.Services
                             {
                                 uint ttl = ExtractTtl(upstreamResponse);
                                 var expiresAt = DateTime.UtcNow.AddSeconds(Math.Clamp(ttl, 15, 3600));
-                                _cache[cacheKey] = (upstreamResponse, expiresAt);
+                                _cache[cacheKey] = (upstreamResponse, expiresAt, isLocal);
                             }
                             else if (rcode == 3) // NXDOMAIN: Negative caching for 30 seconds
                             {
                                 var expiresAt = DateTime.UtcNow.AddSeconds(30);
-                                _cache[cacheKey] = (upstreamResponse, expiresAt);
+                                _cache[cacheKey] = (upstreamResponse, expiresAt, isLocal);
                             }
                         }
                     }
 
-                    // Always send response back to client (even for NXDOMAIN, SERVFAIL, or Truncated)
-                    // so client DNS resolvers never hang waiting for timeout
+                    // Send verified answer to client
                     await socket.SendToAsync(new ArraySegment<byte>(upstreamResponse), SocketFlags.None, clientEp).ConfigureAwait(false);
+                }
+                else
+                {
+                    // 3. Synthesize SERVFAIL when every upstream times out or fails
+                    // Prevents client resolvers from hanging for 2-5 seconds waiting for UDP timeout
+                    byte[] servFail = SynthesizeServFail(query);
+                    await socket.SendToAsync(new ArraySegment<byte>(servFail), SocketFlags.None, clientEp).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -331,23 +458,73 @@ namespace WifiAnalyzerHotspot.Services
             }
         }
 
-        private async Task<byte[]?> ForwardQueryParallelAsync(byte[] query, CancellationToken token)
+        /// <summary>
+        /// Deterministic DNS Resolution:
+        /// 1. Queries Local/Corporate DNS servers in parallel with a ~350ms window.
+        ///    If a local server answers (NoError or authoritative NXDOMAIN), it is immediately returned,
+        ///    protecting enterprise split-horizon hostnames from public anycast poisoning.
+        /// 2. If local servers fail, time out, or none are configured, queries Anycast resolvers (1.1.1.1 / 8.8.8.8).
+        /// </summary>
+        private async Task<(byte[]? Response, bool IsLocal)> ForwardQueryAsync(byte[] query, CancellationToken token)
         {
-            using var forwardCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            forwardCts.CancelAfter(2500); // 2.5s max timeout
-
-            IReadOnlyList<IPEndPoint> servers = _activeUpstreamServers.Count > 0 ? _activeUpstreamServers : DefaultAnycastDnsServers;
-            var tasks = new List<Task<byte[]?>>(servers.Count);
-            for (int i = 0; i < servers.Count; i++)
+            var localServers = _localUpstreamServers;
+            if (localServers != null && localServers.Length > 0)
             {
-                tasks.Add(QuerySingleUpstreamAsync(query, servers[i], forwardCts.Token));
+                // Local / Corporate DNS first with ~350ms grace window
+                using var localCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                localCts.CancelAfter(350);
+
+                var localTasks = new List<Task<byte[]?>>(localServers.Length);
+                for (int i = 0; i < localServers.Length; i++)
+                {
+                    localTasks.Add(QuerySingleUpstreamAsync(query, localServers[i], localCts.Token));
+                }
+
+                byte[]? localFallback = null;
+                while (localTasks.Count > 0)
+                {
+                    var completed = await Task.WhenAny(localTasks).ConfigureAwait(false);
+                    localTasks.Remove(completed);
+
+                    try
+                    {
+                        byte[]? res = await completed.ConfigureAwait(false);
+                        if (res != null && res.Length >= 12)
+                        {
+                            int rcode = res[3] & 0x0F;
+                            if (rcode == 0) // Clean NoError answer: local split-horizon wins
+                            {
+                                try { localCts.Cancel(); } catch { }
+                                return (res, true);
+                            }
+                            localFallback ??= res;
+                        }
+                    }
+                    catch { }
+                }
+
+                // If local returned an authoritative answer (such as NXDOMAIN for an internal domain), respect it
+                if (localFallback != null)
+                {
+                    return (localFallback, true);
+                }
             }
 
-            byte[]? fallbackResponse = null;
-            while (tasks.Count > 0)
+            // Fallback to Anycast resolvers (Cloudflare 1.1.1.1 / Google 8.8.8.8)
+            using var anycastCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            anycastCts.CancelAfter(2000);
+
+            var anycastTasks = new List<Task<byte[]?>>(DefaultAnycastDnsServers.Length);
+            for (int i = 0; i < DefaultAnycastDnsServers.Length; i++)
             {
-                var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
-                tasks.Remove(completed);
+                anycastTasks.Add(QuerySingleUpstreamAsync(query, DefaultAnycastDnsServers[i], anycastCts.Token));
+            }
+
+            byte[]? anycastFallback = null;
+            while (anycastTasks.Count > 0)
+            {
+                var completed = await Task.WhenAny(anycastTasks).ConfigureAwait(false);
+                anycastTasks.Remove(completed);
 
                 try
                 {
@@ -355,19 +532,18 @@ namespace WifiAnalyzerHotspot.Services
                     if (res != null && res.Length >= 12)
                     {
                         int rcode = res[3] & 0x0F;
-                        if (rcode == 0) // Clean NoError answer: return immediately
+                        if (rcode == 0)
                         {
-                            try { forwardCts.Cancel(); } catch { }
-                            return res;
+                            try { anycastCts.Cancel(); } catch { }
+                            return (res, false);
                         }
-                        // Save NXDOMAIN or error answer in case no server provides NoError
-                        fallbackResponse ??= res;
+                        anycastFallback ??= res;
                     }
                 }
                 catch { }
             }
 
-            return fallbackResponse;
+            return (anycastFallback, false);
         }
 
         private static async Task<byte[]?> QuerySingleUpstreamAsync(byte[] query, IPEndPoint server, CancellationToken token)
@@ -383,7 +559,7 @@ namespace WifiAnalyzerHotspot.Services
 
                 await client.SendAsync(new ArraySegment<byte>(query), SocketFlags.None).ConfigureAwait(false);
 
-                byte[] receiveBuf = new byte[2048];
+                byte[] receiveBuf = new byte[4096];
                 var res = await client.ReceiveAsync(new ArraySegment<byte>(receiveBuf), SocketFlags.None).ConfigureAwait(false);
 
                 if (res >= 12)
@@ -408,6 +584,32 @@ namespace WifiAnalyzerHotspot.Services
             }
             catch { }
             return null;
+        }
+
+        private static byte[] SynthesizeServFail(byte[] query)
+        {
+            byte[] resp = new byte[Math.Max(12, query.Length)];
+            if (query.Length >= 12)
+            {
+                Array.Copy(query, resp, query.Length);
+            }
+            else
+            {
+                resp[0] = query.Length > 0 ? query[0] : (byte)0;
+                resp[1] = query.Length > 1 ? query[1] : (byte)0;
+            }
+
+            // Flags: QR = 1, RCODE = 2 (Server Failure)
+            byte qFlagsHi = query.Length > 2 ? query[2] : (byte)0x01; // Preserve RD bit
+            resp[2] = (byte)(0x80 | (qFlagsHi & 0x79)); // QR=1, preserve opcode & RD
+            resp[3] = 0x82; // RA=1, RCODE=2 (SERVFAIL)
+
+            // ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
+            resp[6] = 0; resp[7] = 0;
+            resp[8] = 0; resp[9] = 0;
+            resp[10] = 0; resp[11] = 0;
+
+            return resp;
         }
 
         private static string ExtractCacheKey(byte[] query)

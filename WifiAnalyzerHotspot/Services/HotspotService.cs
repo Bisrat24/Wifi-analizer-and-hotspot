@@ -1052,7 +1052,6 @@ try {{
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
                 _pausedClients.Clear();
-                _pausedMacToIp.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1205,7 +1204,6 @@ try {
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
                 _pausedClients.Clear();
-                _pausedMacToIp.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1709,7 +1707,6 @@ if ($connectionProfile) {
                                 client.PauseStatusText = string.Empty;
                                 if (_pausedClients.TryRemove(normMac, out _))
                                 {
-                                    _pausedMacToIp.TryRemove(normMac, out _);
                                     string restoreIp = client.IpAddress;
                                     _ = Task.Run(async () => await ResumeClientAsync(normMac, restoreIp));
                                 }
@@ -2098,7 +2095,6 @@ try {{
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.HashSet<string>> _blockedMacToIps = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _pausedClients = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _pausedMacToIp = new(StringComparer.OrdinalIgnoreCase);
 
         public static bool IsClientPaused(string mac)
         {
@@ -2137,7 +2133,6 @@ try {{
             {
                 string clean = HotspotModel.NormalizeMac(mac);
                 _pausedClients.TryRemove(clean, out _);
-                _pausedMacToIp.TryRemove(clean, out _);
             }
         }
 
@@ -2147,7 +2142,7 @@ try {{
             string normMac = HotspotModel.NormalizeMac(cleanMac);
 
             // Gate: only launch PowerShell if this device was actually paused
-            bool wasPaused = _pausedClients.TryRemove(normMac, out _) || _pausedMacToIp.TryRemove(normMac, out _);
+            bool wasPaused = _pausedClients.TryRemove(normMac, out _);
             if (!wasPaused) return;
 
             Task.Run(async () =>
@@ -2550,7 +2545,6 @@ try {{
 
                         if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && targetIp.Contains('.'))
                         {
-                            _pausedMacToIp[cleanMac] = targetIp;
                             // Invalidate applied QoS limits and priorities cache so Resume will re-assert them cleanly
                             _appliedQosLimits.TryRemove(cleanMac, out _);
                             _appliedPriorities.TryRemove(cleanMac, out _);
@@ -2607,7 +2601,6 @@ try {{
                     try
                     {
                         _pausedClients.TryRemove(cleanMac, out _);
-                        _pausedMacToIp.TryRemove(cleanMac, out _);
 
                         string script = $@"
 $ErrorActionPreference = 'SilentlyContinue'
