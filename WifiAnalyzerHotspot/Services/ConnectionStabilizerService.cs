@@ -33,6 +33,22 @@ namespace WifiAnalyzerHotspot.Services
         // Rotating ping targets — if one is blocked by ISP we fail-over
         private static readonly string[] _pingTargets = { "1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222" };
 
+        static ConnectionStabilizerService()
+        {
+            try
+            {
+                Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) =>
+                {
+                    if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                    {
+                        // Link speed or power profiles may downshift after waking from sleep; clear cache to force audit
+                        EthernetSpeedOptimizer.InvalidateAuditCache();
+                    }
+                };
+            }
+            catch { }
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         //  ACTIVE KEEP-ALIVE
         // ═══════════════════════════════════════════════════════════════════
@@ -520,6 +536,11 @@ namespace WifiAnalyzerHotspot.Services
                                                 primary.Description.Contains("Gigabit", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("1000", StringComparison.OrdinalIgnoreCase) ||
                                                 primary.Description.Contains("PCIe", StringComparison.OrdinalIgnoreCase);
+                        if (isGigabitCapable)
+                        {
+                            // Invalidate session cache for this adapter so recovery/reconnect passes re-audit
+                            EthernetSpeedOptimizer.InvalidateAuditCache(primary.Name);
+                        }
                         speedFormatted = isGigabitCapable ? "10 Mbps (Check cable/port)" : "10 Mbps";
                     }
                     else if (speedBps > 0)

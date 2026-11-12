@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.3.1" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.3.2" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.3.1">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.3.2">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1990,8 +1990,8 @@
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN / Link Buffer:" Foreground="#8F9EBC" VerticalAlignment="Center" Margin="0,0,0,10"/>
                                         <ComboBox Grid.Row="3" Grid.Column="1" SelectedValue="{Binding Stabilizer.ReconnectBufferChoice}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
-                                            <ComboBoxItem Content="10 seconds (Recommended â€¢ Cisco AnyConnect &amp; VPN)" IsSelected="True"/>
-                                            <ComboBoxItem Content="5 seconds (Fast â€¢ Standard Home Wi-Fi)"/>
+                                            <ComboBoxItem Content="10 seconds (Recommended &#x2022; Cisco AnyConnect &amp; VPN)" IsSelected="True"/>
+                                            <ComboBoxItem Content="5 seconds (Fast &#x2022; Standard Home Wi-Fi)"/>
                                             <ComboBoxItem Content="15 seconds (Enterprise VPN &amp; MFA Token)"/>
                                             <ComboBoxItem Content="25 seconds (Slow Satellite / Corporate DHCP)"/>
                                         </ComboBox>

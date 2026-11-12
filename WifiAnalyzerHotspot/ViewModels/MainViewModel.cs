@@ -432,6 +432,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             if (!string.IsNullOrWhiteSpace(_settings.ReconnectStrategy)) Stabilizer.ReconnectStrategy = _settings.ReconnectStrategy;
             Stabilizer.ReconnectBufferSeconds = _settings.ReconnectBufferSeconds > 0 ? _settings.ReconnectBufferSeconds : 10;
             Stabilizer.PreserveGigabitLinkSpeed = _settings.PreserveGigabitLinkSpeed;
+            HotspotPriorityService.PreserveGigabitLinkSpeed = _settings.PreserveGigabitLinkSpeed;
 
             // Initial link speed detection
             _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
@@ -524,6 +525,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 else if (e.PropertyName == nameof(Stabilizer.PreserveGigabitLinkSpeed))
                 {
                     _settings.PreserveGigabitLinkSpeed = Stabilizer.PreserveGigabitLinkSpeed;
+                    HotspotPriorityService.PreserveGigabitLinkSpeed = Stabilizer.PreserveGigabitLinkSpeed;
                     if (Stabilizer.PreserveGigabitLinkSpeed)
                     {
                         EthernetSpeedOptimizer.InvalidateAuditCache();

@@ -25,14 +25,19 @@ namespace WifiAnalyzerHotspot.Services
     /// and ensures Speed &amp; Duplex is set to Auto Negotiation.
     /// 
     /// Features:
-    /// - Read-back verification: Confirms with the driver that property changes were actually committed.
-    /// - Pipe-delimited parsing ('|'): Prevents truncation with colons in adapter or property names.
-    /// - Session caching (_auditedAdapters): Deduplicates audit runs so subsequent drop recoveries on HDD take 0ms.
+    /// - Read-back verification with retry: Confirms asynchronous driver persistence (up to 3 retries, 450ms).
+    /// - Strict media filter: Excludes Wi-Fi radios (Native 802.11 / Wireless) so only wired 802.3 PHYs are audited.
+    /// - Pipe-delimited parsing ('|' with count 5): Prevents field shifting with colons or pipes in error messages.
+    /// - Time-to-Live Session caching with failure protection: Deduplicates audit runs so subsequent drop recoveries
+    ///   on HDD take 0ms, while only caching verified successful writes and expiring after 30 minutes.
+    /// - Concurrency serialization: SemaphoreSlim prevents racing watchdog/manual audits.
     /// - Shared script generation: Eliminates code drift between Hotspot Priority and Active Reconnect.
     /// </summary>
     public static class EthernetSpeedOptimizer
     {
         private static readonly ConcurrentDictionary<string, DateTime> _auditedAdapters = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly SemaphoreSlim _auditLock = new(1, 1);
+        public static readonly TimeSpan AuditTtl = TimeSpan.FromMinutes(30);
 
         /// <summary>
         /// Clears the session audit cache for an adapter or all adapters, forcing the next check to re-audit.
@@ -46,6 +51,43 @@ namespace WifiAnalyzerHotspot.Services
             else
             {
                 _auditedAdapters.TryRemove(adapterName.Trim(), out _);
+            }
+        }
+
+        /// <summary>
+        /// Checks if an adapter was already audited within the TTL window.
+        /// </summary>
+        public static bool IsAdapterAudited(string? adapterName)
+        {
+            if (string.IsNullOrWhiteSpace(adapterName)) return false;
+            string key = adapterName.Trim();
+            if (_auditedAdapters.TryGetValue(key, out var timestamp))
+            {
+                if (DateTime.UtcNow - timestamp < AuditTtl)
+                {
+                    return true;
+                }
+                _auditedAdapters.TryRemove(key, out _);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Registers successfully audited adapters into the session cache.
+        /// </summary>
+        public static void RegisterAuditedAdapters(IEnumerable<EthernetOptimizationResult> results)
+        {
+            if (results == null) return;
+            var failedAdapters = new HashSet<string>(
+                results.Where(r => !r.Success && !string.IsNullOrEmpty(r.Adapter)).Select(r => r.Adapter),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in results)
+            {
+                if (r.Success && !string.IsNullOrEmpty(r.Adapter) && !failedAdapters.Contains(r.Adapter))
+                {
+                    _auditedAdapters[r.Adapter] = DateTime.UtcNow;
+                }
             }
         }
 
@@ -75,18 +117,26 @@ foreach ($r in $script:results) { Write-Output $r }
 # ── Ethernet Link Speed & Power-Throttle Optimization ──
 $targetName = '{escapedTarget}'
 $ethAdapters = if ($targetName) {{
-    @(Get-NetAdapter -Name $targetName -Physical -ErrorAction SilentlyContinue)
+    @(Get-NetAdapter -Name $targetName -Physical -ErrorAction SilentlyContinue | Where-Object {{
+        $_.MediaType -notlike '*Native 802.11*' -and $_.MediaType -notlike '*Wireless*'
+    }})
 }} else {{
     @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{
-        $_.InterfaceDescription -like '*Ethernet*' -or
-        $_.InterfaceDescription -like '*GbE*' -or
-        $_.InterfaceDescription -like '*Gigabit*' -or
-        $_.InterfaceDescription -like '*Realtek*' -or
-        $_.InterfaceDescription -like '*Intel*'
+        ($_.InterfaceDescription -like '*Ethernet*' -or
+         $_.InterfaceDescription -like '*GbE*' -or
+         $_.InterfaceDescription -like '*Gigabit*' -or
+         $_.InterfaceDescription -like '*Realtek*' -or
+         $_.InterfaceDescription -like '*Intel*') -and
+        $_.MediaType -notlike '*Native 802.11*' -and
+        $_.MediaType -notlike '*Wireless*'
     }})
 }}
 if (-not $ethAdapters -or $ethAdapters.Count -eq 0) {{
-    $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{ $_.MediaType -notlike '*Native 802.11*' }})
+    $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{
+        $_.MediaType -like '*802.3*' -and
+        $_.MediaType -notlike '*Native 802.11*' -and
+        $_.MediaType -notlike '*Wireless*'
+    }})
 }}
 
 foreach ($ea in $ethAdapters) {{
@@ -98,7 +148,15 @@ foreach ($ea in $ethAdapters) {{
         if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {{
             $oldVal = $spd.DisplayValue
             Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
-            $verifySpd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+            
+            # Asynchronous driver commit retry loop (up to 3 attempts, 450ms)
+            $verifySpd = $null
+            for ($retry = 0; $retry -lt 3; $retry++) {{
+                $verifySpd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{ break }}
+                Start-Sleep -Milliseconds 150
+            }}
+
             if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{
                 Add-Result ""ETH_MODIFIED|$($ea.Name)|$($spd.DisplayName)|$oldVal|Auto Negotiation""
                 $anyModified = $true
@@ -114,7 +172,15 @@ foreach ($ea in $ethAdapters) {{
             $targetWol = @($wol.ValidDisplayValues) | Where-Object {{ $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' }} | Select-Object -First 1
             if ($targetWol) {{
                 Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
-                $verifyWol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                
+                # Asynchronous driver commit retry loop
+                $verifyWol = $null
+                for ($retry = 0; $retry -lt 3; $retry++) {{
+                    $verifyWol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{ break }}
+                    Start-Sleep -Milliseconds 150
+                }}
+
                 if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{
                     Add-Result ""ETH_MODIFIED|$($ea.Name)|$($wol.DisplayName)|$oldVal|$targetWol""
                     $anyModified = $true
@@ -133,7 +199,15 @@ foreach ($ea in $ethAdapters) {{
                 $targetDis = @($pwr.ValidDisplayValues) | Where-Object {{ $_ -eq 'Disabled' -or $_ -like '*Disable*' }} | Select-Object -First 1
                 if ($targetDis) {{
                     Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
-                    $verifyPwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    
+                    # Asynchronous driver commit retry loop
+                    $verifyPwr = $null
+                    for ($retry = 0; $retry -lt 3; $retry++) {{
+                        $verifyPwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{ break }}
+                        Start-Sleep -Milliseconds 150
+                    }}
+
                     if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{
                         Add-Result ""ETH_MODIFIED|$($ea.Name)|$($pwr.DisplayName)|$oldVal|$targetDis""
                         $anyModified = $true
@@ -157,6 +231,7 @@ foreach ($ea in $ethAdapters) {{
 
         /// <summary>
         /// Parses the pipe-delimited output from the PowerShell optimization script into structured results.
+        /// Uses count 5 to preserve any pipes present in trailing error messages.
         /// </summary>
         public static List<EthernetOptimizationResult> ParseResults(string output)
         {
@@ -168,7 +243,7 @@ foreach ($ea in $ethAdapters) {{
                 string line = rawLine.Trim();
                 if (line.StartsWith("ETH_MODIFIED|", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = line.Split('|');
+                    var parts = line.Split('|', 5);
                     if (parts.Length >= 5)
                     {
                         list.Add(new EthernetOptimizationResult
@@ -183,7 +258,7 @@ foreach ($ea in $ethAdapters) {{
                 }
                 else if (line.StartsWith("ETH_FAIL|", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = line.Split('|');
+                    var parts = line.Split('|', 5);
                     if (parts.Length >= 5)
                     {
                         list.Add(new EthernetOptimizationResult
@@ -198,7 +273,7 @@ foreach ($ea in $ethAdapters) {{
                 }
                 else if (line.StartsWith("ETH_VERIFIED|", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = line.Split('|');
+                    var parts = line.Split('|', 3);
                     if (parts.Length >= 2)
                     {
                         list.Add(new EthernetOptimizationResult
@@ -217,7 +292,8 @@ foreach ($ea in $ethAdapters) {{
         /// <summary>
         /// Audits and optimizes the given adapter (or all physical Ethernet adapters).
         /// Respects the session cache so subsequent recoveries on the same adapter are instant (0ms).
-        /// Logs verified changes, errors, and status into onLog callback.
+        /// Synchronized via SemaphoreSlim to prevent concurrent audit processes.
+        /// Only caches adapters where all operations succeeded.
         /// </summary>
         public static async Task<List<EthernetOptimizationResult>> AuditAndOptimizeAsync(
             string? adapterName,
@@ -227,55 +303,75 @@ foreach ($ea in $ethAdapters) {{
         {
             string cleanAdapter = (adapterName ?? string.Empty).Trim();
 
-            // Session caching check: avoid running cold PowerShell processes if already verified
-            if (!forceRecheck && !string.IsNullOrEmpty(cleanAdapter) && _auditedAdapters.ContainsKey(cleanAdapter))
+            // Quick check outside lock
+            if (!forceRecheck && !string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
             {
                 return new List<EthernetOptimizationResult>();
             }
 
-            string script = GetPowerShellScript(cleanAdapter, isSnippet: false);
-            string output = await RunPowerShellAsync(script, 15000, token).ConfigureAwait(false);
-
-            if (string.IsNullOrWhiteSpace(output))
+            await _auditLock.WaitAsync(token).ConfigureAwait(false);
+            try
             {
-                onLog?.Invoke("[ANTI-10M] Ethernet link speed audit timed out or failed to execute PowerShell.");
-                return new List<EthernetOptimizationResult>();
-            }
-
-            var results = ParseResults(output);
-            foreach (var res in results)
-            {
-                if (res.Success)
+                // Double-check inside lock
+                if (!forceRecheck && !string.IsNullOrEmpty(cleanAdapter) && IsAdapterAudited(cleanAdapter))
                 {
-                    if (res.Property == "All")
+                    return new List<EthernetOptimizationResult>();
+                }
+
+                string script = GetPowerShellScript(cleanAdapter, isSnippet: false);
+                string output = await RunPowerShellAsync(script, 15000, token).ConfigureAwait(false);
+
+                if (string.IsNullOrWhiteSpace(output))
+                {
+                    onLog?.Invoke("[ANTI-10M] Ethernet link speed audit timed out or failed to execute PowerShell.");
+                    return new List<EthernetOptimizationResult>();
+                }
+
+                var results = ParseResults(output);
+
+                var failedAdapters = new HashSet<string>(
+                    results.Where(r => !r.Success && !string.IsNullOrEmpty(r.Adapter)).Select(r => r.Adapter),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var res in results)
+                {
+                    if (res.Success)
                     {
-                        if (forceRecheck)
+                        if (res.Property == "All")
                         {
-                            onLog?.Invoke($"[ANTI-10M] Verified: Adapter '{res.Adapter}' is already operating with full Gigabit parameters.");
+                            if (forceRecheck)
+                            {
+                                onLog?.Invoke($"[ANTI-10M] Verified: Adapter '{res.Adapter}' is already operating with full Gigabit parameters.");
+                            }
+                        }
+                        else
+                        {
+                            onLog?.Invoke($"[ANTI-10M] Verified: Set '{res.Property}' from '{res.OldValue}' to '{res.NewValue}' on '{res.Adapter}'.");
                         }
                     }
                     else
                     {
-                        onLog?.Invoke($"[ANTI-10M] Verified: Set '{res.Property}' from '{res.OldValue}' to '{res.NewValue}' on '{res.Adapter}'.");
+                        onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to configure '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
+                    }
+
+                    // Only cache successful adapters without any failed properties
+                    if (!string.IsNullOrEmpty(res.Adapter) && !failedAdapters.Contains(res.Adapter))
+                    {
+                        _auditedAdapters[res.Adapter] = DateTime.UtcNow;
                     }
                 }
-                else
+
+                if (!string.IsNullOrEmpty(cleanAdapter) && !failedAdapters.Contains(cleanAdapter))
                 {
-                    onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to configure '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
+                    _auditedAdapters[cleanAdapter] = DateTime.UtcNow;
                 }
 
-                if (!string.IsNullOrEmpty(res.Adapter))
-                {
-                    _auditedAdapters[res.Adapter] = DateTime.UtcNow;
-                }
+                return results;
             }
-
-            if (!string.IsNullOrEmpty(cleanAdapter))
+            finally
             {
-                _auditedAdapters[cleanAdapter] = DateTime.UtcNow;
+                _auditLock.Release();
             }
-
-            return results;
         }
 
         private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000, CancellationToken token = default)

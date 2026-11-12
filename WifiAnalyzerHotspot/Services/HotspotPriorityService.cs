@@ -12,6 +12,7 @@ namespace WifiAnalyzerHotspot.Services
         private static bool _priorityVlanConfigured = false;
 
         public static bool IsPriorityEngaged => _isPriorityEngaged;
+        public static bool PreserveGigabitLinkSpeed { get; set; } = false;
 
         /// <summary>
         /// Elevates network priority for the Hotspot without destabilizing the Windows desktop:
@@ -26,7 +27,11 @@ namespace WifiAnalyzerHotspot.Services
         /// Rebinding briefly resets the link, so callers should only pass true for explicit user actions
         /// (hotspot start, refresh rules, priority button). The hotspot's own virtual adapter is always bound.
         /// </param>
-        public async Task<(bool success, string details)> EngageHighestPriorityAsync(bool allowPacerRebind = false)
+        /// <param name="preserveGigabitLinkSpeed">
+        /// Opt-in flag for auditing/optimizing physical Ethernet adapters to prevent 10 Mbps downshifting.
+        /// If null, uses the global static PreserveGigabitLinkSpeed setting.
+        /// </param>
+        public async Task<(bool success, string details)> EngageHighestPriorityAsync(bool allowPacerRebind = false, bool? preserveGigabitLinkSpeed = null)
         {
             return await Task.Run(async () =>
             {
@@ -42,10 +47,11 @@ namespace WifiAnalyzerHotspot.Services
 
                     // 2. System-level NetQoS & adapter routing via PowerShell script
                     bool checkPrioVlan = !_priorityVlanConfigured;
+                    bool enableEthOpt = preserveGigabitLinkSpeed ?? PreserveGigabitLinkSpeed;
                     string script = EngageScript
                         .Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false")
                         .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false")
-                        .Replace("__ETH_SPEED_OPTIMIZER_SNIPPET__", checkPrioVlan ? EthernetSpeedOptimizer.GetPowerShellScript(isSnippet: true) : "");
+                        .Replace("__ETH_SPEED_OPTIMIZER_SNIPPET__", (checkPrioVlan && enableEthOpt) ? EthernetSpeedOptimizer.GetPowerShellScript(isSnippet: true) : "");
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
@@ -77,19 +83,23 @@ namespace WifiAnalyzerHotspot.Services
                             failures.Add(line.Substring(line.IndexOf(':') + 1).Trim());
                     }
 
-                    // Parse unified Ethernet speed optimization results
-                    var ethResults = EthernetSpeedOptimizer.ParseResults(output);
+                    // Parse unified Ethernet speed optimization results only if opted in
                     var ethModified = new List<string>();
-                    foreach (var res in ethResults)
+                    if (checkPrioVlan && enableEthOpt)
                     {
-                        if (res.Success && res.Property != "All")
+                        var ethResults = EthernetSpeedOptimizer.ParseResults(output);
+                        foreach (var res in ethResults)
                         {
-                            ethModified.Add($"{res.Adapter}: {res.Property} → {res.NewValue}");
+                            if (res.Success && res.Property != "All")
+                            {
+                                ethModified.Add($"{res.Adapter}: {res.Property} → {res.NewValue}");
+                            }
+                            else if (!res.Success)
+                            {
+                                failures.Add($"Ethernet {res.Adapter} ({res.Property}): {res.ErrorMessage}");
+                            }
                         }
-                        else if (!res.Success)
-                        {
-                            failures.Add($"Ethernet {res.Adapter} ({res.Property}): {res.ErrorMessage}");
-                        }
+                        EthernetSpeedOptimizer.RegisterAuditedAdapters(ethResults);
                     }
 
                     _isPriorityEngaged = true;

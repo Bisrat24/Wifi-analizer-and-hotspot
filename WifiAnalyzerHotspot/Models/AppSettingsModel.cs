@@ -402,7 +402,7 @@ namespace WifiAnalyzerHotspot.Models
             set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
         }
 
-        private bool _preserveGigabitLinkSpeed = true;
+        private bool _preserveGigabitLinkSpeed = false;
         public bool PreserveGigabitLinkSpeed
         {
             get => _preserveGigabitLinkSpeed;
