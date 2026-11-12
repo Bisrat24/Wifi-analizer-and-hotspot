@@ -171,5 +171,39 @@ namespace WifiAnalyzerHotspot.Services
                 rating.BadgeBrush = Brushes.Orange;
             }
         }
+
+        /// <summary>
+        /// Cross-analyzes ambient 2.4 GHz and 5 GHz spectrum to provide smart band & channel steering advice.
+        /// </summary>
+        public (string RecommendedBand, string RecommendedChannel, string Advice) GetSmartSteeringRecommendation(IEnumerable<WifiNetwork> networks)
+        {
+            var r24 = Analyze24GChannels(networks);
+            var r5 = Analyze5GChannels(networks);
+
+            var best24 = r24.Where(r => r.Channel == 1 || r.Channel == 6 || r.Channel == 11)
+                            .OrderByDescending(r => r.Score)
+                            .FirstOrDefault();
+
+            var best5 = r5.OrderByDescending(r => r.Score).FirstOrDefault();
+
+            int score24 = best24?.Score ?? 50;
+            int score5 = best5?.Score ?? 90;
+
+            if (score24 < 55)
+            {
+                string ch5 = best5 != null ? $"Channel {best5.Channel} (5 GHz)" : "5 GHz (High Speed)";
+                return ("5 GHz", ch5, $"⚠️ 2.4 GHz is heavily congested (Score: {score24}/100). Auto-Steer recommends 5 GHz for 4x lower latency and zero channel crosstalk.");
+            }
+            else if (score5 >= 80)
+            {
+                string ch5 = best5 != null ? $"Channel {best5.Channel} (5 GHz)" : "5 GHz (High Speed)";
+                return ("5 GHz", ch5, $"⚡ 5 GHz Band Recommended: Clean frequency spectrum with max bandwidth and minimal latency.");
+            }
+            else
+            {
+                int ch = best24?.Channel ?? 1;
+                return ("2.4 GHz", $"Channel {ch}", $"✓ Channel {ch} is the cleanest 2.4 GHz channel (Score: {score24}/100, {best24?.CoChannelCount ?? 0} competing APs).");
+            }
+        }
     }
 }

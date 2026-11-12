@@ -13,6 +13,8 @@ namespace WifiAnalyzerHotspot.Services
 
         public static bool IsPriorityEngaged => _isPriorityEngaged;
         public static bool PreserveGigabitLinkSpeed { get; set; } = false;
+        public static bool EnableAntiBufferbloat { get; set; } = false;
+        public static long BufferbloatThrottleRateBits { get; set; } = 0;
 
         /// <summary>
         /// Elevates network priority for the Hotspot without destabilizing the Windows desktop:
@@ -48,9 +50,11 @@ namespace WifiAnalyzerHotspot.Services
                     // 2. System-level NetQoS & adapter routing via PowerShell script
                     bool checkPrioVlan = !_priorityVlanConfigured;
                     bool enableEthOpt = preserveGigabitLinkSpeed ?? PreserveGigabitLinkSpeed;
+                    long throttleBits = (EnableAntiBufferbloat && BufferbloatThrottleRateBits > 0) ? BufferbloatThrottleRateBits : 0;
                     string script = EngageScript
                         .Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false")
-                        .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false");
+                        .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false")
+                        .Replace("__BUFFERBLOAT_THROTTLE__", throttleBits > 0 ? throttleBits.ToString() : "0");
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
@@ -217,21 +221,36 @@ if ($checkPriorityVlan) {
 
 # D. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128).
 #    Client priorities (130-240), bandwidth caps (245) and blocks (255) still take precedence.
+$bufferbloatThrottle = __BUFFERBLOAT_THROTTLE__
 foreach ($policy in @(
     @{ Name = 'Hotspot_Transit_Up';   Dir = 'src' },
     @{ Name = 'Hotspot_Transit_Down'; Dir = 'dst' })) {
     try {
         Remove-NetQosPolicy -Name $policy.Name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         if ($policy.Dir -eq 'src') {
-            New-NetQosPolicy -Name $policy.Name -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+            if ($bufferbloatThrottle -gt 0) {
+                New-NetQosPolicy -Name $policy.Name -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+            } else {
+                New-NetQosPolicy -Name $policy.Name -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+            }
         } else {
-            New-NetQosPolicy -Name $policy.Name -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+            if ($bufferbloatThrottle -gt 0) {
+                New-NetQosPolicy -Name $policy.Name -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+            } else {
+                New-NetQosPolicy -Name $policy.Name -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+            }
         }
         Get-NetQosPolicy -Name $policy.Name -ErrorAction Stop | Out-Null
     } catch {
         Add-Result ""QOS_FAIL:$($policy.Name) $($_.Exception.Message)""
     }
 }
+
+# D2. Fast-Path Gaming & Voice Traffic (Precedence 242, Completely Unthrottled)
+try {
+    Remove-NetQosPolicy -Name 'Hotspot_Gaming_FastPath' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name 'Hotspot_Gaming_FastPath' -IPProtocol MatchBoth -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 242 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+} catch {}
 
 # E. Keep desktop browsers below hotspot transit. -AppPathNameMatchCondition does NOT support
 #    wildcards, so the plain executable name is the only form Windows can match.

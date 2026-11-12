@@ -28,6 +28,39 @@ namespace WifiAnalyzerHotspot.Models
         private string _qosLimit = "Unlimited";
         private bool _isQosThrottled = false;
 
+        // One-Click Timed Pause
+        private bool _isPaused = false;
+        private string _pauseStatusText = string.Empty;
+        private DateTime? _pauseExpiresAt;
+
+        public bool IsPaused
+        {
+            get => _isPaused;
+            set
+            {
+                if (_isPaused != value)
+                {
+                    _isPaused = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(PauseBadgeVisibility));
+                }
+            }
+        }
+
+        public string PauseStatusText
+        {
+            get => _pauseStatusText;
+            set { _pauseStatusText = value; OnPropertyChanged(); }
+        }
+
+        public DateTime? PauseExpiresAt
+        {
+            get => _pauseExpiresAt;
+            set { _pauseExpiresAt = value; OnPropertyChanged(); }
+        }
+
+        public bool PauseBadgeVisibility => _isPaused;
+
         // Client Priority: 1 (Highest) to 7 (Least), default = 5
         private int _priority = 5;
         public Action<HotspotClientInfo>? OnPriorityChanged { get; set; }
@@ -433,6 +466,104 @@ namespace WifiAnalyzerHotspot.Models
             get => _isBusy;
             set { _isBusy = value; OnPropertyChanged(); }
         }
+
+        // ── Gaming Low-Latency Tuning ──
+        private bool _isGamingTuningEnabled = false;
+        public bool IsGamingTuningEnabled
+        {
+            get => _isGamingTuningEnabled;
+            set { _isGamingTuningEnabled = value; OnPropertyChanged(); }
+        }
+
+        // ── Anti-Bufferbloat Protection ──
+        private bool _isAntiBufferbloatEnabled = false;
+        public bool IsAntiBufferbloatEnabled
+        {
+            get => _isAntiBufferbloatEnabled;
+            set { _isAntiBufferbloatEnabled = value; OnPropertyChanged(); }
+        }
+
+        private string _bufferbloatLineSpeed = "Auto (Sync from Speed Test)";
+        public string BufferbloatLineSpeed
+        {
+            get => _bufferbloatLineSpeed;
+            set { _bufferbloatLineSpeed = value; OnPropertyChanged(); }
+        }
+
+        public List<string> BufferbloatSpeedOptions { get; } = new()
+        {
+            "Auto (Sync from Speed Test)",
+            "25 Mbps",
+            "50 Mbps",
+            "100 Mbps",
+            "250 Mbps",
+            "500 Mbps",
+            "1000 Mbps (1 Gbps)"
+        };
+
+        private string _bufferbloatHeadroomText = "10% Reserved for Ping";
+        public string BufferbloatHeadroomText
+        {
+            get => _bufferbloatHeadroomText;
+            set { _bufferbloatHeadroomText = value; OnPropertyChanged(); }
+        }
+
+        public long GetBufferbloatThrottleBits()
+        {
+            // Parse configured line speed and clamp bulk transit to 90% (leaving 10% headroom for gaming fast-path)
+            string choice = BufferbloatLineSpeed ?? "";
+            long lineBps = 100_000_000; // Default 100 Mbps
+            if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
+            else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
+            else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
+            else if (choice.Contains("250 Mbps")) lineBps = 250_000_000;
+            else if (choice.Contains("500 Mbps")) lineBps = 500_000_000;
+            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) lineBps = 1_000_000_000;
+
+            return (long)(lineBps * 0.90);
+        }
+
+        // ── Zero-Latency DNS Caching ──
+        private bool _isZeroLatencyDnsEnabled = true;
+        public bool IsZeroLatencyDnsEnabled
+        {
+            get => _isZeroLatencyDnsEnabled;
+            set { _isZeroLatencyDnsEnabled = value; OnPropertyChanged(); }
+        }
+
+        private string _dnsStatsText = "Active (Anycast 1.1.1.1 / 8.8.8.8)";
+        public string DnsStatsText
+        {
+            get => _dnsStatsText;
+            set { _dnsStatsText = value; OnPropertyChanged(); }
+        }
+
+        // ── Smart Band Auto-Steering ──
+        private bool _isAutoSteerEnabled = true;
+        public bool IsAutoSteerEnabled
+        {
+            get => _isAutoSteerEnabled;
+            set { _isAutoSteerEnabled = value; OnPropertyChanged(); }
+        }
+
+        private string _autoSteerRecommendation = "Analyzing spectrum for lowest latency...";
+        public string AutoSteerRecommendation
+        {
+            get => _autoSteerRecommendation;
+            set { _autoSteerRecommendation = value; OnPropertyChanged(); }
+        }
+
+        // ── Join / Leave Timeline ──
+        private bool _showTimeline = false;
+        public bool ShowTimeline
+        {
+            get => _showTimeline;
+            set { _showTimeline = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowActiveClients)); }
+        }
+
+        public bool ShowActiveClients => !_showTimeline;
+
+        public ObservableCollection<HotspotTimelineEvent> TimelineEvents { get; set; } = new();
 
         public ObservableCollection<HotspotClientInfo> Clients { get; set; } = new();
         public ObservableCollection<BlockedClientInfo> BlockedClients { get; set; } = new();

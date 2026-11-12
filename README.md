@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.3.5)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.4.0)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Gaming Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping, Zero-Latency Anycast DNS Cache, Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -11,7 +11,35 @@ You can run the app immediately by double-clicking:
 
 ---
 
-## ✨ Key Features (v1.3.5)
+## ✨ Key Features (v1.4.0)
+
+### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (New in v1.4.0)
+- **⚡ Gaming Zero-Jitter Engine (TCP Stack Tuning)**:
+  - Eliminates delayed ACKs and Nagle buffering on both the SoftAP virtual interface and upstream network adapter:
+    - `TcpAckFrequency = 1`: Disables delayed ACKs, sending ACK responses instantly without the standard 200ms TCP batch delay.
+    - `TCPNoDelay = 1`: Disables the Nagle algorithm, pushing tiny 64-byte interactive gaming and VoIP packets onto the wire immediately.
+    - `TcpDelAckTicks = 0`: Removes delayed ACK timer overhead in the Windows kernel.
+    - `ECNCapability = Enabled`: Enables Explicit Congestion Notification to prevent dropped-packet latency spikes.
+  - Fully reversible with automatic registry backup and one-click restoration when disabled.
+- **🛡️ Anti-Bufferbloat Dynamic Queue Clamping**:
+  - Dynamically clamps general background transit traffic (`Hotspot_Transit`) to **90% of line speed** via Windows NetQoS kernel queues.
+  - Reserves **10% unthrottled headroom** for an ultra-fast bypass path (`Hotspot_Gaming_FastPath` with Precedence 242, DSCP 46, and 802.1p Tag 7).
+  - Eliminates queue-induced ping spikes (Bufferbloat) when multiple devices are downloading or streaming simultaneously.
+- **⚡ Zero-Latency Anycast DNS Cache & Upstream Race**:
+  - High-performance asynchronous UDP DNS caching proxy listening directly on the ICS gateway `192.168.137.1:53`.
+  - Fires parallel DNS races to Cloudflare (`1.1.1.1`) and Google (`8.8.8.8`) upstream Anycast resolvers, returning the fastest response and caching results in memory.
+  - Delivers sub-millisecond repeated domain resolution (<1ms) for all connected devices.
+- **🎯 Smart Band Auto-Steering (Wi-Fi Analyzer Synergy)**:
+  - Cross-analyzes real-time 2.4 GHz vs 5 GHz RF spectral congestion measured by the Wi-Fi Analyzer.
+  - Automatically recommends and steers the hotspot to the cleanest frequency band and channel with minimal co-channel crosstalk and 4x lower latency.
+- **🕒 Persistent Join/Leave Timeline Event Log & CSV Export**:
+  - Automatically records timestamped history of all client connections, disconnections, timed pauses, unpauses, and blocks in `%APPDATA%\WifiAnalyzerHotspot\hotspot_timeline.json`.
+  - Calculates and logs exact session connection durations (e.g., `45m 12s`, `2h 10m`).
+  - Includes one-click **Export CSV** (formatted for Excel/Google Sheets) and Clear Log buttons.
+- **⏸️ One-Click Timed Client Internet Pause (with Live Countdown & Auto-Resume)**:
+  - Temporarily pause internet access for any client device for **15m**, **30m**, **1 hour**, or **2 hours**.
+  - Uses Windows Kernel NetQoS (8 bps, Precedence 250) so the client remains associated to Wi-Fi without disconnect loops or DHCP lease churn.
+  - Displays real-time remaining countdown (e.g. `⏸️ Paused (28m left)`) and automatically resumes access when the timer expires.
 
 ### 1. 📡 Wi-Fi Channel & Spectrum Analyzer
 - **Dual Visual Modes (Spectrum Curves & Live RSSI History)**:

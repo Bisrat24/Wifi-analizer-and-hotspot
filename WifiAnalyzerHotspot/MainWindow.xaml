@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.3.5" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.4.0" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.3.5">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.0">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1222,6 +1222,94 @@
                                 </CheckBox>
                             </Border>
 
+                            <!-- 🚀 HIGH-PERFORMANCE LOW-LATENCY GAMING & TRAFFIC OPTIMIZATION -->
+                            <TextBlock Text="LOW-LATENCY &amp; GAMING TUNING" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,8"/>
+
+                            <!-- Zero-Jitter TCP Stack Tuning Card -->
+                            <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsGamingTuningEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E5FF"/>
+                                                <TextBlock Text="Gaming Zero-Jitter Engine (TCP Tuning)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Enforces TcpAckFrequency=1, TCPNoDelay=1, and ECN to eliminate 200ms batching delay for sub-10ms game ping." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Anti-Bufferbloat Queue Clamping Card -->
+                            <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsAntiBufferbloatEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E676"/>
+                                                <TextBlock Text="Anti-Bufferbloat Queue Clamping" FontWeight="SemiBold" FontSize="12" Foreground="#00E676"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Caps bulk downloads to 90% line rate, reserving 10% unthrottled fast-path headroom for gaming &amp; VoIP traffic." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                    <DockPanel Margin="24,8,0,0" LastChildFill="False"
+                                               Visibility="{Binding Hotspot.IsAntiBufferbloatEnabled, Converter={StaticResource BoolVisConv}}">
+                                        <TextBlock Text="Line Speed:" FontSize="11" Foreground="#A2B1CD" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox ItemsSource="{Binding Hotspot.BufferbloatSpeedOptions}"
+                                                  SelectedItem="{Binding Hotspot.BufferbloatLineSpeed, Mode=TwoWay}"
+                                                  Background="#181C2B" Foreground="#000000" FontSize="11" Padding="6,2" Height="26" Width="180"
+                                                  VerticalAlignment="Center" ToolTip="Select approximate ISP bandwidth to calculate the 10% queue headroom"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Zero-Latency Local DNS Cache Card -->
+                            <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsZeroLatencyDnsEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E5FF"/>
+                                                <TextBlock Text="Zero-Latency Anycast DNS Cache" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Parallel race to Cloudflare 1.1.1.1 &amp; Google 8.8.8.8 with sub-millisecond in-memory cache on 192.168.137.1." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                    <TextBlock Text="{Binding Hotspot.DnsStatsText}" FontSize="10" FontWeight="SemiBold" Foreground="#80DEEA" Margin="24,4,0,0"
+                                               Visibility="{Binding Hotspot.IsZeroLatencyDnsEnabled, Converter={StaticResource BoolVisConv}}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Smart Band Auto-Steering Card -->
+                            <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsAutoSteerEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F3AF;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#FFD54F"/>
+                                                <TextBlock Text="Smart Band Auto-Steering (Wi-Fi Synergy)" FontWeight="SemiBold" FontSize="12" Foreground="#FFD54F"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Cross-analyzes Wi-Fi Analyzer RF congestion to steer hotspot onto the cleanest, lowest-interference frequency band." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                    <Border Margin="24,8,0,0" Background="#141E30" BorderBrush="#FFD54F" BorderThickness="1" CornerRadius="4" Padding="8,6"
+                                            Visibility="{Binding Hotspot.IsAutoSteerEnabled, Converter={StaticResource BoolVisConv}}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Hotspot.AutoSteerRecommendation}" FontSize="10" Foreground="#FFE082" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Command="{Binding ApplyAutoSteerCommand}" Style="{StaticResource ModernBtn}"
+                                                    Height="26" Padding="8,2" Margin="8,0,0,0" FontSize="10" Background="#2B2510" BorderBrush="#FFD54F" Foreground="#FFD54F"
+                                                    ToolTip="Switch Hotspot band and channel to match recommendation">
+                                                <TextBlock Text="&#x26A1; Apply" FontWeight="Bold"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Save & Copy Details Buttons -->
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
@@ -1266,17 +1354,63 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Header with Refresh Button & Badge -->
+                            <!-- Header with View Toggle & Action Buttons -->
                             <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="False">
                                 <StackPanel DockPanel.Dock="Left">
-                                    <TextBlock Text="CONNECTED CLIENT DEVICES" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Command="{Binding ShowActiveClientsViewCommand}"
+                                                Height="28" Padding="10,3" Margin="0,0,6,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource ModernBtn}">
+                                                    <Setter Property="Background" Value="#1E2333"/>
+                                                    <Setter Property="BorderBrush" Value="#2D354D"/>
+                                                    <Setter Property="Foreground" Value="#8FA0C2"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Hotspot.ShowTimeline}" Value="False">
+                                                            <Setter Property="Background" Value="#10253B"/>
+                                                            <Setter Property="BorderBrush" Value="#00E5FF"/>
+                                                            <Setter Property="Foreground" Value="#00E5FF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                                <TextBlock Text="{Binding Hotspot.ClientCount, StringFormat='Active Clients ({0})'}" FontWeight="Bold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Command="{Binding ShowTimelineViewCommand}"
+                                                Height="28" Padding="10,3">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource ModernBtn}">
+                                                    <Setter Property="Background" Value="#1E2333"/>
+                                                    <Setter Property="BorderBrush" Value="#2D354D"/>
+                                                    <Setter Property="Foreground" Value="#8FA0C2"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Hotspot.ShowTimeline}" Value="True">
+                                                            <Setter Property="Background" Value="#10253B"/>
+                                                            <Setter Property="BorderBrush" Value="#00E5FF"/>
+                                                            <Setter Property="Foreground" Value="#00E5FF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F552;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                                <TextBlock Text="{Binding Hotspot.TimelineEvents.Count, StringFormat='Timeline Log ({0})'}" FontWeight="Bold" FontSize="11"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                         <TextBlock Text="Live clients &#x2022; " FontSize="11" Foreground="#7C88A8"/>
                                         <TextBlock Text="{Binding Hotspot.DataHealthStatus}" FontSize="11" FontWeight="SemiBold" Foreground="#00E5FF"/>
                                     </StackPanel>
                                 </StackPanel>
 
-                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Active Clients Actions -->
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                                            Visibility="{Binding Hotspot.ShowTimeline, Converter={StaticResource BoolVisConv}, ConverterParameter=Inverse}">
                                     <Button Style="{StaticResource ModernBtn}" Command="{Binding RefreshHotspotCommand}"
                                             Height="30" Padding="10,3" Margin="0,0,8,0"
                                             ToolTip="Refresh connected client devices list and ARP cache">
@@ -1298,9 +1432,34 @@
                                                    FontSize="11" FontWeight="Bold" Foreground="#00E5FF"/>
                                     </Border>
                                 </StackPanel>
+
+                                <!-- Timeline View Actions -->
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                                            Visibility="{Binding Hotspot.ShowTimeline, Converter={StaticResource BoolVisConv}}">
+                                    <Button Style="{StaticResource ModernBtn}" Command="{Binding ExportTimelineCsvCommand}"
+                                            Height="30" Padding="10,3" Margin="0,0,8,0" Background="#142B20" BorderBrush="#00E676" Foreground="#69F0AE"
+                                            ToolTip="Export persistent client join/leave timeline to CSV">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#x1F4C1;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                            <TextBlock Text="Export CSV" FontSize="11" FontWeight="Bold"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ModernBtn}" Command="{Binding ClearTimelineCommand}"
+                                            Height="30" Padding="10,3" Margin="0,0,10,0" Background="#2B141B" BorderBrush="#FF1744" Foreground="#FF5252"
+                                            ToolTip="Clear timeline event history">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#x1F5D1;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                            <TextBlock Text="Clear Log" FontSize="11" FontWeight="Bold"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Border Background="#1D253B" CornerRadius="12" Padding="12,5">
+                                        <TextBlock Text="{Binding Hotspot.TimelineEvents.Count, StringFormat='{}{0} Events'}"
+                                                   FontSize="11" FontWeight="Bold" Foreground="#00E5FF"/>
+                                    </Border>
+                                </StackPanel>
                             </DockPanel>
 
-                            <!-- Client Devices List -->
+                            <!-- Client Devices List (Active Mode) -->
                             <DataGrid Grid.Row="1" ItemsSource="{Binding Hotspot.Clients}" AutoGenerateColumns="False"
                                       IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
                                       Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
@@ -1308,7 +1467,8 @@
                                       RowBackground="#141724" AlternatingRowBackground="#111420"
                                       Foreground="#E2E8F0" FontSize="12"
                                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      Visibility="{Binding Hotspot.ShowTimeline, Converter={StaticResource BoolVisConv}, ConverterParameter=Inverse}">
 
                                 <DataGrid.ColumnHeaderStyle>
                                     <Style TargetType="DataGridColumnHeader">
@@ -1322,7 +1482,17 @@
                                 </DataGrid.ColumnHeaderStyle>
 
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="DEVICE / HOST NAME" Binding="{Binding HostName}" FontWeight="SemiBold" Width="130"/>
+                                    <DataGridTemplateColumn Header="DEVICE / HOST NAME" Width="140">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding HostName}" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                                                    <TextBlock Text="{Binding PauseStatusText}" FontSize="9" FontWeight="Bold" Foreground="#FFB300"
+                                                               Visibility="{Binding IsPaused, Converter={StaticResource BoolVisConv}}"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTemplateColumn Header="SPEED" Width="120">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
@@ -1407,6 +1577,46 @@
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <!-- Resume Button (Visible when paused) -->
+                                                    <Button Style="{StaticResource ModernBtn}" Height="24" Padding="8,2" Margin="0,0,6,0"
+                                                            Background="#142B20" BorderBrush="#00E676" BorderThickness="1"
+                                                            Command="{Binding DataContext.ResumeClientCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                            CommandParameter="{Binding}" ToolTip="Resume internet access for this device"
+                                                            Visibility="{Binding IsPaused, Converter={StaticResource BoolVisConv}}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="&#x25B6;" FontSize="9" Margin="0,0,3,0" Foreground="#00E676"/>
+                                                            <TextBlock Text="Resume" FontSize="10" FontWeight="SemiBold" Foreground="#00E676"/>
+                                                        </StackPanel>
+                                                    </Button>
+
+                                                    <!-- Pause Button with Menu (Visible when not paused) -->
+                                                    <Button Style="{StaticResource ModernBtn}" Height="24" Padding="8,2" Margin="0,0,6,0"
+                                                            Background="#2B2214" BorderBrush="#FFB300" BorderThickness="1"
+                                                            Command="{Binding DataContext.PauseClient30mCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                            CommandParameter="{Binding}" ToolTip="Pause internet (Left-click 30m, Right-click for options)"
+                                                            Visibility="{Binding IsPaused, Converter={StaticResource BoolVisConv}, ConverterParameter=Inverse}">
+                                                        <Button.ContextMenu>
+                                                            <ContextMenu Background="#1A2234" Foreground="#E2E8F0">
+                                                                <MenuItem Header="Pause 15 Minutes"
+                                                                          Command="{Binding DataContext.PauseClient15mCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                          CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="Pause 30 Minutes (Recommended)" FontWeight="Bold"
+                                                                          Command="{Binding DataContext.PauseClient30mCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                          CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="Pause 1 Hour"
+                                                                          Command="{Binding DataContext.PauseClient1hCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                          CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="Pause 2 Hours"
+                                                                          Command="{Binding DataContext.PauseClient2hCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                          CommandParameter="{Binding}"/>
+                                                            </ContextMenu>
+                                                        </Button.ContextMenu>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="&#x23F8;" FontSize="9" Margin="0,0,3,0" Foreground="#FFB300"/>
+                                                            <TextBlock Text="Pause" FontSize="10" FontWeight="SemiBold" Foreground="#FFB300"/>
+                                                        </StackPanel>
+                                                    </Button>
+
                                                     <Button Style="{StaticResource ModernBtn}" Height="24" Padding="8,2" Margin="0,0,6,0"
                                                             Background="#2A2118" BorderBrush="#FF9100" BorderThickness="1"
                                                             Command="{Binding DataContext.DisconnectClientCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
@@ -1423,6 +1633,48 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <!-- Timeline Event History List (Timeline Mode) -->
+                            <DataGrid Grid.Row="1" ItemsSource="{Binding Hotspot.TimelineEvents}" AutoGenerateColumns="False"
+                                      IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                                      Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
+                                      GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1E2436"
+                                      RowBackground="#141724" AlternatingRowBackground="#111420"
+                                      Foreground="#E2E8F0" FontSize="12"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      Visibility="{Binding Hotspot.ShowTimeline, Converter={StaticResource BoolVisConv}}">
+                                <DataGrid.ColumnHeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader">
+                                        <Setter Property="Background" Value="#171C2B"/>
+                                        <Setter Property="Foreground" Value="#8F9EBC"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                        <Setter Property="Padding" Value="10,8"/>
+                                        <Setter Property="BorderBrush" Value="#252D45"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    </Style>
+                                </DataGrid.ColumnHeaderStyle>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="TIME" Binding="{Binding FormattedTime}" Foreground="#80DEEA" FontWeight="SemiBold" Width="130"/>
+                                    <DataGridTemplateColumn Header="EVENT" Width="105">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#10192A" BorderBrush="{Binding EventBadgeColor}" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding EventIcon}" FontFamily="Segoe UI Emoji" FontSize="10" Margin="0,0,4,0"/>
+                                                        <TextBlock Text="{Binding EventType}" FontWeight="Bold" FontSize="11" Foreground="{Binding EventBadgeColor}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="DEVICE / HOST NAME" Binding="{Binding HostName}" FontWeight="SemiBold" Foreground="#FFFFFF" Width="140"/>
+                                    <DataGridTextColumn Header="IP ADDRESS" Binding="{Binding IpAddress}" Foreground="#00E5FF" FontWeight="SemiBold" Width="110"/>
+                                    <DataGridTextColumn Header="MAC ADDRESS" Binding="{Binding MacAddress}" Foreground="#90A4AE" Width="125"/>
+                                    <DataGridTextColumn Header="SESSION DURATION" Binding="{Binding DurationText}" Foreground="#FFD54F" FontWeight="SemiBold" Width="120"/>
+                                    <DataGridTextColumn Header="DETAILS" Binding="{Binding Details}" Foreground="#B0BEC5" Width="*"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>

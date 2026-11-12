@@ -430,6 +430,55 @@ namespace WifiAnalyzerHotspot.Models
             set { _originalDriverPropertiesBackup = value ?? new(StringComparer.OrdinalIgnoreCase); OnPropertyChanged(); }
         }
 
+        private bool _enableTcpGamingTuning = false;
+        public bool EnableTcpGamingTuning
+        {
+            get => _enableTcpGamingTuning;
+            set { _enableTcpGamingTuning = value; OnPropertyChanged(); }
+        }
+
+        private System.Collections.Generic.Dictionary<string, string> _originalTcpSettingsBackup = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Generic.Dictionary<string, string> OriginalTcpSettingsBackup
+        {
+            get => _originalTcpSettingsBackup;
+            set { _originalTcpSettingsBackup = value ?? new(StringComparer.OrdinalIgnoreCase); OnPropertyChanged(); }
+        }
+
+        private bool _enableAntiBufferbloat = false;
+        public bool EnableAntiBufferbloat
+        {
+            get => _enableAntiBufferbloat;
+            set { _enableAntiBufferbloat = value; OnPropertyChanged(); }
+        }
+
+        private string _bufferbloatLineSpeed = "Auto (Sync from Speed Test)";
+        public string BufferbloatLineSpeed
+        {
+            get => _bufferbloatLineSpeed;
+            set { _bufferbloatLineSpeed = value; OnPropertyChanged(); }
+        }
+
+        private bool _enableZeroLatencyDns = true;
+        public bool EnableZeroLatencyDns
+        {
+            get => _enableZeroLatencyDns;
+            set { _enableZeroLatencyDns = value; OnPropertyChanged(); }
+        }
+
+        private bool _enableAutoSteer = true;
+        public bool EnableAutoSteer
+        {
+            get => _enableAutoSteer;
+            set { _enableAutoSteer = value; OnPropertyChanged(); }
+        }
+
+        private System.Collections.Generic.Dictionary<string, DateTime> _pausedClients = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Generic.Dictionary<string, DateTime> PausedClients
+        {
+            get => _pausedClients;
+            set { _pausedClients = value ?? new(StringComparer.OrdinalIgnoreCase); OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.List<BlockedClientInfo> _blockedClients = new();
         public System.Collections.Generic.List<BlockedClientInfo> BlockedClients
         {

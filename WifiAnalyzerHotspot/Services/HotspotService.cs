@@ -1051,6 +1051,7 @@ try {{
                 }
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
+                _pausedClients.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1202,6 +1203,7 @@ try {
                 }
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
+                _pausedClients.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1682,6 +1684,32 @@ if ($connectionProfile) {
                         client.DataBreakdown = $"↓ {FormatBytes(stats.BytesDown)} • ↑ {FormatBytes(stats.BytesUp)}";
                         client.QosLimit = stats.QosLimit;
                         client.Priority = stats.Priority > 0 ? stats.Priority : 5;
+
+                        if (IsClientPaused(normMac))
+                        {
+                            var exp = GetPauseExpiration(normMac);
+                            var remaining = exp.HasValue ? (exp.Value - DateTime.UtcNow) : TimeSpan.Zero;
+                            if (remaining.TotalSeconds > 0)
+                            {
+                                client.IsPaused = true;
+                                client.PauseExpiresAt = exp;
+                                client.PauseStatusText = remaining.TotalMinutes >= 1
+                                    ? $"⏸️ Paused ({(int)remaining.TotalMinutes}m {remaining.Seconds:D2}s left)"
+                                    : $"⏸️ Paused ({remaining.Seconds}s left)";
+                                client.DataStatusText = "⏸️ Internet Paused";
+                                client.IsGettingData = false;
+                            }
+                            else
+                            {
+                                client.IsPaused = false;
+                                client.PauseStatusText = string.Empty;
+                            }
+                        }
+                        else
+                        {
+                            client.IsPaused = false;
+                            client.PauseStatusText = string.Empty;
+                        }
                     }
                 }
             });
@@ -2058,6 +2086,63 @@ try {{
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _disconnectedMacs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.HashSet<string>> _blockedMacToIps = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _pausedClients = new(StringComparer.OrdinalIgnoreCase);
+
+        public static bool IsClientPaused(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return false;
+            string clean = HotspotModel.NormalizeMac(mac);
+            if (_pausedClients.TryGetValue(clean, out var exp))
+            {
+                if (DateTime.UtcNow < exp) return true;
+                _pausedClients.TryRemove(clean, out _);
+            }
+            return false;
+        }
+
+        public static DateTime? GetPauseExpiration(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return null;
+            string clean = HotspotModel.NormalizeMac(mac);
+            if (_pausedClients.TryGetValue(clean, out var exp))
+            {
+                if (DateTime.UtcNow < exp) return exp;
+                _pausedClients.TryRemove(clean, out _);
+            }
+            return null;
+        }
+
+        public static void RegisterPausedClient(string mac, DateTime expiresAtUtc)
+        {
+            if (!string.IsNullOrEmpty(mac))
+            {
+                string clean = HotspotModel.NormalizeMac(mac);
+                _pausedClients[clean] = expiresAtUtc;
+            }
+        }
+
+        public static void ClearPausedClient(string mac)
+        {
+            if (!string.IsNullOrEmpty(mac))
+            {
+                string clean = HotspotModel.NormalizeMac(mac);
+                _pausedClients.TryRemove(clean, out _);
+            }
+        }
+
+        public static Dictionary<string, DateTime> GetPausedClientsSnapshot()
+        {
+            var now = DateTime.UtcNow;
+            var dict = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in _pausedClients)
+            {
+                if (kvp.Value > now)
+                {
+                    dict[kvp.Key] = kvp.Value;
+                }
+            }
+            return dict;
+        }
 
         public static bool IsClientBlocked(string mac) =>
             !string.IsNullOrEmpty(mac) && _activeBlockedMacs.ContainsKey(HotspotModel.NormalizeMac(mac));
@@ -2380,6 +2465,149 @@ try {{
                     catch (Exception ex)
                     {
                         return (false, $"Unblock error: {ex.Message}");
+                    }
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Pauses internet transit for a connected device for a specific duration (in minutes).
+        /// Uses NetQoS bandwidth clamping (8 bps, Precedence 250) so the client stays associated to Wi-Fi
+        /// without disconnect/reconnect loops or DHCP churn.
+        /// </summary>
+        public async Task<(bool success, string message)> PauseClientAsync(string macAddress, string ipAddress, int durationMinutes)
+        {
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
+            {
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(async () =>
+                {
+                    try
+                    {
+                        var expUtc = DateTime.UtcNow.AddMinutes(durationMinutes);
+                        _pausedClients[cleanMac] = expUtc;
+
+                        string targetIp = ipAddress;
+                        if (string.IsNullOrEmpty(targetIp) || targetIp == "-")
+                        {
+                            var arpMap = NativeArpHelper.GetHotspotArpEntries();
+                            if (arpMap.TryGetValue(cleanMac, out var mapIp))
+                            {
+                                targetIp = mapIp;
+                            }
+                            else
+                            {
+                                var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
+                                if (!string.IsNullOrEmpty(swept)) targetIp = swept;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && targetIp.Contains('.'))
+                        {
+                            string script = $@"
+$ErrorActionPreference = 'Stop'
+$downName = 'Hotspot_Pause_In_{cleanMac}'
+$upName = 'Hotspot_Pause_Out_{cleanMac}'
+try {{
+    Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond 8 -Precedence 250 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    New-NetQosPolicy -Name $upName -IPSrcPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond 8 -Precedence 250 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+}} catch {{}}
+";
+                            RunPowerShell(script, 5000);
+                        }
+
+                        return (true, $"Internet paused for {durationMinutes} min on {macAddress}.");
+                    }
+                    catch (Exception ex)
+                    {
+                        return (false, $"Pause error: {ex.Message}");
+                    }
+                });
+            }
+            finally
+            {
+                macLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Resumes internet transit for a paused client device, lifting the NetQoS freeze
+        /// and restoring original QoS and Priority policies.
+        /// </summary>
+        public async Task<(bool success, string message)> ResumeClientAsync(string macAddress, string ipAddress)
+        {
+            string cleanMac = HotspotModel.NormalizeMac(macAddress);
+            if (!IsValidMac(cleanMac))
+            {
+                return (false, "Invalid MAC address format.");
+            }
+
+            var macLock = GetMacLock(cleanMac);
+            await macLock.WaitAsync();
+            try
+            {
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        _pausedClients.TryRemove(cleanMac, out _);
+
+                        string script = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+Remove-NetQosPolicy -Name 'Hotspot_Pause_In_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+";
+                        RunPowerShell(script, 3000);
+
+                        // Automatically re-apply configured Priority & QoS policies once resumed
+                        string restoreIp = ipAddress;
+                        if (string.IsNullOrEmpty(restoreIp) || restoreIp == "-")
+                        {
+                            var arpMap = NativeArpHelper.GetHotspotArpEntries();
+                            if (arpMap.TryGetValue(cleanMac, out var resolvedIp)) restoreIp = resolvedIp;
+                        }
+
+                        int savedPrio = 5;
+                        string savedQos = "Unlimited";
+                        lock (_clientDataUsageMap)
+                        {
+                            if (_clientDataUsageMap.TryGetValue(cleanMac, out var stats))
+                            {
+                                savedPrio = stats.Priority;
+                                savedQos = stats.QosLimit;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(restoreIp) && restoreIp != "-")
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                await SetClientPriorityAsync(cleanMac, restoreIp, savedPrio);
+                                if (!string.IsNullOrEmpty(savedQos) && savedQos != "Unlimited")
+                                {
+                                    await SetClientQosLimitAsync(cleanMac, restoreIp, savedQos);
+                                }
+                            });
+                        }
+
+                        return (true, $"Internet access resumed for {macAddress}.");
+                    }
+                    catch (Exception ex)
+                    {
+                        return (false, $"Resume error: {ex.Message}");
                     }
                 });
             }

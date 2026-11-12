@@ -58,6 +58,7 @@ namespace WifiAnalyzerHotspot.Services
                         // Load backed up original driver values into optimizer memory
                         EthernetSpeedOptimizer.LoadOriginalValuesBackup(loaded.OriginalDriverPropertiesBackup);
                         EthernetSpeedOptimizer.HasModifiedDriverProperties = loaded.HasModifiedDriverProperties;
+                        TcpGamingOptimizer.LoadOriginalTcpBackup(loaded.OriginalTcpSettingsBackup);
 
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
@@ -86,6 +87,7 @@ namespace WifiAnalyzerHotspot.Services
                     // Sync current driver backup and modified state into settings model for persistence
                     settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
                     settings.HasModifiedDriverProperties = EthernetSpeedOptimizer.HasModifiedDriverProperties;
+                    settings.OriginalTcpSettingsBackup = new(TcpGamingOptimizer.GetOriginalTcpBackup(), StringComparer.OrdinalIgnoreCase);
 
                     Directory.CreateDirectory(SettingsDirectory);
                     var options = new JsonSerializerOptions { WriteIndented = true };

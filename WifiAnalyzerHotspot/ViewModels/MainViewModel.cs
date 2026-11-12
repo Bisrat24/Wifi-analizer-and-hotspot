@@ -25,6 +25,8 @@ namespace WifiAnalyzerHotspot.ViewModels
         private readonly HotspotService _hotspotService = new();
         private readonly ConnectionStabilizerService _stabilizerService = new();
         private readonly NetworkSettingsService _settingsService = new();
+        private readonly HotspotTimelineService _timelineService = new();
+        private readonly HotspotDnsCacheService _dnsCacheService = new();
 
         private AppSettingsModel _settings = new();
         private bool _isSettingsOpen = false;
@@ -400,6 +402,17 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ClearResetLogsCommand { get; }
         public ICommand RefreshRulesCommand { get; }
         public ICommand RestoreDriverDefaultsCommand { get; }
+        public ICommand PauseClientCommand { get; }
+        public ICommand PauseClient15mCommand { get; }
+        public ICommand PauseClient30mCommand { get; }
+        public ICommand PauseClient1hCommand { get; }
+        public ICommand PauseClient2hCommand { get; }
+        public ICommand ResumeClientCommand { get; }
+        public ICommand ExportTimelineCsvCommand { get; }
+        public ICommand ClearTimelineCommand { get; }
+        public ICommand ApplyAutoSteerCommand { get; }
+        public ICommand ShowActiveClientsViewCommand { get; }
+        public ICommand ShowTimelineViewCommand { get; }
 
         public MainViewModel()
         {
@@ -416,6 +429,47 @@ namespace WifiAnalyzerHotspot.ViewModels
             Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
             Hotspot.IsHealthCheckEnabled = _settings.IsHealthCheckEnabled;
             Hotspot.KeepHotspotAlive = _settings.KeepHotspotAlive;
+            Hotspot.TimelineEvents = _timelineService.Events;
+            Hotspot.IsGamingTuningEnabled = _settings.EnableTcpGamingTuning;
+            Hotspot.IsAntiBufferbloatEnabled = _settings.EnableAntiBufferbloat;
+            if (!string.IsNullOrWhiteSpace(_settings.BufferbloatLineSpeed))
+                Hotspot.BufferbloatLineSpeed = _settings.BufferbloatLineSpeed;
+            Hotspot.IsZeroLatencyDnsEnabled = _settings.EnableZeroLatencyDns;
+            Hotspot.IsAutoSteerEnabled = _settings.EnableAutoSteer;
+
+            // Load and restore paused clients
+            if (_settings.PausedClients != null)
+            {
+                var now = DateTime.UtcNow;
+                foreach (var kvp in _settings.PausedClients)
+                {
+                    if (kvp.Value > now)
+                    {
+                        HotspotService.RegisterPausedClient(kvp.Key, kvp.Value);
+                    }
+                }
+            }
+
+            // Restore TCP tuning backup to optimizer
+            if (_settings.OriginalTcpSettingsBackup != null)
+            {
+                TcpGamingOptimizer.LoadOriginalTcpBackup(_settings.OriginalTcpSettingsBackup);
+            }
+
+            // Initialize active background engines if enabled
+            if (Hotspot.IsGamingTuningEnabled)
+            {
+                _ = Task.Run(async () => await TcpGamingOptimizer.ApplyGamingTuningAsync());
+            }
+            if (Hotspot.IsAntiBufferbloatEnabled)
+            {
+                HotspotPriorityService.EnableAntiBufferbloat = true;
+                HotspotPriorityService.BufferbloatThrottleRateBits = Hotspot.GetBufferbloatThrottleBits();
+            }
+            if (Hotspot.IsZeroLatencyDnsEnabled)
+            {
+                _dnsCacheService.Start();
+            }
             if (!string.IsNullOrWhiteSpace(_settings.HotspotSsid)) _hotspotSsidInput = _settings.HotspotSsid;
             if (!string.IsNullOrWhiteSpace(_settings.HotspotPassword)) _hotspotPasswordInput = _settings.HotspotPassword;
             if (!string.IsNullOrWhiteSpace(_settings.HotspotBand)) _hotspotBandInput = _settings.HotspotBand;
@@ -496,6 +550,70 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     _settings.KeepHotspotAlive = Hotspot.KeepHotspotAlive;
                     _settingsService.SaveSettings(_settings);
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsGamingTuningEnabled))
+                {
+                    _settings.EnableTcpGamingTuning = Hotspot.IsGamingTuningEnabled;
+                    _settingsService.SaveSettings(_settings);
+                    _ = Task.Run(async () =>
+                    {
+                        if (Hotspot.IsGamingTuningEnabled)
+                        {
+                            var res = await TcpGamingOptimizer.ApplyGamingTuningAsync();
+                            _settings.OriginalTcpSettingsBackup = new(TcpGamingOptimizer.GetOriginalTcpBackup(), StringComparer.OrdinalIgnoreCase);
+                            _settingsService.SaveSettings(_settings);
+                            Dispatch(() => Hotspot.StatusMessage = res.message);
+                        }
+                        else
+                        {
+                            var res = await TcpGamingOptimizer.RestoreDefaultsAsync();
+                            _settings.OriginalTcpSettingsBackup = new(TcpGamingOptimizer.GetOriginalTcpBackup(), StringComparer.OrdinalIgnoreCase);
+                            _settingsService.SaveSettings(_settings);
+                            Dispatch(() => Hotspot.StatusMessage = res.message);
+                        }
+                    });
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsAntiBufferbloatEnabled) || e.PropertyName == nameof(Hotspot.BufferbloatLineSpeed))
+                {
+                    _settings.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
+                    _settings.BufferbloatLineSpeed = Hotspot.BufferbloatLineSpeed;
+                    _settingsService.SaveSettings(_settings);
+
+                    HotspotPriorityService.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
+                    HotspotPriorityService.BufferbloatThrottleRateBits = Hotspot.GetBufferbloatThrottleBits();
+
+                    _ = Task.Run(async () =>
+                    {
+                        var res = await _hotspotService.OptimizePriorityAsync();
+                        Dispatch(() => Hotspot.StatusMessage = Hotspot.IsAntiBufferbloatEnabled
+                            ? $"🛡️ Anti-Bufferbloat engaged ({Hotspot.BufferbloatLineSpeed} clamped to 90%, 10% fast-path headroom reserved)"
+                            : "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)");
+                    });
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsZeroLatencyDnsEnabled))
+                {
+                    _settings.EnableZeroLatencyDns = Hotspot.IsZeroLatencyDnsEnabled;
+                    _settingsService.SaveSettings(_settings);
+                    if (Hotspot.IsZeroLatencyDnsEnabled)
+                    {
+                        _dnsCacheService.Start();
+                        Hotspot.StatusMessage = "⚡ Zero-Latency Anycast DNS Cache active on 192.168.137.1:53";
+                    }
+                    else
+                    {
+                        _dnsCacheService.Stop();
+                        Hotspot.StatusMessage = "Zero-Latency DNS Cache stopped.";
+                    }
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsAutoSteerEnabled))
+                {
+                    _settings.EnableAutoSteer = Hotspot.IsAutoSteerEnabled;
+                    _settingsService.SaveSettings(_settings);
+                    if (Hotspot.IsAutoSteerEnabled && Networks.Count > 0)
+                    {
+                        var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                        Hotspot.AutoSteerRecommendation = rec.Advice;
+                    }
                 }
             };
 
@@ -729,6 +847,68 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                 await RefreshHotspotAsync();
             });
+
+            PauseClientCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecutePauseAsync(c, 30));
+            PauseClient15mCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecutePauseAsync(c, 15));
+            PauseClient30mCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecutePauseAsync(c, 30));
+            PauseClient1hCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecutePauseAsync(c, 60));
+            PauseClient2hCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecutePauseAsync(c, 120));
+            ResumeClientCommand = new RelayCommand<HotspotClientInfo>(async c => await ExecuteResumeAsync(c));
+
+            ExportTimelineCsvCommand = new RelayCommand(() =>
+            {
+                try
+                {
+                    var sfd = new Microsoft.Win32.SaveFileDialog
+                    {
+                        Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+                        FileName = $"Hotspot_Timeline_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+                        Title = "Export Client Timeline Log to CSV"
+                    };
+                    if (sfd.ShowDialog() == true)
+                    {
+                        bool ok = _timelineService.ExportToCsv(sfd.FileName);
+                        Hotspot.StatusMessage = ok
+                            ? $"✓ Timeline exported successfully to {System.IO.Path.GetFileName(sfd.FileName)}"
+                            : "Failed to export timeline.";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Hotspot.StatusMessage = $"Export error: {ex.Message}";
+                }
+            });
+
+            ClearTimelineCommand = new RelayCommand(() =>
+            {
+                _timelineService.ClearEvents();
+                Hotspot.StatusMessage = "Client timeline event history cleared.";
+            });
+
+            ApplyAutoSteerCommand = new RelayCommand(async () =>
+            {
+                try
+                {
+                    var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                    if (!string.IsNullOrEmpty(rec.RecommendedBand))
+                    {
+                        HotspotBandInput = rec.RecommendedBand;
+                        HotspotChannelChoice = !string.IsNullOrEmpty(rec.RecommendedChannel) ? rec.RecommendedChannel : "Auto (Recommended)";
+                        Hotspot.StatusMessage = $"⚡ Auto-steered hotspot config to {rec.RecommendedBand} ({HotspotChannelChoice}) for optimal latency.";
+                        if (Hotspot.IsRunning)
+                        {
+                            await SaveHotspotConfigAsync();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Hotspot.StatusMessage = $"Auto-steer error: {ex.Message}";
+                }
+            });
+
+            ShowActiveClientsViewCommand = new RelayCommand(() => Hotspot.ShowTimeline = false);
+            ShowTimelineViewCommand = new RelayCommand(() => Hotspot.ShowTimeline = true);
 
             ToggleKeepAliveCommand = new RelayCommand(() =>
             {
@@ -1294,6 +1474,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                     BestChannelAdvice = $"Optimal for 2.4 GHz Hotspot: Channel {best24.Channel} ({best24.StatusText}). Cleanest 5 GHz: Channel {best5.Channel}.";
                 }
 
+                if (Hotspot.IsAutoSteerEnabled && Networks.Count > 0)
+                {
+                    var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                    Hotspot.AutoSteerRecommendation = rec.Advice;
+                }
+
                 ScanStatus = $"Last scan: {DateTime.Now:HH:mm:ss} ({Networks.Count} networks detected)";
             }
             catch (Exception ex)
@@ -1563,6 +1749,26 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.TotalBytesSent = fresh.TotalBytesSent;
                         existing.TotalDataFormatted = fresh.TotalDataFormatted;
                         existing.DataBreakdown = fresh.DataBreakdown;
+                        existing.IsPaused = fresh.IsPaused;
+                        existing.PauseExpiresAt = fresh.PauseExpiresAt;
+                        existing.PauseStatusText = fresh.PauseStatusText;
+
+                        // Check automatic resumption if pause expired
+                        if (existing.IsPaused && existing.PauseExpiresAt.HasValue && DateTime.UtcNow >= existing.PauseExpiresAt.Value)
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                await _hotspotService.ResumeClientAsync(existing.MacAddress, existing.IpAddress);
+                                _timelineService.RecordEvent("Resumed", existing.HostName, existing.MacAddress, existing.IpAddress, "Timer expired (Auto-resumed)");
+                                Dispatch(() =>
+                                {
+                                    existing.IsPaused = false;
+                                    existing.PauseExpiresAt = null;
+                                    existing.PauseStatusText = string.Empty;
+                                });
+                            });
+                        }
+
                         if (existing.OnQosChanged == null)
                         {
                             if (targetQos != "Unlimited") existing.QosLimit = targetQos;
@@ -1594,6 +1800,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                         fresh.OnQosChanged = c => SetClientQosLimitCommand.Execute(c);
                         Hotspot.Clients.Add(fresh);
 
+                        // Record client join event in timeline
+                        _timelineService.RecordClientJoin(fresh.MacAddress, fresh.HostName, fresh.IpAddress);
+
                         // Automatic Policy Activation upon connecting with a valid IP
                         if (!string.IsNullOrEmpty(fresh.IpAddress) && fresh.IpAddress != "-")
                         {
@@ -1614,10 +1823,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                 foreach (var stale in toRemove)
                 {
                     Hotspot.Clients.Remove(stale);
+                    _timelineService.RecordClientLeave(stale.MacAddress, stale.HostName, stale.IpAddress);
                 }
 
                 Hotspot.ClientCount = Hotspot.Clients.Count;
                 Hotspot.ActiveDataClientCount = Hotspot.Clients.Count(c => c.IsGettingData);
+                Hotspot.DnsStatsText = _dnsCacheService.GetStatsSummary();
                 if (Hotspot.ClientCount > 0)
                 {
                     if (Hotspot.ActiveDataClientCount == Hotspot.ClientCount)
@@ -1782,6 +1993,45 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
+        private async Task ExecutePauseAsync(HotspotClientInfo? client, int minutes)
+        {
+            if (client == null) return;
+            var res = await _hotspotService.PauseClientAsync(client.MacAddress, client.IpAddress, minutes);
+            if (res.success)
+            {
+                client.IsPaused = true;
+                client.PauseExpiresAt = DateTime.UtcNow.AddMinutes(minutes);
+                client.PauseStatusText = $"⏸️ Paused ({minutes}m left)";
+                client.DataStatusText = "⏸️ Internet Paused";
+                client.IsGettingData = false;
+
+                _timelineService.RecordEvent("Paused", client.HostName, client.MacAddress, client.IpAddress, $"{minutes} min timed pause active");
+                Hotspot.StatusMessage = res.message;
+
+                _settings.PausedClients = HotspotService.GetPausedClientsSnapshot();
+                _settingsService.SaveSettings(_settings);
+            }
+            else
+            {
+                Hotspot.StatusMessage = res.message;
+            }
+        }
+
+        private async Task ExecuteResumeAsync(HotspotClientInfo? client)
+        {
+            if (client == null) return;
+            var res = await _hotspotService.ResumeClientAsync(client.MacAddress, client.IpAddress);
+            client.IsPaused = false;
+            client.PauseExpiresAt = null;
+            client.PauseStatusText = string.Empty;
+
+            _timelineService.RecordEvent("Resumed", client.HostName, client.MacAddress, client.IpAddress, "Internet resumed by user");
+            Hotspot.StatusMessage = res.message;
+
+            _settings.PausedClients = HotspotService.GetPausedClientsSnapshot();
+            _settingsService.SaveSettings(_settings);
+        }
+
         public void Dispose()
         {
             if (_networkAddressChangedHandler != null)
@@ -1794,6 +2044,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             _settingsDebounceTimer?.Stop();
             _speedTestCts?.Cancel();
             _speedTestCts?.Dispose();
+            _dnsCacheService?.Dispose();
+            HotspotPriorityService.CleanupAllPolicies();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
