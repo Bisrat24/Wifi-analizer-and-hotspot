@@ -409,6 +409,20 @@ namespace WifiAnalyzerHotspot.Models
             set { _preserveGigabitLinkSpeed = value; OnPropertyChanged(); }
         }
 
+        private bool _hasMigratedGigabitOptIn = false;
+        public bool HasMigratedGigabitOptIn
+        {
+            get => _hasMigratedGigabitOptIn;
+            set { _hasMigratedGigabitOptIn = value; OnPropertyChanged(); }
+        }
+
+        private System.Collections.Generic.Dictionary<string, string> _originalDriverPropertiesBackup = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Generic.Dictionary<string, string> OriginalDriverPropertiesBackup
+        {
+            get => _originalDriverPropertiesBackup;
+            set { _originalDriverPropertiesBackup = value ?? new(StringComparer.OrdinalIgnoreCase); OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.List<BlockedClientInfo> _blockedClients = new();
         public System.Collections.Generic.List<BlockedClientInfo> BlockedClients
         {

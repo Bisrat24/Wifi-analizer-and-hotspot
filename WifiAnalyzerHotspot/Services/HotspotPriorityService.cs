@@ -50,8 +50,7 @@ namespace WifiAnalyzerHotspot.Services
                     bool enableEthOpt = preserveGigabitLinkSpeed ?? PreserveGigabitLinkSpeed;
                     string script = EngageScript
                         .Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false")
-                        .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false")
-                        .Replace("__ETH_SPEED_OPTIMIZER_SNIPPET__", (checkPrioVlan && enableEthOpt) ? EthernetSpeedOptimizer.GetPowerShellScript(isSnippet: true) : "");
+                        .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false");
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
@@ -83,23 +82,26 @@ namespace WifiAnalyzerHotspot.Services
                             failures.Add(line.Substring(line.IndexOf(':') + 1).Trim());
                     }
 
-                    // Parse unified Ethernet speed optimization results only if opted in
+                    // Unified Ethernet speed optimization (routed through the shared cache and concurrency lock)
                     var ethModified = new List<string>();
-                    if (checkPrioVlan && enableEthOpt)
+                    if (enableEthOpt)
                     {
-                        var ethResults = EthernetSpeedOptimizer.ParseResults(output);
+                        var ethResults = await EthernetSpeedOptimizer.AuditAndOptimizeAsync(
+                            null,
+                            msg => Debug.WriteLine($"[Hotspot Priority] {msg}"),
+                            forceRecheck: false).ConfigureAwait(false);
+
                         foreach (var res in ethResults)
                         {
-                            if (res.Success && res.Property != "All")
+                            if (res.Success && res.Property != "All" && res.Property != "None")
                             {
                                 ethModified.Add($"{res.Adapter}: {res.Property} → {res.NewValue}");
                             }
-                            else if (!res.Success)
+                            else if (!res.Success && res.Property != "None")
                             {
                                 failures.Add($"Ethernet {res.Adapter} ({res.Property}): {res.ErrorMessage}");
                             }
                         }
-                        EthernetSpeedOptimizer.RegisterAuditedAdapters(ethResults);
                     }
 
                     _isPriorityEngaged = true;
@@ -208,9 +210,6 @@ if ($checkPriorityVlan) {
                 }
             }
         }
-
-        # D. Prevent physical Ethernet adapters from downshifting or throttling to 10 Mbps
-        __ETH_SPEED_OPTIMIZER_SNIPPET__
     } catch {
         Add-Result ""NIC_PRIO_FAIL:Global $($_.Exception.Message)""
     }

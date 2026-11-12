@@ -46,6 +46,16 @@ namespace WifiAnalyzerHotspot.Services
                     var loaded = JsonSerializer.Deserialize<AppSettingsModel>(json);
                     if (loaded != null)
                     {
+                        // One-time migration for v1.3.1 profiles: ensure opt-in defaults to false
+                        if (!loaded.HasMigratedGigabitOptIn)
+                        {
+                            loaded.PreserveGigabitLinkSpeed = false;
+                            loaded.HasMigratedGigabitOptIn = true;
+                        }
+
+                        // Load backed up original driver values into optimizer memory
+                        EthernetSpeedOptimizer.LoadOriginalValuesBackup(loaded.OriginalDriverPropertiesBackup);
+
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
                         ApplyProxy(loaded);
@@ -64,6 +74,9 @@ namespace WifiAnalyzerHotspot.Services
         {
             try
             {
+                // Sync current driver backup into settings model for persistence
+                settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+
                 Directory.CreateDirectory(SettingsDirectory);
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json;

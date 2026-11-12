@@ -399,6 +399,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ClearResetLogsCommand { get; }
         public ICommand RefreshRulesCommand { get; }
+        public ICommand RestoreDriverDefaultsCommand { get; }
 
         public MainViewModel()
         {
@@ -529,6 +530,24 @@ namespace WifiAnalyzerHotspot.ViewModels
                     if (Stabilizer.PreserveGigabitLinkSpeed)
                     {
                         EthernetSpeedOptimizer.InvalidateAuditCache();
+                    }
+                    else
+                    {
+                        // User opted out; restore any modified properties back to original driver values
+                        _ = Task.Run(async () =>
+                        {
+                            await EthernetSpeedOptimizer.RestoreDefaultsAsync(msg =>
+                            {
+                                Dispatch(() =>
+                                {
+                                    Stabilizer.ReconnectLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {msg}");
+                                    while (Stabilizer.ReconnectLogs.Count > Stabilizer.ReconnectLogLimit)
+                                        Stabilizer.ReconnectLogs.RemoveAt(Stabilizer.ReconnectLogs.Count - 1);
+                                });
+                            });
+                            _settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+                            _settingsService.SaveSettings(_settings);
+                        });
                     }
                 }
 
@@ -748,6 +767,23 @@ namespace WifiAnalyzerHotspot.ViewModels
             ClearStabilizerLogsCommand = new RelayCommand(() =>
             {
                 Stabilizer.ReconnectLogs.Clear();
+            });
+
+            RestoreDriverDefaultsCommand = new RelayCommand(async () =>
+            {
+                Stabilizer.ReconnectStatusText = "Restoring driver defaults...";
+                await EthernetSpeedOptimizer.RestoreDefaultsAsync(msg =>
+                {
+                    Dispatch(() =>
+                    {
+                        Stabilizer.ReconnectLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {msg}");
+                        while (Stabilizer.ReconnectLogs.Count > Stabilizer.ReconnectLogLimit)
+                            Stabilizer.ReconnectLogs.RemoveAt(Stabilizer.ReconnectLogs.Count - 1);
+                    });
+                });
+                _settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+                _settingsService.SaveSettings(_settings);
+                Stabilizer.ReconnectStatusText = "Driver defaults restored";
             });
 
             ToggleSettingsCommand = new RelayCommand(() => IsSettingsOpen = !IsSettingsOpen);
@@ -1709,6 +1745,18 @@ namespace WifiAnalyzerHotspot.ViewModels
         {
             _settingsDebounceTimer?.Stop();
             _settingsDebounceTimer?.Start();
+        }
+
+        private static void Dispatch(Action a)
+        {
+            if (System.Windows.Application.Current?.Dispatcher != null)
+            {
+                try { System.Windows.Application.Current.Dispatcher.Invoke(a); } catch { }
+            }
+            else
+            {
+                try { a(); } catch { }
+            }
         }
 
         public void Dispose()

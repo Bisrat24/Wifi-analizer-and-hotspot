@@ -25,19 +25,36 @@ namespace WifiAnalyzerHotspot.Services
     /// and ensures Speed &amp; Duplex is set to Auto Negotiation.
     /// 
     /// Features:
-    /// - Read-back verification with retry: Confirms asynchronous driver persistence (up to 3 retries, 450ms).
+    /// - Read-back verification with retry: Confirms asynchronous driver persistence (up to 3 retries with no trailing sleep).
     /// - Strict media filter: Excludes Wi-Fi radios (Native 802.11 / Wireless) so only wired 802.3 PHYs are audited.
-    /// - Pipe-delimited parsing ('|' with count 5): Prevents field shifting with colons or pipes in error messages.
-    /// - Time-to-Live Session caching with failure protection: Deduplicates audit runs so subsequent drop recoveries
-    ///   on HDD take 0ms, while only caching verified successful writes and expiring after 30 minutes.
-    /// - Concurrency serialization: SemaphoreSlim prevents racing watchdog/manual audits.
-    /// - Shared script generation: Eliminates code drift between Hotspot Priority and Active Reconnect.
+    /// - Distinguishes unverified adapters: Emits ETH_SKIPPED if no recognized properties were found (not cached).
+    /// - Time-to-Live Session caching: 30-minute TTL with failure exclusion (failed properties never cached as audited).
+    /// - Self-contained power resume invalidation: Clears cache when Windows wakes from sleep (PowerModes.Resume).
+    /// - Reversible driver defaults: Captures and persists original driver values with RestoreDefaultsAsync.
+    /// - Concurrency serialization: SemaphoreSlim prevents racing watchdog/manual/hotspot audits.
     /// </summary>
     public static class EthernetSpeedOptimizer
     {
         private static readonly ConcurrentDictionary<string, DateTime> _auditedAdapters = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> _originalValuesBackup = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _auditLock = new(1, 1);
         public static readonly TimeSpan AuditTtl = TimeSpan.FromMinutes(30);
+
+        static EthernetSpeedOptimizer()
+        {
+            try
+            {
+                Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) =>
+                {
+                    if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                    {
+                        // Link speed or power profiles may downshift after waking from sleep; clear cache to force audit
+                        InvalidateAuditCache();
+                    }
+                };
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Clears the session audit cache for an adapter or all adapters, forcing the next check to re-audit.
@@ -73,18 +90,51 @@ namespace WifiAnalyzerHotspot.Services
         }
 
         /// <summary>
+        /// Gets the stored original driver values before optimization.
+        /// Key: "AdapterName|PropertyDisplayName", Value: OriginalValue
+        /// </summary>
+        public static IReadOnlyDictionary<string, string> GetOriginalValuesBackup() => _originalValuesBackup;
+
+        /// <summary>
+        /// Loads previously persisted original property backups into memory.
+        /// </summary>
+        public static void LoadOriginalValuesBackup(IDictionary<string, string>? backups)
+        {
+            if (backups == null) return;
+            foreach (var kvp in backups)
+            {
+                if (!string.IsNullOrEmpty(kvp.Key) && kvp.Value != null)
+                {
+                    _originalValuesBackup.TryAdd(kvp.Key, kvp.Value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Records the original value of a property if not already recorded.
+        /// </summary>
+        public static void RecordOriginalValue(string adapter, string property, string oldValue)
+        {
+            if (string.IsNullOrEmpty(adapter) || string.IsNullOrEmpty(property)) return;
+            string key = $"{adapter}|{property}";
+            _originalValuesBackup.TryAdd(key, oldValue);
+        }
+
+        /// <summary>
         /// Registers successfully audited adapters into the session cache.
+        /// Adapters with failed properties or adapters that skipped all properties are excluded from caching.
         /// </summary>
         public static void RegisterAuditedAdapters(IEnumerable<EthernetOptimizationResult> results)
         {
             if (results == null) return;
-            var failedAdapters = new HashSet<string>(
-                results.Where(r => !r.Success && !string.IsNullOrEmpty(r.Adapter)).Select(r => r.Adapter),
+            var uncacheableAdapters = new HashSet<string>(
+                results.Where(r => (!r.Success && r.Property != "None") || r.Property == "None")
+                       .Select(r => r.Adapter),
                 StringComparer.OrdinalIgnoreCase);
 
             foreach (var r in results)
             {
-                if (r.Success && !string.IsNullOrEmpty(r.Adapter) && !failedAdapters.Contains(r.Adapter))
+                if (r.Success && !string.IsNullOrEmpty(r.Adapter) && !uncacheableAdapters.Contains(r.Adapter))
                 {
                     _auditedAdapters[r.Adapter] = DateTime.UtcNow;
                 }
@@ -95,7 +145,7 @@ namespace WifiAnalyzerHotspot.Services
         /// Generates the unified PowerShell script snippet for auditing and optimizing Ethernet adapters.
         /// </summary>
         /// <param name="targetAdapter">Optional specific adapter name. If null, targets all physical Ethernet adapters.</param>
-        /// <param name="isSnippet">True when embedded inside another PowerShell script (e.g. HotspotPriorityService).</param>
+        /// <param name="isSnippet">True when embedded inside another PowerShell script.</param>
         public static string GetPowerShellScript(string? targetAdapter = null, bool isSnippet = false)
         {
             string escapedTarget = (targetAdapter ?? string.Empty).Replace("'", "''");
@@ -142,50 +192,56 @@ if (-not $ethAdapters -or $ethAdapters.Count -eq 0) {{
 foreach ($ea in $ethAdapters) {{
     try {{
         $anyModified = $false
+        $foundAnyProperty = $false
 
         # 1. Ensure Speed & Duplex is Auto Negotiation (not forced down to 10 Mbps)
         $spd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*Speed*Duplex*' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($spd -and $spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {{
-            $oldVal = $spd.DisplayValue
-            Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
-            
-            # Asynchronous driver commit retry loop (up to 3 attempts, 450ms)
-            $verifySpd = $null
-            for ($retry = 0; $retry -lt 3; $retry++) {{
-                $verifySpd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{ break }}
-                Start-Sleep -Milliseconds 150
-            }}
+        if ($spd) {{
+            $foundAnyProperty = $true
+            if ($spd.DisplayValue -ne 'Auto Negotiation' -and $spd.DisplayValue -like '*10 Mbps*') {{
+                $oldVal = $spd.DisplayValue
+                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -DisplayValue 'Auto Negotiation' -ErrorAction SilentlyContinue
+                
+                # Asynchronous driver commit retry loop (up to 3 attempts, no sleep on last failure)
+                $verifySpd = $null
+                for ($retry = 0; $retry -lt 3; $retry++) {{
+                    $verifySpd = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $spd.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{ break }}
+                    if ($retry -lt 2) {{ Start-Sleep -Milliseconds 150 }}
+                }}
 
-            if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{
-                Add-Result ""ETH_MODIFIED|$($ea.Name)|$($spd.DisplayName)|$oldVal|Auto Negotiation""
-                $anyModified = $true
-            }} else {{
-                Add-Result ""ETH_FAIL|$($ea.Name)|$($spd.DisplayName)|Auto Negotiation|Driver rejected or failed to persist change""
+                if ($verifySpd -and $verifySpd.DisplayValue -eq 'Auto Negotiation') {{
+                    Add-Result ""ETH_MODIFIED|$($ea.Name)|$($spd.DisplayName)|$oldVal|Auto Negotiation""
+                    $anyModified = $true
+                }} else {{
+                    Add-Result ""ETH_FAIL|$($ea.Name)|$($spd.DisplayName)|Auto Negotiation|Driver rejected or failed to persist change""
+                }}
             }}
         }}
 
         # 2. Prevent link downshifting to 10 Mbps on reset/sleep (Realtek WOL & Shutdown Link Speed: 10 Mbps First)
         $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($wol -and $wol.DisplayValue -eq '10 Mbps First') {{
-            $oldVal = $wol.DisplayValue
-            $targetWol = @($wol.ValidDisplayValues) | Where-Object {{ $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' }} | Select-Object -First 1
-            if ($targetWol) {{
-                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
-                
-                # Asynchronous driver commit retry loop
-                $verifyWol = $null
-                for ($retry = 0; $retry -lt 3; $retry++) {{
-                    $verifyWol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{ break }}
-                    Start-Sleep -Milliseconds 150
-                }}
+        if ($wol) {{
+            $foundAnyProperty = $true
+            if ($wol.DisplayValue -eq '10 Mbps First') {{
+                $oldVal = $wol.DisplayValue
+                $targetWol = @($wol.ValidDisplayValues) | Where-Object {{ $_ -eq 'Not Speed Down' -or $_ -eq 'Disabled' }} | Select-Object -First 1
+                if ($targetWol) {{
+                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $targetWol -ErrorAction SilentlyContinue
+                    
+                    $verifyWol = $null
+                    for ($retry = 0; $retry -lt 3; $retry++) {{
+                        $verifyWol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{ break }}
+                        if ($retry -lt 2) {{ Start-Sleep -Milliseconds 150 }}
+                    }}
 
-                if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{
-                    Add-Result ""ETH_MODIFIED|$($ea.Name)|$($wol.DisplayName)|$oldVal|$targetWol""
-                    $anyModified = $true
-                }} else {{
-                    Add-Result ""ETH_FAIL|$($ea.Name)|$($wol.DisplayName)|$targetWol|Driver rejected or failed to persist change""
+                    if ($verifyWol -and $verifyWol.DisplayValue -eq $targetWol) {{
+                        Add-Result ""ETH_MODIFIED|$($ea.Name)|$($wol.DisplayName)|$oldVal|$targetWol""
+                        $anyModified = $true
+                    }} else {{
+                        Add-Result ""ETH_FAIL|$($ea.Name)|$($wol.DisplayName)|$targetWol|Driver rejected or failed to persist change""
+                    }}
                 }}
             }}
         }}
@@ -194,32 +250,38 @@ foreach ($ea in $ethAdapters) {{
         $pwrPatterns = @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*', '*Auto*Disable*Gigabit*')
         foreach ($pwrName in $pwrPatterns) {{
             $pwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwrName -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($pwr -and ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*')) {{
-                $oldVal = $pwr.DisplayValue
-                $targetDis = @($pwr.ValidDisplayValues) | Where-Object {{ $_ -eq 'Disabled' -or $_ -like '*Disable*' }} | Select-Object -First 1
-                if ($targetDis) {{
-                    Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
-                    
-                    # Asynchronous driver commit retry loop
-                    $verifyPwr = $null
-                    for ($retry = 0; $retry -lt 3; $retry++) {{
-                        $verifyPwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
-                        if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{ break }}
-                        Start-Sleep -Milliseconds 150
-                    }}
+            if ($pwr) {{
+                $foundAnyProperty = $true
+                if ($pwr.DisplayValue -eq 'Enabled' -or $pwr.DisplayValue -like '*Enable*') {{
+                    $oldVal = $pwr.DisplayValue
+                    $targetDis = @($pwr.ValidDisplayValues) | Where-Object {{ $_ -eq 'Disabled' -or $_ -like '*Disable*' }} | Select-Object -First 1
+                    if ($targetDis) {{
+                        Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -DisplayValue $targetDis -ErrorAction SilentlyContinue
+                        
+                        $verifyPwr = $null
+                        for ($retry = 0; $retry -lt 3; $retry++) {{
+                            $verifyPwr = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pwr.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
+                            if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{ break }}
+                            if ($retry -lt 2) {{ Start-Sleep -Milliseconds 150 }}
+                        }}
 
-                    if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{
-                        Add-Result ""ETH_MODIFIED|$($ea.Name)|$($pwr.DisplayName)|$oldVal|$targetDis""
-                        $anyModified = $true
-                    }} else {{
-                        Add-Result ""ETH_FAIL|$($ea.Name)|$($pwr.DisplayName)|$targetDis|Driver rejected or failed to persist change""
+                        if ($verifyPwr -and ($verifyPwr.DisplayValue -eq $targetDis -or $verifyPwr.DisplayValue -like '*Disable*')) {{
+                            Add-Result ""ETH_MODIFIED|$($ea.Name)|$($pwr.DisplayName)|$oldVal|$targetDis""
+                            $anyModified = $true
+                        }} else {{
+                            Add-Result ""ETH_FAIL|$($ea.Name)|$($pwr.DisplayName)|$targetDis|Driver rejected or failed to persist change""
+                        }}
                     }}
                 }}
             }}
         }}
 
-        if (-not $anyModified) {{
+        if ($anyModified) {{
+            # Modifications recorded
+        }} elseif ($foundAnyProperty) {{
             Add-Result ""ETH_VERIFIED|$($ea.Name)|All settings optimal""
+        }} else {{
+            Add-Result ""ETH_SKIPPED|$($ea.Name)|No recognized power or speed properties""
         }}
     }} catch {{
         Add-Result ""ETH_FAIL|$($ea.Name)|Global|Error|$($_.Exception.Message)""
@@ -285,6 +347,20 @@ foreach ($ea in $ethAdapters) {{
                         });
                     }
                 }
+                else if (line.StartsWith("ETH_SKIPPED|", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parts = line.Split('|', 3);
+                    if (parts.Length >= 2)
+                    {
+                        list.Add(new EthernetOptimizationResult
+                        {
+                            Adapter = parts[1].Trim(),
+                            Property = "None",
+                            Success = false,
+                            ErrorMessage = parts.Length > 2 ? parts[2].Trim() : "No recognized properties"
+                        });
+                    }
+                }
             }
             return list;
         }
@@ -293,7 +369,6 @@ foreach ($ea in $ethAdapters) {{
         /// Audits and optimizes the given adapter (or all physical Ethernet adapters).
         /// Respects the session cache so subsequent recoveries on the same adapter are instant (0ms).
         /// Synchronized via SemaphoreSlim to prevent concurrent audit processes.
-        /// Only caches adapters where all operations succeeded.
         /// </summary>
         public static async Task<List<EthernetOptimizationResult>> AuditAndOptimizeAsync(
             string? adapterName,
@@ -319,7 +394,7 @@ foreach ($ea in $ethAdapters) {{
                 }
 
                 string script = GetPowerShellScript(cleanAdapter, isSnippet: false);
-                string output = await RunPowerShellAsync(script, 15000, token).ConfigureAwait(false);
+                string output = await RunPowerShellAsync(script, 20000, token).ConfigureAwait(false);
 
                 if (string.IsNullOrWhiteSpace(output))
                 {
@@ -328,10 +403,6 @@ foreach ($ea in $ethAdapters) {{
                 }
 
                 var results = ParseResults(output);
-
-                var failedAdapters = new HashSet<string>(
-                    results.Where(r => !r.Success && !string.IsNullOrEmpty(r.Adapter)).Select(r => r.Adapter),
-                    StringComparer.OrdinalIgnoreCase);
 
                 foreach (var res in results)
                 {
@@ -346,25 +417,26 @@ foreach ($ea in $ethAdapters) {{
                         }
                         else
                         {
+                            // Save original value for reversible restore
+                            RecordOriginalValue(res.Adapter, res.Property, res.OldValue);
                             onLog?.Invoke($"[ANTI-10M] Verified: Set '{res.Property}' from '{res.OldValue}' to '{res.NewValue}' on '{res.Adapter}'.");
+                        }
+                    }
+                    else if (res.Property == "None")
+                    {
+                        if (forceRecheck)
+                        {
+                            onLog?.Invoke($"[ANTI-10M] Adapter '{res.Adapter}' has no recognized vendor power/speed properties (skipped).");
                         }
                     }
                     else
                     {
                         onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to configure '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
                     }
-
-                    // Only cache successful adapters without any failed properties
-                    if (!string.IsNullOrEmpty(res.Adapter) && !failedAdapters.Contains(res.Adapter))
-                    {
-                        _auditedAdapters[res.Adapter] = DateTime.UtcNow;
-                    }
                 }
 
-                if (!string.IsNullOrEmpty(cleanAdapter) && !failedAdapters.Contains(cleanAdapter))
-                {
-                    _auditedAdapters[cleanAdapter] = DateTime.UtcNow;
-                }
+                // Unified cache registration: excludes failed or skipped adapters
+                RegisterAuditedAdapters(results);
 
                 return results;
             }
@@ -374,7 +446,83 @@ foreach ($ea in $ethAdapters) {{
             }
         }
 
-        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000, CancellationToken token = default)
+        /// <summary>
+        /// Restores all previously backed up original driver property values when the user disables the toggle
+        /// or clicks Restore Defaults.
+        /// </summary>
+        public static async Task<List<EthernetOptimizationResult>> RestoreDefaultsAsync(
+            Action<string>? onLog,
+            CancellationToken token = default)
+        {
+            if (_originalValuesBackup.IsEmpty)
+            {
+                onLog?.Invoke("[ANTI-10M] No modified driver properties to restore (driver settings unchanged).");
+                return new List<EthernetOptimizationResult>();
+            }
+
+            await _auditLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                var snapshot = _originalValuesBackup.ToArray();
+                var scriptLines = new List<string>
+                {
+                    "function Add-Result { param([string]$msg) $script:results += $msg }",
+                    "$script:results = @()"
+                };
+
+                foreach (var item in snapshot)
+                {
+                    var parts = item.Key.Split('|', 2);
+                    if (parts.Length < 2) continue;
+                    string adapter = parts[0].Replace("'", "''");
+                    string property = parts[1].Replace("'", "''");
+                    string originalValue = item.Value.Replace("'", "''");
+
+                    scriptLines.Add($@"
+try {{
+    Set-NetAdapterAdvancedProperty -Name '{adapter}' -DisplayName '{property}' -DisplayValue '{originalValue}' -ErrorAction SilentlyContinue
+    $verify = Get-NetAdapterAdvancedProperty -Name '{adapter}' -DisplayName '{property}' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($verify -and $verify.DisplayValue -eq '{originalValue}') {{
+        Add-Result 'ETH_MODIFIED|{adapter}|{property}|Current|{originalValue}'
+    }} else {{
+        Add-Result 'ETH_FAIL|{adapter}|{property}|{originalValue}|Driver rejected restoring default'
+    }}
+}} catch {{
+    Add-Result 'ETH_FAIL|{adapter}|{property}|{originalValue}|$($_.Exception.Message)'
+}}");
+                }
+
+                scriptLines.Add("foreach ($r in $script:results) { Write-Output $r }");
+                string script = string.Join("\n", scriptLines);
+
+                string output = await RunPowerShellAsync(script, 20000, token).ConfigureAwait(false);
+                var results = ParseResults(output);
+
+                foreach (var res in results)
+                {
+                    if (res.Success)
+                    {
+                        onLog?.Invoke($"[ANTI-10M] Restored driver default: '{res.Property}' → '{res.NewValue}' on '{res.Adapter}'.");
+                        _originalValuesBackup.TryRemove($"{res.Adapter}|{res.Property}", out _);
+                    }
+                    else
+                    {
+                        onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to restore '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
+                    }
+                }
+
+                // Invalidate session cache after restoring defaults
+                InvalidateAuditCache();
+
+                return results;
+            }
+            finally
+            {
+                _auditLock.Release();
+            }
+        }
+
+        private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 20000, CancellationToken token = default)
         {
             try
             {
