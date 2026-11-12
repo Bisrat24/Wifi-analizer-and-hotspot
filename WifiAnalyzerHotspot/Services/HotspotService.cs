@@ -1052,6 +1052,7 @@ try {{
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
                 _pausedClients.Clear();
+                _pausedMacToIp.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1204,6 +1205,7 @@ try {
                 _appliedPriorities.Clear();
                 _appliedQosLimits.Clear();
                 _pausedClients.Clear();
+                _pausedMacToIp.Clear();
 
                 string script = @"
 $ErrorActionPreference = 'SilentlyContinue'
@@ -2087,6 +2089,7 @@ try {{
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _activeBlockedMacs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.HashSet<string>> _blockedMacToIps = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _pausedClients = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _pausedMacToIp = new(StringComparer.OrdinalIgnoreCase);
 
         public static bool IsClientPaused(string mac)
         {
@@ -2127,7 +2130,26 @@ try {{
             {
                 string clean = HotspotModel.NormalizeMac(mac);
                 _pausedClients.TryRemove(clean, out _);
+                _pausedMacToIp.TryRemove(clean, out _);
             }
+        }
+
+        public static void EvictStalePausePolicies(string cleanMac, string? ip = null)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(cleanMac)) return;
+                string normMac = HotspotModel.NormalizeMac(cleanMac);
+                _pausedMacToIp.TryRemove(normMac, out _);
+
+                string script = $@"
+$ErrorActionPreference = 'SilentlyContinue'
+Remove-NetQosPolicy -Name 'Hotspot_Pause_In_{normMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{normMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+";
+                RunPowerShell(script, 3000);
+            }
+            catch { }
         }
 
         public static Dictionary<string, DateTime> GetPausedClientsSnapshot()
@@ -2515,11 +2537,15 @@ try {{
 
                         if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && targetIp.Contains('.'))
                         {
+                            _pausedMacToIp[cleanMac] = targetIp;
                             string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_Pause_In_{cleanMac}'
 $upName = 'Hotspot_Pause_Out_{cleanMac}'
 try {{
+    # Clear prior QoS limits while paused to avoid packet scheduler precedence conflict
+    Remove-NetQosPolicy -Name 'Hotspot_QoS_Down_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Remove-NetQosPolicy -Name 'Hotspot_QoS_Up_{cleanMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Remove-NetQosPolicy -Name $downName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Remove-NetQosPolicy -Name $upName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     New-NetQosPolicy -Name $downName -IPDstPrefixMatchCondition '{targetIp}/32' -ThrottleRateActionBitsPerSecond 8 -Precedence 250 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
@@ -2564,6 +2590,7 @@ try {{
                     try
                     {
                         _pausedClients.TryRemove(cleanMac, out _);
+                        _pausedMacToIp.TryRemove(cleanMac, out _);
 
                         string script = $@"
 $ErrorActionPreference = 'SilentlyContinue'

@@ -246,10 +246,9 @@ foreach ($policy in @(
     }
 }
 
-# D2. Fast-Path Gaming & Voice Traffic (Precedence 242, Completely Unthrottled)
+# D2. Ensure any legacy Hotspot_Gaming_FastPath policy is removed so it does not bypass the transit throttle
 try {
     Remove-NetQosPolicy -Name 'Hotspot_Gaming_FastPath' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    New-NetQosPolicy -Name 'Hotspot_Gaming_FastPath' -IPProtocol MatchBoth -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 242 -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
 # E. Keep desktop browsers below hotspot transit. -AppPathNameMatchCondition does NOT support

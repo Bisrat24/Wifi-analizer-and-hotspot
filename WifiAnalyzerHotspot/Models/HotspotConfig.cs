@@ -28,6 +28,8 @@ namespace WifiAnalyzerHotspot.Models
         private string _qosLimit = "Unlimited";
         private bool _isQosThrottled = false;
 
+        public int MissedRefreshCount { get; set; } = 0;
+
         // One-Click Timed Pause
         private bool _isPaused = false;
         private string _pauseStatusText = string.Empty;
@@ -508,11 +510,28 @@ namespace WifiAnalyzerHotspot.Models
             set { _bufferbloatHeadroomText = value; OnPropertyChanged(); }
         }
 
-        public long GetBufferbloatThrottleBits()
+        public long GetBufferbloatThrottleBits(double? measuredSpeedMbps = null)
         {
-            // Parse configured line speed and clamp bulk transit to 90% (leaving 10% headroom for gaming fast-path)
+            // Parse configured line speed and clamp bulk transit to 90% (leaving 10% headroom for gaming ping)
             string choice = BufferbloatLineSpeed ?? "";
             long lineBps = 100_000_000; // Default 100 Mbps
+
+            if (choice.Contains("Auto"))
+            {
+                if (measuredSpeedMbps.HasValue && measuredSpeedMbps.Value > 1.0)
+                {
+                    lineBps = (long)(measuredSpeedMbps.Value * 1_000_000);
+                    long throttle = (long)(lineBps * 0.90);
+                    BufferbloatHeadroomText = $"Auto: {measuredSpeedMbps.Value:F1} Mbps (90% Cap: {throttle / 1_000_000.0:F1} Mbps)";
+                    return throttle;
+                }
+                else
+                {
+                    BufferbloatHeadroomText = "Auto: Awaiting speed test (Default 90 Mbps limit)";
+                    return 90_000_000;
+                }
+            }
+
             if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
             else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
             else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
@@ -520,7 +539,9 @@ namespace WifiAnalyzerHotspot.Models
             else if (choice.Contains("500 Mbps")) lineBps = 500_000_000;
             else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) lineBps = 1_000_000_000;
 
-            return (long)(lineBps * 0.90);
+            long fixedThrottle = (long)(lineBps * 0.90);
+            BufferbloatHeadroomText = $"10% Reserved for Ping (Cap: {fixedThrottle / 1_000_000.0:0.##} Mbps)";
+            return fixedThrottle;
         }
 
         // ── Zero-Latency DNS Caching ──

@@ -28,6 +28,20 @@ namespace WifiAnalyzerHotspot.Services
             LoadEvents();
         }
 
+        public void SeedConnectedBaseline(IEnumerable<string> initialMacs)
+        {
+            if (initialMacs == null) return;
+            foreach (var mac in initialMacs)
+            {
+                if (string.IsNullOrWhiteSpace(mac)) continue;
+                string cleanMac = HotspotModel.NormalizeMac(mac);
+                if (!_sessionStartTimes.ContainsKey(cleanMac))
+                {
+                    _sessionStartTimes[cleanMac] = DateTime.Now;
+                }
+            }
+        }
+
         public void RecordClientJoin(string macAddress, string hostName, string ipAddress)
         {
             if (string.IsNullOrWhiteSpace(macAddress)) return;
@@ -149,14 +163,15 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     Events.RemoveAt(Events.Count - 1);
                 }
-                SaveEvents();
+                var snapshot = Events.Take(500).ToList();
+                Task.Run(() => SaveEvents(snapshot));
             });
         }
 
         public void ClearEvents()
         {
             Events.Clear();
-            SaveEvents();
+            Task.Run(() => SaveEvents(new List<HotspotTimelineEvent>()));
         }
 
         public static string FormatDuration(TimeSpan duration)
@@ -201,6 +216,11 @@ namespace WifiAnalyzerHotspot.Services
         private static string EscapeCsv(string? val)
         {
             if (string.IsNullOrEmpty(val)) return string.Empty;
+            // Neutralize formula injection in spreadsheet viewers (=, +, -, @)
+            if (val.StartsWith("=") || val.StartsWith("+") || val.StartsWith("-") || val.StartsWith("@"))
+            {
+                val = "'" + val;
+            }
             if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
             {
                 return $"\"{val.Replace("\"", "\"\"")}\"";
@@ -231,15 +251,15 @@ namespace WifiAnalyzerHotspot.Services
             catch { }
         }
 
-        private void SaveEvents()
+        private void SaveEvents(List<HotspotTimelineEvent>? snapshot = null)
         {
             try
             {
                 lock (_fileLock)
                 {
                     Directory.CreateDirectory(TimelineDirectory);
-                    var snapshot = Events.Take(500).ToList();
-                    string json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                    var listToSave = snapshot ?? Events.Take(500).ToList();
+                    string json = JsonSerializer.Serialize(listToSave, new JsonSerializerOptions { WriteIndented = true });
                     string tempPath = TimelineFilePath + ".tmp";
                     File.WriteAllText(tempPath, json);
                     File.Move(tempPath, TimelineFilePath, overwrite: true);

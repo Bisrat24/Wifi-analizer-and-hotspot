@@ -53,6 +53,13 @@ namespace WifiAnalyzerHotspot.Services
                     return (false, "No active network interfaces found to tune.");
                 }
 
+                // 0. Backup original ECN state if not already captured
+                if (!_originalTcpBackup.ContainsKey("__GLOBAL__|ECNCapability"))
+                {
+                    string currentEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
+                    _originalTcpBackup["__GLOBAL__|ECNCapability"] = currentEcn;
+                }
+
                 int modifiedCount = 0;
                 foreach (string guid in targetGuids)
                 {
@@ -130,6 +137,11 @@ namespace WifiAnalyzerHotspot.Services
                     string paramName = parts[1];
                     string originalVal = item.Value;
 
+                    if (guid.Equals("__GLOBAL__", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     try
                     {
                         using var key = Registry.LocalMachine.OpenSubKey($@"{TcpipInterfacesKey}\{guid}", writable: true);
@@ -153,13 +165,20 @@ namespace WifiAnalyzerHotspot.Services
                     }
                 }
 
-                // Restore ECN capability to default
+                // Restore ECN capability to original captured state
+                string restoreEcn = "disabled";
+                if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) && !string.IsNullOrEmpty(savedEcn))
+                {
+                    restoreEcn = savedEcn;
+                    _originalTcpBackup.TryRemove("__GLOBAL__|ECNCapability", out _);
+                }
+
                 try
                 {
                     var psi = new ProcessStartInfo
                     {
                         FileName = "netsh.exe",
-                        Arguments = "int tcp set global ecncapability=default",
+                        Arguments = $"int tcp set global ecncapability={restoreEcn}",
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true
@@ -169,7 +188,7 @@ namespace WifiAnalyzerHotspot.Services
                     {
                         await proc.WaitForExitAsync(token).ConfigureAwait(false);
                     }
-                    onLog?.Invoke("[TCP-Tuning] ECN capability restored to default.");
+                    onLog?.Invoke($"[TCP-Tuning] ECN capability restored to '{restoreEcn}'.");
                 }
                 catch { }
 
@@ -200,9 +219,56 @@ namespace WifiAnalyzerHotspot.Services
             if (currentVal != targetValue)
             {
                 key.SetValue(paramName, targetValue, RegistryValueKind.DWord);
-                modifiedCount++;
-                onLog?.Invoke($"[TCP-Tuning] Set {paramName} = {targetValue} on {{{guid}}}");
+                // Read-back verification
+                object? readBack = key.GetValue(paramName);
+                if (readBack is int verified && verified == targetValue)
+                {
+                    modifiedCount++;
+                    onLog?.Invoke($"[TCP-Tuning] Set {paramName} = {targetValue} on {{{guid}}} (verified)");
+                }
+                else
+                {
+                    onLog?.Invoke($"[TCP-Tuning] ⚠️ Failed to verify {paramName} = {targetValue} on {{{guid}}}");
+                }
             }
+        }
+
+        private static async Task<string> QueryCurrentEcnCapabilityAsync(CancellationToken token = default)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "netsh.exe",
+                    Arguments = "int tcp show global",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc != null)
+                {
+                    string output = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                    await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                    foreach (var line in output.Split('\n'))
+                    {
+                        if (line.Contains("ECN Capability", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var parts = line.Split(':');
+                            if (parts.Length > 1)
+                            {
+                                string val = parts[1].Trim().ToLowerInvariant();
+                                if (val == "enabled" || val == "disabled" || val == "default")
+                                {
+                                    return val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return "disabled";
         }
 
         private static List<string> GetTargetInterfaceGuids()

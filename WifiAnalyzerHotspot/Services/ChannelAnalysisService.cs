@@ -177,8 +177,11 @@ namespace WifiAnalyzerHotspot.Services
         /// </summary>
         public (string RecommendedBand, string RecommendedChannel, string Advice) GetSmartSteeringRecommendation(IEnumerable<WifiNetwork> networks)
         {
-            var r24 = Analyze24GChannels(networks);
-            var r5 = Analyze5GChannels(networks);
+            var netList = networks.ToList();
+            bool has5GNetworks = netList.Any(n => (n.Band != null && n.Band.Contains("5")) || n.Channel > 14);
+
+            var r24 = Analyze24GChannels(netList);
+            var r5 = Analyze5GChannels(netList);
 
             var best24 = r24.Where(r => r.Channel == 1 || r.Channel == 6 || r.Channel == 11)
                             .OrderByDescending(r => r.Score)
@@ -187,22 +190,22 @@ namespace WifiAnalyzerHotspot.Services
             var best5 = r5.OrderByDescending(r => r.Score).FirstOrDefault();
 
             int score24 = best24?.Score ?? 50;
-            int score5 = best5?.Score ?? 90;
+            int score5 = has5GNetworks ? (best5?.Score ?? 90) : 0;
 
-            if (score24 < 55)
+            if (has5GNetworks && (score24 < 55 || score5 >= 80))
             {
-                string ch5 = best5 != null ? $"Channel {best5.Channel} (5 GHz)" : "5 GHz (High Speed)";
-                return ("5 GHz", ch5, $"⚠️ 2.4 GHz is heavily congested (Score: {score24}/100). Auto-Steer recommends 5 GHz for 4x lower latency and zero channel crosstalk.");
-            }
-            else if (score5 >= 80)
-            {
-                string ch5 = best5 != null ? $"Channel {best5.Channel} (5 GHz)" : "5 GHz (High Speed)";
-                return ("5 GHz", ch5, $"⚡ 5 GHz Band Recommended: Clean frequency spectrum with max bandwidth and minimal latency.");
+                string advice = score24 < 55
+                    ? $"⚠️ 2.4 GHz is congested (Score: {score24}/100). Auto-Steer recommends 5 GHz for lowest latency and zero crosstalk."
+                    : $"⚡ 5 GHz Band Recommended: Clean frequency spectrum with max bandwidth and minimal latency (Score: {score5}/100).";
+                return ("5 GHz", "5 GHz Band (High Speed 5 GHz • Auto-channel)", advice);
             }
             else
             {
                 int ch = best24?.Channel ?? 1;
-                return ("2.4 GHz", $"Channel {ch}", $"✓ Channel {ch} is the cleanest 2.4 GHz channel (Score: {score24}/100, {best24?.CoChannelCount ?? 0} competing APs).");
+                string advice = has5GNetworks
+                    ? $"✓ 2.4 GHz Channel {ch} is optimal (Score: {score24}/100, {best24?.CoChannelCount ?? 0} competing APs)."
+                    : $"✓ 2.4 GHz Band Recommended (Channel {ch}): Optimal standard spectrum ({best24?.CoChannelCount ?? 0} competing APs, score: {score24}/100).";
+                return ("2.4 GHz", "2.4 GHz Band (Standard Compatibility)", advice);
             }
         }
     }
