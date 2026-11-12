@@ -46,6 +46,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private int _noDataCountSeconds = 0;
         private int _resetCooldownSeconds = 0;
         private int _consecutiveResetCount = 0;
+        private string? _lastActiveNetworkSignature;
 
         private string _currentTab = "Analyzer";
         private string _selectedBand = "2.4 GHz";
@@ -1152,9 +1153,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                 });
             }
 
-            // Instant OS network change notification (fires in <50ms when Wi-Fi is toggled off or on)
-            _networkAddressChangedHandler = (s, e) => CheckFastWifiState();
-            _networkAvailabilityChangedHandler = (s, e) => CheckFastWifiState();
+            // Instant OS network change notification (fires in <50ms when Wi-Fi or upstream adapter changes)
+            _lastActiveNetworkSignature = GetActiveNetworkSignature();
+            _networkAddressChangedHandler = (s, e) => OnNetworkChanged();
+            _networkAvailabilityChangedHandler = (s, e) => OnNetworkChanged();
             NetworkChange.NetworkAddressChanged += _networkAddressChangedHandler;
             NetworkChange.NetworkAvailabilityChanged += _networkAvailabilityChangedHandler;
 
@@ -1404,30 +1406,74 @@ namespace WifiAnalyzerHotspot.ViewModels
         {
             try
             {
-                foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+                var ifaces = NetworkInterface.GetAllNetworkInterfaces();
+                var physical = ifaces.Where(i => i.OperationalStatus == OperationalStatus.Up &&
+                    i.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                    !i.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
+                    !i.Description.Contains("Direct", StringComparison.OrdinalIgnoreCase) &&
+                    !i.Name.Contains("Local Area Connection*")).ToList();
+
+                // Prioritize adapter holding active IPv4 Default Gateway carrying internet transit
+                var gatewayAdapter = physical.FirstOrDefault(i =>
                 {
-                    if (nic.OperationalStatus != OperationalStatus.Up) continue;
-                    if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    try
+                    {
+                        var props = i.GetIPProperties();
+                        return props?.GatewayAddresses != null &&
+                               props.GatewayAddresses.Any(g => g.Address != null &&
+                                                              g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                                                              !g.Address.Equals(System.Net.IPAddress.Any) &&
+                                                              !g.Address.Equals(System.Net.IPAddress.None));
+                    }
+                    catch { return false; }
+                });
 
-                    string desc = nic.Description ?? "";
-                    string name = nic.Name ?? "";
-                    if (desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase) ||
-                        desc.Contains("Direct", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("Local Area Connection*")) continue;
+                var activeEth = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Ethernet);
+                var activeWifi = physical.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Wireless80211);
+                var primary = gatewayAdapter ?? activeEth ?? activeWifi ?? physical.FirstOrDefault();
 
-                    var props = nic.GetIPProperties();
+                if (primary != null)
+                {
+                    var props = primary.GetIPProperties();
                     var gw = props.GatewayAddresses?.FirstOrDefault(g => g.Address != null &&
                         g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
                         !g.Address.Equals(System.Net.IPAddress.Any) && !g.Address.Equals(System.Net.IPAddress.None));
-
-                    if (gw != null)
-                    {
-                        return $"{gw.Address}|{nic.Id}";
-                    }
+                    string gwIp = gw?.Address.ToString() ?? "0.0.0.0";
+                    return $"{gwIp}|{primary.Id}";
                 }
             }
             catch { }
             return string.Empty;
+        }
+
+        private void OnNetworkChanged()
+        {
+            CheckFastWifiState();
+
+            string currentSig = GetActiveNetworkSignature();
+            if (!string.IsNullOrEmpty(currentSig) && !string.IsNullOrEmpty(_lastActiveNetworkSignature) &&
+                !string.Equals(currentSig, _lastActiveNetworkSignature, StringComparison.OrdinalIgnoreCase))
+            {
+                // Upstream connection changed mid-session: clear active in-memory speed test so stale metrics are not used
+                SpeedMetrics.DownloadMbps = 0;
+                SpeedMetrics.UploadMbps = 0;
+
+                // Re-evaluate bufferbloat throttles with the new network scope
+                var (downVal, upVal, netChanged) = GetScopedMeasuredSpeeds();
+                var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal, netChanged);
+                HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
+                HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
+
+                if (Hotspot.IsRunning && HotspotPriorityService.IsPriorityEngaged)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await _hotspotService.OptimizePriorityAsync();
+                        Dispatch(() => Hotspot.StatusMessage = $"🛡️ Network changed: Anti-bufferbloat updated ({Hotspot.BufferbloatHeadroomText})");
+                    });
+                }
+            }
+            _lastActiveNetworkSignature = currentSig;
         }
 
         private (double? down, double? up, bool networkChanged) GetScopedMeasuredSpeeds()

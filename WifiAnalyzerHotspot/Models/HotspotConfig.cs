@@ -521,17 +521,20 @@ namespace WifiAnalyzerHotspot.Models
                     long downBps = (long)(measuredDownMbps.Value * 1_000_000);
                     long downThrottle = (long)(downBps * 0.90);
 
-                    // Separate upload clamp: distinguish real measured upload from 20% fallback estimate
                     bool isMeasuredUp = measuredUpMbps.HasValue && measuredUpMbps.Value > 0.5;
-                    double upMbps = (measuredUpMbps.HasValue && measuredUpMbps.Value > 0.5)
-                        ? measuredUpMbps.Value
-                        : Math.Max(1.0, measuredDownMbps.Value * 0.20);
-                    long upBps = (long)(upMbps * 1_000_000);
-                    long upThrottle = (long)(upBps * 0.90);
-
-                    string upTag = isMeasuredUp ? "measured" : "est 20%";
-                    BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ / {upMbps:F1}M↑ (Cap 90%, {upTag})";
-                    return (downThrottle, upThrottle);
+                    if (isMeasuredUp)
+                    {
+                        long upBps = (long)(measuredUpMbps!.Value * 1_000_000);
+                        long upThrottle = (long)(upBps * 0.90);
+                        BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ / {measuredUpMbps.Value:F1}M↑ (Cap 90%, measured)";
+                        return (downThrottle, upThrottle);
+                    }
+                    else
+                    {
+                        // Upload unmeasured: clamp download only (leaving upload unthrottled) to avoid strangling symmetric links
+                        BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ (Cap 90%) / Upload unthrottled";
+                        return (downThrottle, 0);
+                    }
                 }
                 else
                 {
@@ -542,21 +545,18 @@ namespace WifiAnalyzerHotspot.Models
                 }
             }
 
-            // Fixed line-speed presets with standard asymmetrical consumer broadband ratios
-            long downLineBps = 100_000_000;
-            long upLineBps = 20_000_000;
+            // Fixed line-speed presets: symmetric 90% clamping so symmetric fiber connections are not throttled unexpectedly
+            long lineBps = 100_000_000;
+            if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
+            else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
+            else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
+            else if (choice.Contains("250 Mbps")) lineBps = 250_000_000;
+            else if (choice.Contains("500 Mbps")) lineBps = 500_000_000;
+            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) lineBps = 1_000_000_000;
 
-            if (choice.Contains("25 Mbps")) { downLineBps = 25_000_000; upLineBps = 5_000_000; }
-            else if (choice.Contains("50 Mbps")) { downLineBps = 50_000_000; upLineBps = 10_000_000; }
-            else if (choice.Contains("100 Mbps")) { downLineBps = 100_000_000; upLineBps = 20_000_000; }
-            else if (choice.Contains("250 Mbps")) { downLineBps = 250_000_000; upLineBps = 35_000_000; }
-            else if (choice.Contains("500 Mbps")) { downLineBps = 500_000_000; upLineBps = 50_000_000; }
-            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) { downLineBps = 1_000_000_000; upLineBps = 200_000_000; }
-
-            long downThrottleFixed = (long)(downLineBps * 0.90);
-            long upThrottleFixed = (long)(upLineBps * 0.90);
-            BufferbloatHeadroomText = $"{downThrottleFixed / 1_000_000.0:0.##}M↓ / {upThrottleFixed / 1_000_000.0:0.##}M↑ (10% Ping Headroom)";
-            return (downThrottleFixed, upThrottleFixed);
+            long fixedThrottle = (long)(lineBps * 0.90);
+            BufferbloatHeadroomText = $"{fixedThrottle / 1_000_000.0:0.##} Mbps (10% Ping Headroom)";
+            return (fixedThrottle, fixedThrottle);
         }
 
         // ── Zero-Latency DNS Caching ──
