@@ -416,6 +416,13 @@ namespace WifiAnalyzerHotspot.Models
             set { _hasMigratedGigabitOptIn = value; OnPropertyChanged(); }
         }
 
+        private bool _hasModifiedDriverProperties = false;
+        public bool HasModifiedDriverProperties
+        {
+            get => _hasModifiedDriverProperties;
+            set { _hasModifiedDriverProperties = value; OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.Dictionary<string, string> _originalDriverPropertiesBackup = new(StringComparer.OrdinalIgnoreCase);
         public System.Collections.Generic.Dictionary<string, string> OriginalDriverPropertiesBackup
         {

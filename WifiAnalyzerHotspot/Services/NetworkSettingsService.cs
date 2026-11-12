@@ -57,6 +57,7 @@ namespace WifiAnalyzerHotspot.Services
 
                         // Load backed up original driver values into optimizer memory
                         EthernetSpeedOptimizer.LoadOriginalValuesBackup(loaded.OriginalDriverPropertiesBackup);
+                        EthernetSpeedOptimizer.HasModifiedDriverProperties = loaded.HasModifiedDriverProperties;
 
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
@@ -82,8 +83,9 @@ namespace WifiAnalyzerHotspot.Services
                     // Ensure migration flag is set on any saved settings
                     settings.HasMigratedGigabitOptIn = true;
 
-                    // Sync current driver backup into settings model for persistence
+                    // Sync current driver backup and modified state into settings model for persistence
                     settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+                    settings.HasModifiedDriverProperties = EthernetSpeedOptimizer.HasModifiedDriverProperties;
 
                     Directory.CreateDirectory(SettingsDirectory);
                     var options = new JsonSerializerOptions { WriteIndented = true };

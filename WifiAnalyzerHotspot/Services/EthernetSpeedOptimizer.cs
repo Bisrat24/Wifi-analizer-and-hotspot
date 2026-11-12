@@ -42,6 +42,42 @@ namespace WifiAnalyzerHotspot.Services
         public static readonly TimeSpan AuditTtl = TimeSpan.FromMinutes(30);
         public static readonly TimeSpan SkippedTtl = TimeSpan.FromMinutes(5);
         private static DateTime _lastFullAuditUtc = DateTime.MinValue;
+        private static bool _hasModifiedDriverProperties = false;
+
+        public static bool HasModifiedDriverProperties
+        {
+            get => _hasModifiedDriverProperties || !_originalValuesBackup.IsEmpty;
+            set => _hasModifiedDriverProperties = value;
+        }
+
+        private const string PowerShellAdapterFilterHelper = @"
+function Get-TargetEthAdapters {
+    param([string]$targetName)
+    $adapters = if ($targetName) {
+        @(Get-NetAdapter -Name $targetName -Physical -ErrorAction SilentlyContinue | Where-Object {
+            $_.MediaType -notlike '*Native 802.11*' -and $_.MediaType -notlike '*Wireless*'
+        })
+    } else {
+        @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
+            ($_.InterfaceDescription -like '*Ethernet*' -or
+             $_.InterfaceDescription -like '*GbE*' -or
+             $_.InterfaceDescription -like '*Gigabit*' -or
+             $_.InterfaceDescription -like '*Realtek*' -or
+             $_.InterfaceDescription -like '*Intel*') -and
+            $_.MediaType -notlike '*Native 802.11*' -and
+            $_.MediaType -notlike '*Wireless*'
+        })
+    }
+    if (-not $adapters -or $adapters.Count -eq 0) {
+        $adapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
+            $_.MediaType -like '*802.3*' -and
+            $_.MediaType -notlike '*Native 802.11*' -and
+            $_.MediaType -notlike '*Wireless*'
+        })
+    }
+    return $adapters
+}
+";
 
         static EthernetSpeedOptimizer()
         {
@@ -134,6 +170,7 @@ namespace WifiAnalyzerHotspot.Services
             if (string.IsNullOrEmpty(adapter) || string.IsNullOrEmpty(property)) return;
             string key = $"{adapter}|{property}";
             _originalValuesBackup.TryAdd(key, oldValue);
+            _hasModifiedDriverProperties = true;
         }
 
         /// <summary>
@@ -190,30 +227,10 @@ foreach ($r in $script:results) { Write-Output $r }
 
             return $@"
 {helperDef}
+{PowerShellAdapterFilterHelper}
 # ── Ethernet Link Speed & Power-Throttle Optimization ──
 $targetName = '{escapedTarget}'
-$ethAdapters = if ($targetName) {{
-    @(Get-NetAdapter -Name $targetName -Physical -ErrorAction SilentlyContinue | Where-Object {{
-        $_.MediaType -notlike '*Native 802.11*' -and $_.MediaType -notlike '*Wireless*'
-    }})
-}} else {{
-    @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{
-        ($_.InterfaceDescription -like '*Ethernet*' -or
-         $_.InterfaceDescription -like '*GbE*' -or
-         $_.InterfaceDescription -like '*Gigabit*' -or
-         $_.InterfaceDescription -like '*Realtek*' -or
-         $_.InterfaceDescription -like '*Intel*') -and
-        $_.MediaType -notlike '*Native 802.11*' -and
-        $_.MediaType -notlike '*Wireless*'
-    }})
-}}
-if (-not $ethAdapters -or $ethAdapters.Count -eq 0) {{
-    $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{
-        $_.MediaType -like '*802.3*' -and
-        $_.MediaType -notlike '*Native 802.11*' -and
-        $_.MediaType -notlike '*Wireless*'
-    }})
-}}
+$ethAdapters = Get-TargetEthAdapters $targetName
 
 foreach ($ea in $ethAdapters) {{
     try {{
@@ -479,9 +496,16 @@ foreach ($ea in $ethAdapters) {{
                 // Unified cache registration: caches successful adapters (30m) and skipped adapters (5m)
                 RegisterAuditedAdapters(results);
 
-                if (string.IsNullOrEmpty(cleanAdapter) && !results.Any(r => !r.Success && r.Property != "None"))
+                bool hasFullyAuditedAdapter = results.Any(r => r.Success && r.Property != "None");
+                bool hasFailures = results.Any(r => !r.Success && r.Property != "None");
+                if (string.IsNullOrEmpty(cleanAdapter) && hasFullyAuditedAdapter && !hasFailures)
                 {
                     _lastFullAuditUtc = DateTime.UtcNow;
+                }
+
+                if (results.Any(r => r.Success && r.Property != "All" && r.Property != "None"))
+                {
+                    _hasModifiedDriverProperties = true;
                 }
 
                 return results;
@@ -495,20 +519,28 @@ foreach ($ea in $ethAdapters) {{
         /// <summary>
         /// Restores all previously backed up original driver property values when the user disables the toggle
         /// or clicks Restore Defaults.
-        /// If no backup is recorded (e.g. upgraded from v1.3.1/v1.3.2), falls back to standard manufacturer defaults
-        /// (Power Saving/EEE: Enabled, WOL: 10 Mbps First) across physical Ethernet adapters.
+        /// If no backup is recorded and HasModifiedDriverProperties is false, returns immediately without touching NICs.
+        /// If HasModifiedDriverProperties is true without individual backups (e.g. upgraded from v1.3.1/v1.3.2),
+        /// restores standard power-saving defaults (EEE/Green Ethernet: Enabled) without re-arming WOL 10 Mbps downshift.
         /// </summary>
         public static async Task<List<EthernetOptimizationResult>> RestoreDefaultsAsync(
             Action<string>? onLog,
             CancellationToken token = default)
         {
+            if (_originalValuesBackup.IsEmpty && !HasModifiedDriverProperties)
+            {
+                onLog?.Invoke("[ANTI-10M] No modified driver properties to restore (driver settings unchanged).");
+                return new List<EthernetOptimizationResult>();
+            }
+
             await _auditLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 var scriptLines = new List<string>
                 {
                     "function Add-Result { param([string]$msg) $script:results += $msg }",
-                    "$script:results = @()"
+                    "$script:results = @()",
+                    PowerShellAdapterFilterHelper
                 };
 
                 bool hasRecordedBackups = !_originalValuesBackup.IsEmpty;
@@ -543,56 +575,29 @@ try {{
 }}");
                     }
                 }
-                else
+                else if (HasModifiedDriverProperties)
                 {
-                    // Fallback for v1.3.1/v1.3.2 modifications where no backup was recorded:
-                    // Restore physical 802.3 Ethernet adapters to manufacturer defaults (WOL: 10 Mbps First, Power Saving: Enabled)
-                    onLog?.Invoke("[ANTI-10M] No backup found (e.g. from v1.3.1/v1.3.2); restoring standard manufacturer defaults (Power Saving/EEE: Enabled, WOL: 10 Mbps First)...");
+                    // Fallback for v1.3.1/v1.3.2 modifications where no backup dictionary was recorded:
+                    // Restore power-saving properties (EEE/Green Ethernet/Gigabit Lite) to manufacturer defaults (Enabled).
+                    // NOTE: WOL & Shutdown Link Speed is deliberately NOT forced to '10 Mbps First' here because
+                    // '10 Mbps First' causes link downshift on sleep/reset.
+                    onLog?.Invoke("[ANTI-10M] Restoring driver power-saving properties to factory defaults (EEE/Green Ethernet: Enabled)...");
 
                     scriptLines.Add(@"
-$ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
-    ($_.InterfaceDescription -like '*Ethernet*' -or
-     $_.InterfaceDescription -like '*GbE*' -or
-     $_.InterfaceDescription -like '*Gigabit*' -or
-     $_.InterfaceDescription -like '*Realtek*' -or
-     $_.InterfaceDescription -like '*Intel*') -and
-    $_.MediaType -notlike '*Native 802.11*' -and
-    $_.MediaType -notlike '*Wireless*'
-})
-if (-not $ethAdapters -or $ethAdapters.Count -eq 0) {
-    $ethAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {
-        $_.MediaType -like '*802.3*' -and
-        $_.MediaType -notlike '*Native 802.11*' -and
-        $_.MediaType -notlike '*Wireless*'
-    })
-}
+$ethAdapters = Get-TargetEthAdapters ''
 foreach ($ea in $ethAdapters) {
     try {
-        # Restore WOL & Shutdown Link Speed to 10 Mbps First if available
-        $wol = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName '*WOL*Shutdown*Link*Speed*' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($wol -and $wol.DisplayValue -ne '10 Mbps First') {
-            $target = @($wol.ValidDisplayValues) | Where-Object { $_ -eq '10 Mbps First' } | Select-Object -First 1
-            if ($target) {
-                Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -DisplayValue $target -ErrorAction SilentlyContinue
-                $applied = $false
-                for ($retry = 0; $retry -lt 3; $retry++) {
-                    $verify = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $wol.DisplayName -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if ($verify -and $verify.DisplayValue -eq $target) { $applied = $true; break }
-                    if ($retry -lt 2) { Start-Sleep -Milliseconds 150 }
-                }
-                if ($applied) {
-                    Add-Result ('ETH_MODIFIED|' + $ea.Name + '|' + $wol.DisplayName + '|Current|' + $target)
-                }
-            }
-        }
-
-        # Restore Power Saving / Green Ethernet / EEE / Gigabit Lite to Enabled if available
-        $patterns = @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*')
+        # Restore Power Saving / Green Ethernet / EEE / Gigabit Lite / Auto Disable Gigabit
+        $patterns = @('*Green*Ethernet*', '*Energy*Efficient*Ethernet*', '*Advanced*EEE*', '*Power*Saving*Mode*', '*Gigabit*Lite*', '*Auto*Disable*Gigabit*')
         foreach ($pattern in $patterns) {
             $prop = Get-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($prop -and $prop.DisplayValue -eq 'Disabled') {
-                $target = @($prop.ValidDisplayValues) | Where-Object { $_ -eq 'Enabled' } | Select-Object -First 1
-                if ($target) {
+            if ($prop) {
+                $target = if ($prop.DisplayName -like '*Auto*Disable*Gigabit*') {
+                    @($prop.ValidDisplayValues) | Where-Object { $_ -like '*Disabled*' -or $_ -like '*Disable*' } | Select-Object -First 1
+                } else {
+                    @($prop.ValidDisplayValues) | Where-Object { $_ -like '*Enabled*' -or $_ -like '*Enable*' } | Select-Object -First 1
+                }
+                if ($target -and $prop.DisplayValue -ne $target) {
                     Set-NetAdapterAdvancedProperty -Name $ea.Name -DisplayName $prop.DisplayName -DisplayValue $target -ErrorAction SilentlyContinue
                     $applied = $false
                     for ($retry = 0; $retry -lt 3; $retry++) {
@@ -629,6 +634,11 @@ foreach ($ea in $ethAdapters) {
                     {
                         onLog?.Invoke($"[ANTI-10M] ⚠️ Failed to restore '{res.Property}' on '{res.Adapter}': {res.ErrorMessage}");
                     }
+                }
+
+                if (_originalValuesBackup.IsEmpty)
+                {
+                    _hasModifiedDriverProperties = false;
                 }
 
                 if (results.Count == 0 && !hasRecordedBackups)

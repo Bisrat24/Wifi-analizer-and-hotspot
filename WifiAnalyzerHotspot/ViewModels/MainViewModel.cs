@@ -535,6 +535,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                     }
                     else
                     {
+                        // Save toggle-off state immediately so it persists even if interrupted
+                        _settingsService.SaveSettings(_settings);
+
                         // User opted out; restore any modified properties back to original driver values
                         _ = Task.Run(async () =>
                         {
@@ -548,6 +551,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 });
                             });
                             _settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+                            _settings.HasModifiedDriverProperties = EthernetSpeedOptimizer.HasModifiedDriverProperties;
                             _settingsService.SaveSettings(_settings);
                         });
                     }
@@ -785,6 +789,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     });
                 });
                 _settings.OriginalDriverPropertiesBackup = new(EthernetSpeedOptimizer.GetOriginalValuesBackup(), StringComparer.OrdinalIgnoreCase);
+                _settings.HasModifiedDriverProperties = EthernetSpeedOptimizer.HasModifiedDriverProperties;
                 _settingsService.SaveSettings(_settings);
 
                 int modifiedCount = results.Count(r => r.Success && r.Property != "All" && r.Property != "None");
