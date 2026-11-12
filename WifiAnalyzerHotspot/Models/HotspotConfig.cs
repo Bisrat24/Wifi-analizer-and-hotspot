@@ -510,28 +510,35 @@ namespace WifiAnalyzerHotspot.Models
             set { _bufferbloatHeadroomText = value; OnPropertyChanged(); }
         }
 
-        public long GetBufferbloatThrottleBits(double? measuredSpeedMbps = null)
+        public (long downBits, long upBits) GetBufferbloatThrottleBits(double? measuredDownMbps = null, double? measuredUpMbps = null)
         {
-            // Parse configured line speed and clamp bulk transit to 90% (leaving 10% headroom for gaming ping)
             string choice = BufferbloatLineSpeed ?? "";
-            long lineBps = 100_000_000; // Default 100 Mbps
 
             if (choice.Contains("Auto"))
             {
-                if (measuredSpeedMbps.HasValue && measuredSpeedMbps.Value > 1.0)
+                if (measuredDownMbps.HasValue && measuredDownMbps.Value > 1.0)
                 {
-                    lineBps = (long)(measuredSpeedMbps.Value * 1_000_000);
-                    long throttle = (long)(lineBps * 0.90);
-                    BufferbloatHeadroomText = $"Auto: {measuredSpeedMbps.Value:F1} Mbps (90% Cap: {throttle / 1_000_000.0:F1} Mbps)";
-                    return throttle;
+                    long downBps = (long)(measuredDownMbps.Value * 1_000_000);
+                    long downThrottle = (long)(downBps * 0.90);
+
+                    // Separate upload clamp: use measured upload if available, else estimate 20%
+                    double upMbps = (measuredUpMbps.HasValue && measuredUpMbps.Value > 0.5)
+                        ? measuredUpMbps.Value
+                        : Math.Max(1.0, measuredDownMbps.Value * 0.20);
+                    long upBps = (long)(upMbps * 1_000_000);
+                    long upThrottle = (long)(upBps * 0.90);
+
+                    BufferbloatHeadroomText = $"Auto: {measuredDownMbps.Value:F1}M↓ / {upMbps:F1}M↑ (Cap 90%)";
+                    return (downThrottle, upThrottle);
                 }
                 else
                 {
-                    BufferbloatHeadroomText = "Auto: Awaiting speed test (Default 90 Mbps limit)";
-                    return 90_000_000;
+                    BufferbloatHeadroomText = "Auto: Awaiting speed test (Transit unthrottled)";
+                    return (0, 0); // Do not apply arbitrary throttle before measuring
                 }
             }
 
+            long lineBps = 100_000_000;
             if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
             else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
             else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
@@ -541,7 +548,7 @@ namespace WifiAnalyzerHotspot.Models
 
             long fixedThrottle = (long)(lineBps * 0.90);
             BufferbloatHeadroomText = $"10% Reserved for Ping (Cap: {fixedThrottle / 1_000_000.0:0.##} Mbps)";
-            return fixedThrottle;
+            return (fixedThrottle, fixedThrottle);
         }
 
         // ── Zero-Latency DNS Caching ──
@@ -552,7 +559,7 @@ namespace WifiAnalyzerHotspot.Models
             set { _isZeroLatencyDnsEnabled = value; OnPropertyChanged(); }
         }
 
-        private string _dnsStatsText = "Active (Anycast 1.1.1.1 / 8.8.8.8)";
+        private string _dnsStatsText = "Active (Local / Corporate DNS)";
         public string DnsStatsText
         {
             get => _dnsStatsText;

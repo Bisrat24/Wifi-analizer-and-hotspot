@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.4.1" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.4.2" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.1">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.2">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1271,9 +1271,9 @@
                                         <StackPanel Orientation="Vertical" Margin="4,0,0,0">
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E5FF"/>
-                                                <TextBlock Text="Zero-Latency Anycast DNS Cache" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                                <TextBlock Text="Zero-Latency Local &amp; Corporate DNS Cache" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
                                             </StackPanel>
-                                            <TextBlock Text="Parallel race to Cloudflare 1.1.1.1 &amp; Google 8.8.8.8 with sub-millisecond in-memory cache on 192.168.137.1." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Resolves via local network/corporate DNS (with Anycast fallback) and sub-millisecond in-memory caching on 192.168.137.1." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </CheckBox>
                                     <TextBlock Text="{Binding Hotspot.DnsStatsText}" FontSize="10" FontWeight="SemiBold" Foreground="#80DEEA" Margin="24,4,0,0"

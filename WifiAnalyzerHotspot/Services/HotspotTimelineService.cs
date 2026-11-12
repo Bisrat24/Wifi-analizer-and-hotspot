@@ -19,7 +19,9 @@ namespace WifiAnalyzerHotspot.Services
         private static readonly string TimelineFilePath = Path.Combine(TimelineDirectory, "hotspot_timeline.json");
 
         private static readonly object _fileLock = new();
+        private static readonly SemaphoreSlim _saveLock = new(1, 1);
         private readonly ConcurrentDictionary<string, DateTime> _sessionStartTimes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, byte> _baselineMacs = new(StringComparer.OrdinalIgnoreCase);
 
         public ObservableCollection<HotspotTimelineEvent> Events { get; } = new();
 
@@ -35,6 +37,7 @@ namespace WifiAnalyzerHotspot.Services
             {
                 if (string.IsNullOrWhiteSpace(mac)) continue;
                 string cleanMac = HotspotModel.NormalizeMac(mac);
+                _baselineMacs[cleanMac] = 1;
                 if (!_sessionStartTimes.ContainsKey(cleanMac))
                 {
                     _sessionStartTimes[cleanMac] = DateTime.Now;
@@ -47,6 +50,12 @@ namespace WifiAnalyzerHotspot.Services
             if (string.IsNullOrWhiteSpace(macAddress)) return;
             string cleanMac = HotspotModel.NormalizeMac(macAddress);
             _sessionStartTimes[cleanMac] = DateTime.Now;
+
+            // Suppress duplicate "Joined" event spam for baseline-seeded clients already present at startup
+            if (_baselineMacs.TryRemove(cleanMac, out _))
+            {
+                return;
+            }
 
             AddEvent(new HotspotTimelineEvent
             {
@@ -164,14 +173,14 @@ namespace WifiAnalyzerHotspot.Services
                     Events.RemoveAt(Events.Count - 1);
                 }
                 var snapshot = Events.Take(500).ToList();
-                Task.Run(() => SaveEvents(snapshot));
+                _ = Task.Run(async () => await SaveEventsAsync(snapshot));
             });
         }
 
         public void ClearEvents()
         {
             Events.Clear();
-            Task.Run(() => SaveEvents(new List<HotspotTimelineEvent>()));
+            _ = Task.Run(async () => await SaveEventsAsync(new List<HotspotTimelineEvent>()));
         }
 
         public static string FormatDuration(TimeSpan duration)
@@ -251,21 +260,23 @@ namespace WifiAnalyzerHotspot.Services
             catch { }
         }
 
-        private void SaveEvents(List<HotspotTimelineEvent>? snapshot = null)
+        private async Task SaveEventsAsync(List<HotspotTimelineEvent>? snapshot = null)
         {
+            await _saveLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                lock (_fileLock)
-                {
-                    Directory.CreateDirectory(TimelineDirectory);
-                    var listToSave = snapshot ?? Events.Take(500).ToList();
-                    string json = JsonSerializer.Serialize(listToSave, new JsonSerializerOptions { WriteIndented = true });
-                    string tempPath = TimelineFilePath + ".tmp";
-                    File.WriteAllText(tempPath, json);
-                    File.Move(tempPath, TimelineFilePath, overwrite: true);
-                }
+                Directory.CreateDirectory(TimelineDirectory);
+                var listToSave = snapshot ?? Events.Take(500).ToList();
+                string json = JsonSerializer.Serialize(listToSave, new JsonSerializerOptions { WriteIndented = true });
+                string tempPath = TimelineFilePath + ".tmp";
+                await File.WriteAllTextAsync(tempPath, json).ConfigureAwait(false);
+                File.Move(tempPath, TimelineFilePath, overwrite: true);
             }
             catch { }
+            finally
+            {
+                _saveLock.Release();
+            }
         }
     }
 }

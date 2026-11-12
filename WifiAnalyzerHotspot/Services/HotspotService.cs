@@ -1462,7 +1462,7 @@ if ($connectionProfile) {
         /// by client Wi-Fi chips, followed by fast Ping/TCP fallback.
         /// Unresponsive/ghost devices are flagged Disconnected after 2 failed checks and purged.
         /// </summary>
-        private static async Task EnrichClientSpeedAsync(IEnumerable<HotspotClientInfo> clients, string activeBand)
+        private async Task EnrichClientSpeedAsync(IEnumerable<HotspotClientInfo> clients, string activeBand)
         {
             var clientList = clients.ToList();
             if (clientList.Count == 0) return;
@@ -1687,14 +1687,14 @@ if ($connectionProfile) {
                         client.QosLimit = stats.QosLimit;
                         client.Priority = stats.Priority > 0 ? stats.Priority : 5;
 
-                        if (IsClientPaused(normMac))
+                        var pauseExp = GetPauseExpiration(normMac);
+                        if (pauseExp.HasValue)
                         {
-                            var exp = GetPauseExpiration(normMac);
-                            var remaining = exp.HasValue ? (exp.Value - DateTime.UtcNow) : TimeSpan.Zero;
+                            var remaining = pauseExp.Value - DateTime.UtcNow;
                             if (remaining.TotalSeconds > 0)
                             {
                                 client.IsPaused = true;
-                                client.PauseExpiresAt = exp;
+                                client.PauseExpiresAt = pauseExp;
                                 client.PauseStatusText = remaining.TotalMinutes >= 1
                                     ? $"⏸️ Paused ({(int)remaining.TotalMinutes}m {remaining.Seconds:D2}s left)"
                                     : $"⏸️ Paused ({remaining.Seconds}s left)";
@@ -1703,13 +1703,22 @@ if ($connectionProfile) {
                             }
                             else
                             {
+                                // Expired: Automatically lift NetQoS clamp and restore QoS/Priority
                                 client.IsPaused = false;
+                                client.PauseExpiresAt = null;
                                 client.PauseStatusText = string.Empty;
+                                if (_pausedClients.TryRemove(normMac, out _))
+                                {
+                                    _pausedMacToIp.TryRemove(normMac, out _);
+                                    string restoreIp = client.IpAddress;
+                                    _ = Task.Run(async () => await ResumeClientAsync(normMac, restoreIp));
+                                }
                             }
                         }
                         else
                         {
                             client.IsPaused = false;
+                            client.PauseExpiresAt = null;
                             client.PauseStatusText = string.Empty;
                         }
                     }
@@ -2097,8 +2106,7 @@ try {{
             string clean = HotspotModel.NormalizeMac(mac);
             if (_pausedClients.TryGetValue(clean, out var exp))
             {
-                if (DateTime.UtcNow < exp) return true;
-                _pausedClients.TryRemove(clean, out _);
+                return DateTime.UtcNow < exp;
             }
             return false;
         }
@@ -2109,8 +2117,7 @@ try {{
             string clean = HotspotModel.NormalizeMac(mac);
             if (_pausedClients.TryGetValue(clean, out var exp))
             {
-                if (DateTime.UtcNow < exp) return exp;
-                _pausedClients.TryRemove(clean, out _);
+                return exp;
             }
             return null;
         }
@@ -2136,20 +2143,26 @@ try {{
 
         public static void EvictStalePausePolicies(string cleanMac, string? ip = null)
         {
-            try
-            {
-                if (string.IsNullOrEmpty(cleanMac)) return;
-                string normMac = HotspotModel.NormalizeMac(cleanMac);
-                _pausedMacToIp.TryRemove(normMac, out _);
+            if (string.IsNullOrEmpty(cleanMac)) return;
+            string normMac = HotspotModel.NormalizeMac(cleanMac);
 
-                string script = $@"
+            // Gate: only launch PowerShell if this device was actually paused
+            bool wasPaused = _pausedClients.TryRemove(normMac, out _) || _pausedMacToIp.TryRemove(normMac, out _);
+            if (!wasPaused) return;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    string script = $@"
 $ErrorActionPreference = 'SilentlyContinue'
 Remove-NetQosPolicy -Name 'Hotspot_Pause_In_{normMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{normMac}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 ";
-                RunPowerShell(script, 3000);
-            }
-            catch { }
+                    await RunPowerShellAsync(script, 3000);
+                }
+                catch { }
+            });
         }
 
         public static Dictionary<string, DateTime> GetPausedClientsSnapshot()
@@ -2538,6 +2551,10 @@ try {{
                         if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && targetIp.Contains('.'))
                         {
                             _pausedMacToIp[cleanMac] = targetIp;
+                            // Invalidate applied QoS limits and priorities cache so Resume will re-assert them cleanly
+                            _appliedQosLimits.TryRemove(cleanMac, out _);
+                            _appliedPriorities.TryRemove(cleanMac, out _);
+
                             string script = $@"
 $ErrorActionPreference = 'Stop'
 $downName = 'Hotspot_Pause_In_{cleanMac}'
@@ -2725,11 +2742,11 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                         }
                     }
 
-                    // 3. Re-enforce QoS Limits for active clients
+                    // 3. Re-enforce QoS Limits for active clients (skip blocked or currently paused clients)
                     foreach (var client in activeClients)
                     {
                         string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
-                        if (IsClientBlocked(cleanMac)) continue;
+                        if (IsClientBlocked(cleanMac) || IsClientPaused(cleanMac)) continue;
 
                         string? limit = null;
                         if (!string.IsNullOrEmpty(client.QosLimit) && client.QosLimit != "Unlimited")
@@ -2748,11 +2765,11 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                         }
                     }
 
-                    // 4. Re-enforce Client Priorities for active clients
+                    // 4. Re-enforce Client Priorities for active clients (skip blocked or currently paused clients)
                     foreach (var client in activeClients)
                     {
                         string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
-                        if (IsClientBlocked(cleanMac)) continue;
+                        if (IsClientBlocked(cleanMac) || IsClientPaused(cleanMac)) continue;
 
                         int prio = client.Priority > 0 ? client.Priority : 5;
                         if (priorities != null && priorities.TryGetValue(cleanMac, out int savedPrio) && savedPrio > 0)

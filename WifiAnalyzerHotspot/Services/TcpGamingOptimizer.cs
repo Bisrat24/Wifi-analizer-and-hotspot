@@ -99,7 +99,15 @@ namespace WifiAnalyzerHotspot.Services
                     {
                         await proc.WaitForExitAsync(token).ConfigureAwait(false);
                     }
-                    onLog?.Invoke("[TCP-Tuning] ECN (Explicit Congestion Notification) set to Enabled.");
+                    string verifiedEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
+                    if (verifiedEcn == "enabled")
+                    {
+                        onLog?.Invoke("[TCP-Tuning] ECN (Explicit Congestion Notification) set to Enabled (verified).");
+                    }
+                    else
+                    {
+                        onLog?.Invoke($"[TCP-Tuning] Notice: ECN set returned status: {verifiedEcn}");
+                    }
                 }
                 catch { }
 
@@ -165,32 +173,33 @@ namespace WifiAnalyzerHotspot.Services
                     }
                 }
 
-                // Restore ECN capability to original captured state
-                string restoreEcn = "disabled";
-                if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) && !string.IsNullOrEmpty(savedEcn))
+                // Restore ECN capability only if an original state was backed up
+                if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) &&
+                    !string.IsNullOrEmpty(savedEcn) && savedEcn != "__MISSING__")
                 {
-                    restoreEcn = savedEcn;
-                    _originalTcpBackup.TryRemove("__GLOBAL__|ECNCapability", out _);
-                }
-
-                try
-                {
-                    var psi = new ProcessStartInfo
+                    try
                     {
-                        FileName = "netsh.exe",
-                        Arguments = $"int tcp set global ecncapability={restoreEcn}",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true
-                    };
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "netsh.exe",
+                            Arguments = $"int tcp set global ecncapability={savedEcn}",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true
+                        };
+                        using var proc = Process.Start(psi);
+                        if (proc != null)
+                        {
+                            await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                        }
+                        onLog?.Invoke($"[TCP-Tuning] ECN capability restored to '{savedEcn}'.");
                     }
-                    onLog?.Invoke($"[TCP-Tuning] ECN capability restored to '{restoreEcn}'.");
+                    catch { }
+                    finally
+                    {
+                        _originalTcpBackup.TryRemove("__GLOBAL__|ECNCapability", out _);
+                    }
                 }
-                catch { }
 
                 onLog?.Invoke($"[TCP-Tuning] ✓ Restored default TCP stack configuration ({restoredCount} parameters reverted).");
                 return (true, $"Restored {restoredCount} default TCP parameters");
@@ -252,16 +261,15 @@ namespace WifiAnalyzerHotspot.Services
                     await proc.WaitForExitAsync(token).ConfigureAwait(false);
                     foreach (var line in output.Split('\n'))
                     {
-                        if (line.Contains("ECN Capability", StringComparison.OrdinalIgnoreCase))
+                        if (line.Contains("ECN", StringComparison.OrdinalIgnoreCase))
                         {
                             var parts = line.Split(':');
                             if (parts.Length > 1)
                             {
                                 string val = parts[1].Trim().ToLowerInvariant();
-                                if (val == "enabled" || val == "disabled" || val == "default")
-                                {
-                                    return val;
-                                }
+                                if (val.Contains("enabled")) return "enabled";
+                                if (val.Contains("disabled")) return "disabled";
+                                if (val.Contains("default")) return "default";
                             }
                         }
                     }

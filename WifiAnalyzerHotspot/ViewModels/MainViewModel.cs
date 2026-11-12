@@ -466,7 +466,11 @@ namespace WifiAnalyzerHotspot.ViewModels
             if (Hotspot.IsAntiBufferbloatEnabled)
             {
                 HotspotPriorityService.EnableAntiBufferbloat = true;
-                HotspotPriorityService.BufferbloatThrottleRateBits = Hotspot.GetBufferbloatThrottleBits(SpeedMetrics.DownloadMbps);
+                double? downVal = _settings.MeasuredDownloadMbps > 1.0 ? _settings.MeasuredDownloadMbps : (double?)null;
+                double? upVal = _settings.MeasuredUploadMbps > 0.5 ? _settings.MeasuredUploadMbps : (double?)null;
+                var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal);
+                HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
+                HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
             }
             // DNS Cache is tied strictly to the Hotspot lifecycle and starts only when the Hotspot is active on 192.168.137.1
             if (!string.IsNullOrWhiteSpace(_settings.HotspotSsid)) _hotspotSsidInput = _settings.HotspotSsid;
@@ -587,7 +591,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settingsService.SaveSettings(_settings);
 
                     HotspotPriorityService.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
-                    HotspotPriorityService.BufferbloatThrottleRateBits = Hotspot.GetBufferbloatThrottleBits(SpeedMetrics.DownloadMbps);
+                    double? downVal = SpeedMetrics.DownloadMbps > 1.0 ? SpeedMetrics.DownloadMbps : (_settings.MeasuredDownloadMbps > 1.0 ? _settings.MeasuredDownloadMbps : (double?)null);
+                    double? upVal = SpeedMetrics.UploadMbps > 0.5 ? SpeedMetrics.UploadMbps : (_settings.MeasuredUploadMbps > 0.5 ? _settings.MeasuredUploadMbps : (double?)null);
+                    var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal);
+                    HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
+                    HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
 
                     _ = Task.Run(async () =>
                     {
@@ -605,7 +613,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     {
                         bool started = _dnsCacheService.Start();
                         Hotspot.StatusMessage = started
-                            ? "⚡ Zero-Latency Anycast DNS Cache active on 192.168.137.1:53"
+                            ? "⚡ Zero-Latency DNS Cache active on 192.168.137.1:53 (Local / Corporate DNS)"
                             : $"Notice: {_dnsCacheService.LastError ?? "Could not bind port 53"}";
                     }
                     else
@@ -1683,11 +1691,23 @@ namespace WifiAnalyzerHotspot.ViewModels
                     val => Application.Current?.Dispatcher.Invoke(() => SpeedMetrics.GaugeValue = val),
                     _speedTestCts.Token);
 
+                // Persist measured speeds for future app sessions
+                if (SpeedMetrics.DownloadMbps > 1.0)
+                {
+                    _settings.MeasuredDownloadMbps = SpeedMetrics.DownloadMbps;
+                    if (SpeedMetrics.UploadMbps > 0.5)
+                    {
+                        _settings.MeasuredUploadMbps = SpeedMetrics.UploadMbps;
+                    }
+                    _settingsService.SaveSettings(_settings);
+                }
+
                 // Dynamic anti-bufferbloat queue clamping sync from speed test results
                 if (SpeedMetrics.DownloadMbps > 1.0 && Hotspot.IsAntiBufferbloatEnabled && (Hotspot.BufferbloatLineSpeed?.Contains("Auto") ?? true))
                 {
-                    long throttleBits = Hotspot.GetBufferbloatThrottleBits(SpeedMetrics.DownloadMbps);
-                    HotspotPriorityService.BufferbloatThrottleRateBits = throttleBits;
+                    var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(SpeedMetrics.DownloadMbps, SpeedMetrics.UploadMbps);
+                    HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
+                    HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
                     if (Hotspot.IsRunning && HotspotPriorityService.IsPriorityEngaged)
                     {
                         _ = Task.Run(async () =>
@@ -1795,24 +1815,26 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.TotalBytesSent = fresh.TotalBytesSent;
                         existing.TotalDataFormatted = fresh.TotalDataFormatted;
                         existing.DataBreakdown = fresh.DataBreakdown;
-                        existing.IsPaused = fresh.IsPaused;
-                        existing.PauseExpiresAt = fresh.PauseExpiresAt;
-                        existing.PauseStatusText = fresh.PauseStatusText;
+                        bool wasPaused = existing.IsPaused;
+                        DateTime? priorExpiry = existing.PauseExpiresAt ?? fresh.PauseExpiresAt;
 
                         // Check automatic resumption if pause expired
-                        if (existing.IsPaused && existing.PauseExpiresAt.HasValue && DateTime.UtcNow >= existing.PauseExpiresAt.Value)
+                        if (wasPaused && priorExpiry.HasValue && DateTime.UtcNow >= priorExpiry.Value)
                         {
                             _ = Task.Run(async () =>
                             {
                                 await _hotspotService.ResumeClientAsync(existing.MacAddress, existing.IpAddress);
                                 _timelineService.RecordEvent("Resumed", existing.HostName, existing.MacAddress, existing.IpAddress, "Timer expired (Auto-resumed)");
-                                Dispatch(() =>
-                                {
-                                    existing.IsPaused = false;
-                                    existing.PauseExpiresAt = null;
-                                    existing.PauseStatusText = string.Empty;
-                                });
                             });
+                            existing.IsPaused = false;
+                            existing.PauseExpiresAt = null;
+                            existing.PauseStatusText = string.Empty;
+                        }
+                        else
+                        {
+                            existing.IsPaused = fresh.IsPaused;
+                            existing.PauseExpiresAt = fresh.PauseExpiresAt;
+                            existing.PauseStatusText = fresh.PauseStatusText;
                         }
 
                         if (existing.OnQosChanged == null)

@@ -458,6 +458,20 @@ namespace WifiAnalyzerHotspot.Models
             set { _bufferbloatLineSpeed = value; OnPropertyChanged(); }
         }
 
+        private double _measuredDownloadMbps = 0;
+        public double MeasuredDownloadMbps
+        {
+            get => _measuredDownloadMbps;
+            set { _measuredDownloadMbps = value; OnPropertyChanged(); }
+        }
+
+        private double _measuredUploadMbps = 0;
+        public double MeasuredUploadMbps
+        {
+            get => _measuredUploadMbps;
+            set { _measuredUploadMbps = value; OnPropertyChanged(); }
+        }
+
         private bool _enableZeroLatencyDns = true;
         public bool EnableZeroLatencyDns
         {
