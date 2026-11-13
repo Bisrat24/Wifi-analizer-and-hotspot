@@ -748,8 +748,17 @@ if ($connectionProfile) {{
         while ($cfgWait -lt 30) {{
             Start-Sleep -Milliseconds 100
             try {{
-                $check = $mgr.GetCurrentAccessPointConfiguration()
-                if ($check.Ssid -eq ""{safeSsid}"") {{ $cfgSynced = $true; break }}
+                $status = $op.Status
+                if ($status -eq 1) {{
+                    $check = $mgr.GetCurrentAccessPointConfiguration()
+                    $passOk = [string]::IsNullOrEmpty($check.Passphrase) -or ($check.Passphrase -eq ""{safePass}"")
+                    if ($check.Ssid -eq ""{safeSsid}"" -and $passOk) {{
+                        $cfgSynced = $true
+                        break
+                    }}
+                }} elseif ($status -eq 2 -or $status -eq 3) {{
+                    break
+                }}
             }} catch {{}}
             $cfgWait++
         }}
@@ -757,7 +766,7 @@ if ($connectionProfile) {{
         if ($cfgSynced) {{
             @{{ Result = 'Success' }} | ConvertTo-Json -Compress
         }} else {{
-            @{{ Result = 'Error'; Error = 'Access point configuration timed out after 3s' }} | ConvertTo-Json -Compress
+            @{{ Result = 'Error'; Error = 'Access point configuration timed out or credentials failed to verify after 3s' }} | ConvertTo-Json -Compress
         }}
     }} catch {{
         @{{ Result = 'Error'; Error = $_.Exception.Message }} | ConvertTo-Json -Compress
@@ -968,13 +977,28 @@ try {{
 
     $cfgOp = $mgr.ConfigureAccessPointAsync($config)
     $cfgWait = 0
+    $cfgSynced = $false
     while ($cfgWait -lt 30) {{
         Start-Sleep -Milliseconds 100
         try {{
-            $check = $mgr.GetCurrentAccessPointConfiguration()
-            if ($check.Ssid -eq ""{safeSsid}"") {{ break }}
+            $status = $cfgOp.Status
+            if ($status -eq 1) {{
+                $check = $mgr.GetCurrentAccessPointConfiguration()
+                $passOk = [string]::IsNullOrEmpty($check.Passphrase) -or ($check.Passphrase -eq ""{safePass}"")
+                if ($check.Ssid -eq ""{safeSsid}"" -and $passOk) {{
+                    $cfgSynced = $true
+                    break
+                }}
+            }} elseif ($status -eq 2 -or $status -eq 3) {{
+                break
+            }}
         }} catch {{}}
         $cfgWait++
+    }}
+
+    if (-not $cfgSynced) {{
+        @{{ Result = 'Error'; Error = 'Access point configuration timed out or credentials failed to verify after 3s.' }} | ConvertTo-Json -Compress
+        return
     }}
 
     # 5. Start Tethering cleanly and poll operational state

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -45,24 +47,39 @@ namespace WifiAnalyzerHotspot
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WifiAnalyzerHotspot");
         private static readonly string CrashLogPath = Path.Combine(LogDirectory, "crash.log");
         private static readonly string StartupLogPath = Path.Combine(LogDirectory, "startup.log");
-        private static readonly object _startupLogLock = new();
+        private static readonly ConcurrentQueue<string> _startupMilestones = new();
 
         public static void LogStartupMilestone(string milestone)
         {
-            try
+            _startupMilestones.Enqueue($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{StartupSw.ElapsedMilliseconds,5} ms] {milestone}");
+        }
+
+        public static void FlushStartupMilestones()
+        {
+            Task.Run(() =>
             {
-                lock (_startupLogLock)
+                try
                 {
+                    if (_startupMilestones.IsEmpty) return;
                     Directory.CreateDirectory(LogDirectory);
                     var fi = new FileInfo(StartupLogPath);
                     if (fi.Exists && fi.Length > 64 * 1024)
                     {
                         File.Delete(StartupLogPath);
                     }
-                    File.AppendAllText(StartupLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{StartupSw.ElapsedMilliseconds,5} ms] {milestone}\n");
+
+                    var lines = new List<string>();
+                    while (_startupMilestones.TryDequeue(out var line))
+                    {
+                        lines.Add(line);
+                    }
+                    if (lines.Count > 0)
+                    {
+                        File.AppendAllLines(StartupLogPath, lines);
+                    }
                 }
-            }
-            catch { }
+                catch { }
+            });
         }
 
         protected override void OnStartup(StartupEventArgs e)

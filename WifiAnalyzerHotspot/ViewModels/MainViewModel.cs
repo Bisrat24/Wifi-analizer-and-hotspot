@@ -37,6 +37,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private CancellationTokenSource? _speedTestCts;
         private readonly SemaphoreSlim _tcpToggleLock = new(1, 1);
         private readonly SemaphoreSlim _priorityEngageLock = new(1, 1);
+        private int _priorityEngagePending = 0;
         private int _fastWifiCheckCounter = 0;
         private bool _isFirstHotspotRefresh = true;
         private int _hotspotRefreshCounter = 0;
@@ -441,7 +442,12 @@ namespace WifiAnalyzerHotspot.ViewModels
             if (!string.IsNullOrWhiteSpace(_settings.BufferbloatLineSpeed))
                 Hotspot.BufferbloatLineSpeed = _settings.BufferbloatLineSpeed;
             if (!string.IsNullOrWhiteSpace(_settings.BufferbloatTarget))
-                Hotspot.BufferbloatTarget = _settings.BufferbloatTarget;
+            {
+                if (_settings.BufferbloatTarget.Contains("Entire PC", StringComparison.OrdinalIgnoreCase))
+                    Hotspot.BufferbloatTarget = "Entire PC Uplink (All Adapters)";
+                else
+                    Hotspot.BufferbloatTarget = _settings.BufferbloatTarget;
+            }
             HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
             Hotspot.IsZeroLatencyDnsEnabled = _settings.EnableZeroLatencyDns;
             Hotspot.IsAutoSteerEnabled = _settings.EnableAutoSteer;
@@ -602,21 +608,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                     if (enabledChanged || targetChanged || throttleChanged)
                     {
-                        _ = Task.Run(async () =>
-                        {
-                            await _priorityEngageLock.WaitAsync();
-                            try
-                            {
-                                var res = await _hotspotService.OptimizePriorityAsync();
-                                Dispatch(() => Hotspot.StatusMessage = Hotspot.IsAntiBufferbloatEnabled
-                                    ? $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})"
-                                    : "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)");
-                            }
-                            finally
-                            {
-                                _priorityEngageLock.Release();
-                            }
-                        });
+                        TriggerPriorityEngage();
                     }
                 }
                 else if (e.PropertyName == nameof(Hotspot.IsZeroLatencyDnsEnabled))
@@ -711,22 +703,10 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _settingsService.SaveSettings(_settings);
             };
 
-            ApplyHotspotPriorityCommand = new RelayCommand(async () =>
+            ApplyHotspotPriorityCommand = new RelayCommand(() =>
             {
                 Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
-                await _priorityEngageLock.WaitAsync();
-                try
-                {
-                    var res = await _hotspotService.OptimizePriorityAsync();
-                    Hotspot.PriorityStatusText = res.success
-                        ? "⚡ Highest PC Priority: HIGH"
-                        : "⚠️ Priority applied with warnings";
-                    Hotspot.StatusMessage = res.message;
-                }
-                finally
-                {
-                    _priorityEngageLock.Release();
-                }
+                TriggerPriorityEngage("⚡ Highest PC Priority Mode active");
             });
 
             ScanNowCommand = new RelayCommand(async () => await PerformScanAsync());
@@ -1492,19 +1472,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                 if (Hotspot.IsRunning && HotspotPriorityService.IsPriorityEngaged)
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        await _priorityEngageLock.WaitAsync();
-                        try
-                        {
-                            await _hotspotService.OptimizePriorityAsync();
-                            Dispatch(() => Hotspot.StatusMessage = $"🛡️ Network changed: Anti-bufferbloat updated ({Hotspot.BufferbloatHeadroomText})");
-                        }
-                        finally
-                        {
-                            _priorityEngageLock.Release();
-                        }
-                    });
+                    TriggerPriorityEngage($"🛡️ Network changed: Anti-bufferbloat updated ({Hotspot.BufferbloatHeadroomText})");
                 }
             }
             _lastActiveNetworkSignature = currentSig;
@@ -1852,18 +1820,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
                     if (Hotspot.IsRunning && HotspotPriorityService.IsPriorityEngaged)
                     {
-                        _ = Task.Run(async () =>
-                        {
-                            await _priorityEngageLock.WaitAsync();
-                            try
-                            {
-                                await _hotspotService.OptimizePriorityAsync();
-                            }
-                            finally
-                            {
-                                _priorityEngageLock.Release();
-                            }
-                        });
+                        TriggerPriorityEngage();
                     }
                 }
             }
@@ -2277,6 +2234,56 @@ namespace WifiAnalyzerHotspot.ViewModels
             _settingsService.SaveSettings(_settings);
         }
 
+        private void TriggerPriorityEngage(string? customSuccessStatus = null)
+        {
+            _ = Task.Run(async () =>
+            {
+                Interlocked.Exchange(ref _priorityEngagePending, 1);
+                if (!await _priorityEngageLock.WaitAsync(0))
+                {
+                    return; // Another engage pass is actively running; it will execute a follow-up run after completion
+                }
+
+                try
+                {
+                    while (Interlocked.Exchange(ref _priorityEngagePending, 0) > 0)
+                    {
+                        var res = await _hotspotService.OptimizePriorityAsync();
+                        Dispatch(() =>
+                        {
+                            if (!string.IsNullOrEmpty(customSuccessStatus))
+                            {
+                                Hotspot.StatusMessage = customSuccessStatus;
+                            }
+                            else if (!Hotspot.IsAntiBufferbloatEnabled)
+                            {
+                                Hotspot.StatusMessage = "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)";
+                            }
+                            else if (HotspotPriorityService.BufferbloatDownThrottleRateBits == 0 && HotspotPriorityService.BufferbloatUpThrottleRateBits == 0)
+                            {
+                                Hotspot.StatusMessage = $"⚠️ Anti-Bufferbloat inactive ({Hotspot.BufferbloatHeadroomText})";
+                            }
+                            else
+                            {
+                                Hotspot.StatusMessage = $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})";
+                            }
+
+                            if (customSuccessStatus != null)
+                            {
+                                Hotspot.PriorityStatusText = res.success
+                                    ? "⚡ Highest PC Priority: HIGH"
+                                    : "⚠️ Priority applied with warnings";
+                            }
+                        });
+                    }
+                }
+                finally
+                {
+                    _priorityEngageLock.Release();
+                }
+            });
+        }
+
         public void Dispose()
         {
             if (_networkAddressChangedHandler != null)
@@ -2289,6 +2296,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             _settingsDebounceTimer?.Stop();
             _speedTestCts?.Cancel();
             _speedTestCts?.Dispose();
+            _priorityEngageLock?.Dispose();
+            _tcpToggleLock?.Dispose();
             _dnsCacheService?.Dispose();
             HotspotPriorityService.CleanupAllPolicies();
         }

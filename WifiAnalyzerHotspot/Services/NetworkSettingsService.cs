@@ -60,6 +60,19 @@ namespace WifiAnalyzerHotspot.Services
                         EthernetSpeedOptimizer.HasModifiedDriverProperties = loaded.HasModifiedDriverProperties;
                         TcpGamingOptimizer.LoadOriginalTcpBackup(loaded.OriginalTcpSettingsBackup);
 
+                        // Normalize legacy/renamed Bufferbloat target strings
+                        if (!string.IsNullOrWhiteSpace(loaded.BufferbloatTarget))
+                        {
+                            if (loaded.BufferbloatTarget.Contains("Entire PC", StringComparison.OrdinalIgnoreCase))
+                            {
+                                loaded.BufferbloatTarget = "Entire PC Uplink (All Adapters)";
+                            }
+                            else if (!loaded.BufferbloatTarget.Equals("Hotspot Only", StringComparison.OrdinalIgnoreCase))
+                            {
+                                loaded.BufferbloatTarget = "Hotspot Only";
+                            }
+                        }
+
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
                         ApplyProxy(loaded);
@@ -136,10 +149,6 @@ namespace WifiAnalyzerHotspot.Services
                 return; // State unchanged; eliminate redundant schtasks.exe process spawn and disk thrashing on HDDs
             }
 
-            _lastConfiguredStartupEnabled = enable;
-            _lastConfiguredStartupMinimized = startMinimized;
-            _lastConfiguredExePath = exePath;
-
             Task.Run(() =>
             {
                 try
@@ -188,6 +197,15 @@ namespace WifiAnalyzerHotspot.Services
                     if (!exited)
                     {
                         try { p.Kill(true); } catch { }
+                        return;
+                    }
+
+                    // Stamp deduplication cache only upon verified successful execution
+                    if (p.ExitCode == 0)
+                    {
+                        _lastConfiguredStartupEnabled = enable;
+                        _lastConfiguredStartupMinimized = startMinimized;
+                        _lastConfiguredExePath = exePath;
                     }
                 }
                 catch { }
@@ -200,6 +218,14 @@ namespace WifiAnalyzerHotspot.Services
             {
                 using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false);
                 if (key?.GetValue(StartupTaskName) != null) return true;
+            }
+            catch { }
+
+            try
+            {
+                using var taskKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                    $@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\{StartupTaskName}", false);
+                if (taskKey != null) return true;
             }
             catch { }
 

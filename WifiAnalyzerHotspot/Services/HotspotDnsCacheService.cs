@@ -393,19 +393,24 @@ namespace WifiAnalyzerHotspot.Services
 
                                 Interlocked.Increment(ref _totalQueries);
 
-                                ushort queryId = (ushort)((queryBytes[0] << 8) | queryBytes[1]);
-                                string cacheKey = ExtractCacheKey(queryBytes);
+                                var parsed = ParseDnsQuery(queryBytes);
                                 byte[]? response = null;
 
                                 // 1. Check in-memory cache
-                                if (!string.IsNullOrEmpty(cacheKey) && _cache.TryGetValue(cacheKey, out var entry))
+                                if (!string.IsNullOrEmpty(parsed.CacheKey) && _cache.TryGetValue(parsed.CacheKey, out var entry))
                                 {
                                     if (DateTime.UtcNow < entry.ExpiresAt)
                                     {
                                         Interlocked.Increment(ref _cacheHits);
                                         response = (byte[])entry.Response.Clone();
-                                        response[0] = (byte)(queryId >> 8);
-                                        response[1] = (byte)(queryId & 0xFF);
+                                        response[0] = (byte)(parsed.QueryId >> 8);
+                                        response[1] = (byte)(parsed.QueryId & 0xFF);
+
+                                        // Splice question section so response carries client's exact casing (0x20 compliant)
+                                        if (parsed.QuestionLength > 0 && response.Length >= 12 + parsed.QuestionLength)
+                                        {
+                                            Buffer.BlockCopy(queryBytes, 12, response, 12, parsed.QuestionLength);
+                                        }
                                     }
                                 }
 
@@ -415,13 +420,13 @@ namespace WifiAnalyzerHotspot.Services
                                     var (fwdResp, isLocal) = await ForwardQueryAsync(queryBytes, connCts.Token).ConfigureAwait(false);
                                     if (fwdResp != null && fwdResp.Length >= 12)
                                     {
-                                        fwdResp[0] = (byte)(queryId >> 8);
-                                        fwdResp[1] = (byte)(queryId & 0xFF);
+                                        fwdResp[0] = (byte)(parsed.QueryId >> 8);
+                                        fwdResp[1] = (byte)(parsed.QueryId & 0xFF);
                                         response = fwdResp;
 
                                         int rcode = response[3] & 0x0F;
                                         bool isTruncated = (response[2] & 0x02) != 0;
-                                        if (!string.IsNullOrEmpty(cacheKey) && !isTruncated)
+                                        if (!string.IsNullOrEmpty(parsed.CacheKey) && !isTruncated)
                                         {
                                             if (_cache.Count >= MaxCacheEntries)
                                             {
@@ -435,12 +440,12 @@ namespace WifiAnalyzerHotspot.Services
                                                     uint ttl = ExtractTtl(response);
                                                     uint maxTtl = isLocal ? 3600u : 60u;
                                                     var expiresAt = DateTime.UtcNow.AddSeconds(Math.Clamp(ttl, 15, maxTtl));
-                                                    _cache[cacheKey] = (response, expiresAt, isLocal);
+                                                    _cache[parsed.CacheKey] = (response, expiresAt, isLocal);
                                                 }
                                                 else if (rcode == 3)
                                                 {
                                                     var expiresAt = DateTime.UtcNow.AddSeconds(30);
-                                                    _cache[cacheKey] = (response, expiresAt, isLocal);
+                                                    _cache[parsed.CacheKey] = (response, expiresAt, isLocal);
                                                 }
                                             }
                                         }
@@ -487,25 +492,42 @@ namespace WifiAnalyzerHotspot.Services
         {
             try
             {
-                ushort queryId = (ushort)((query[0] << 8) | query[1]);
-                string cacheKey = ExtractCacheKey(query);
+                var parsed = ParseDnsQuery(query);
 
                 // 1. Check local in-memory cache
-                if (!string.IsNullOrEmpty(cacheKey) && _cache.TryGetValue(cacheKey, out var entry))
+                if (!string.IsNullOrEmpty(parsed.CacheKey) && _cache.TryGetValue(parsed.CacheKey, out var entry))
                 {
                     if (DateTime.UtcNow < entry.ExpiresAt)
                     {
                         Interlocked.Increment(ref _cacheHits);
                         byte[] cachedResponse = (byte[])entry.Response.Clone();
-                        cachedResponse[0] = (byte)(queryId >> 8);
-                        cachedResponse[1] = (byte)(queryId & 0xFF);
+                        cachedResponse[0] = (byte)(parsed.QueryId >> 8);
+                        cachedResponse[1] = (byte)(parsed.QueryId & 0xFF);
+
+                        // Splice question section so response carries client's exact casing (0x20 compliant)
+                        if (parsed.QuestionLength > 0 && cachedResponse.Length >= 12 + parsed.QuestionLength)
+                        {
+                            Buffer.BlockCopy(query, 12, cachedResponse, 12, parsed.QuestionLength);
+                        }
+
+                        // Enforce client's EDNS buffer size over UDP: set TC bit if response exceeds payload limit
+                        if (cachedResponse.Length > parsed.UdpPayloadSize)
+                        {
+                            byte[] tcResponse = new byte[12 + parsed.QuestionLength];
+                            Buffer.BlockCopy(cachedResponse, 0, tcResponse, 0, 12 + parsed.QuestionLength);
+                            tcResponse[2] |= 0x02; // Set TC bit
+                            tcResponse[6] = 0; tcResponse[7] = 0; // ANCOUNT = 0
+                            tcResponse[8] = 0; tcResponse[9] = 0; // NSCOUNT = 0
+                            tcResponse[10] = 0; tcResponse[11] = 0; // ARCOUNT = 0
+                            cachedResponse = tcResponse;
+                        }
 
                         await socket.SendToAsync(new ArraySegment<byte>(cachedResponse), SocketFlags.None, clientEp).ConfigureAwait(false);
                         return;
                     }
                     else
                     {
-                        _cache.TryRemove(cacheKey, out _);
+                        _cache.TryRemove(parsed.CacheKey, out _);
                     }
                 }
 
@@ -513,13 +535,13 @@ namespace WifiAnalyzerHotspot.Services
                 var (upstreamResponse, isLocal) = await ForwardQueryAsync(query, token).ConfigureAwait(false);
                 if (upstreamResponse != null && upstreamResponse.Length >= 12)
                 {
-                    upstreamResponse[0] = (byte)(queryId >> 8);
-                    upstreamResponse[1] = (byte)(queryId & 0xFF);
+                    upstreamResponse[0] = (byte)(parsed.QueryId >> 8);
+                    upstreamResponse[1] = (byte)(parsed.QueryId & 0xFF);
 
                     int rcode = upstreamResponse[3] & 0x0F;
                     bool isTruncated = (upstreamResponse[2] & 0x02) != 0;
 
-                    if (!string.IsNullOrEmpty(cacheKey) && !isTruncated)
+                    if (!string.IsNullOrEmpty(parsed.CacheKey) && !isTruncated)
                     {
                         if (_cache.Count >= MaxCacheEntries)
                         {
@@ -534,12 +556,12 @@ namespace WifiAnalyzerHotspot.Services
                                 // If answered by public anycast when local servers are present, cap TTL to 60s
                                 uint maxTtl = isLocal ? 3600u : 60u;
                                 var expiresAt = DateTime.UtcNow.AddSeconds(Math.Clamp(ttl, 15, maxTtl));
-                                _cache[cacheKey] = (upstreamResponse, expiresAt, isLocal);
+                                _cache[parsed.CacheKey] = (upstreamResponse, expiresAt, isLocal);
                             }
                             else if (rcode == 3) // NXDOMAIN: 30s negative caching
                             {
                                 var expiresAt = DateTime.UtcNow.AddSeconds(30);
-                                _cache[cacheKey] = (upstreamResponse, expiresAt, isLocal);
+                                _cache[parsed.CacheKey] = (upstreamResponse, expiresAt, isLocal);
                             }
                         }
                     }
@@ -572,18 +594,19 @@ namespace WifiAnalyzerHotspot.Services
                 }
             }
 
-            // If still at or near capacity, prune 20% by quick key iteration rather than allocating & sorting 50k items
+            // If still at or near capacity, prune 20% by earliest-expiry sample
             if (_cache.Count >= MaxCacheEntries)
             {
                 int toRemove = MaxCacheEntries / 5;
-                int removed = 0;
-                foreach (var key in _cache.Keys)
+                // Sample 2x target items to find earliest-expiring records without sorting the entire 50k collection
+                var earliest = _cache.Take(toRemove * 2)
+                                     .OrderBy(kvp => kvp.Value.ExpiresAt)
+                                     .Take(toRemove)
+                                     .Select(kvp => kvp.Key)
+                                     .ToList();
+                foreach (var key in earliest)
                 {
-                    if (_cache.TryRemove(key, out _))
-                    {
-                        removed++;
-                        if (removed >= toRemove) break;
-                    }
+                    _cache.TryRemove(key, out _);
                 }
             }
         }
@@ -786,19 +809,32 @@ namespace WifiAnalyzerHotspot.Services
             return resp;
         }
 
-        private static string ExtractCacheKey(byte[] query)
+        private readonly record struct ParsedDnsQuery(
+            ushort QueryId,
+            string CacheKey,
+            int QuestionLength,
+            bool IsDo,
+            bool IsCd,
+            ushort UdpPayloadSize
+        );
+
+        private static ParsedDnsQuery ParseDnsQuery(byte[] query)
         {
-            if (query.Length <= 12) return string.Empty;
+            if (query.Length <= 12) return new ParsedDnsQuery(0, string.Empty, 0, false, false, 512);
             try
             {
-                var sb = new StringBuilder(64);
+                ushort queryId = (ushort)((query[0] << 8) | query[1]);
+                bool isCd = (query[3] & 0x10) != 0;
+                ushort arCount = (ushort)((query[10] << 8) | query[11]);
+
                 int pos = 12;
+                var sb = new StringBuilder(64);
                 while (pos < query.Length)
                 {
                     byte len = query[pos++];
                     if (len == 0) break;
                     if ((len & 0xC0) == 0xC0) { pos++; break; }
-                    if (pos + len > query.Length) return Convert.ToBase64String(query, 12, query.Length - 12);
+                    if (pos + len > query.Length) return new ParsedDnsQuery(queryId, Convert.ToBase64String(query, 12, query.Length - 12), query.Length - 12, false, isCd, 512);
                     for (int i = 0; i < len; i++)
                     {
                         byte b = query[pos++];
@@ -806,16 +842,53 @@ namespace WifiAnalyzerHotspot.Services
                     }
                     sb.Append('.');
                 }
-                if (pos + 4 <= query.Length)
+
+                if (pos + 4 > query.Length) return new ParsedDnsQuery(queryId, string.Empty, 0, false, isCd, 512);
+
+                ushort qtype = (ushort)((query[pos] << 8) | query[pos + 1]);
+                ushort qclass = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
+                pos += 4;
+                int questionLength = pos - 12;
+
+                bool isDo = false;
+                ushort udpPayloadSize = 512;
+                string optData = string.Empty;
+
+                if (arCount > 0 && pos < query.Length)
                 {
-                    ushort qtype = (ushort)((query[pos] << 8) | query[pos + 1]);
-                    ushort qclass = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
-                    sb.Append(':').Append(qtype).Append(':').Append(qclass);
-                    return sb.ToString();
+                    // Scan additional records for OPT RR (Type 41 / EDNS0)
+                    if (query[pos] == 0 && pos + 11 <= query.Length)
+                    {
+                        pos++; // root domain (0)
+                        ushort rrType = (ushort)((query[pos] << 8) | query[pos + 1]);
+                        if (rrType == 41) // OPT
+                        {
+                            udpPayloadSize = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
+                            isDo = (query[pos + 6] & 0x80) != 0; // DO bit (DNSSEC OK)
+                            ushort rdLength = (ushort)((query[pos + 8] << 8) | query[pos + 9]);
+                            if (rdLength > 0 && pos + 10 + rdLength <= query.Length)
+                            {
+                                optData = Convert.ToBase64String(query, pos + 10, rdLength);
+                            }
+                        }
+                    }
                 }
+
+                sb.Append(':').Append(qtype).Append(':').Append(qclass)
+                  .Append(":do=").Append(isDo ? 1 : 0)
+                  .Append(":cd=").Append(isCd ? 1 : 0);
+                if (!string.IsNullOrEmpty(optData))
+                {
+                    sb.Append(":opt=").Append(optData);
+                }
+
+                return new ParsedDnsQuery(queryId, sb.ToString(), questionLength, isDo, isCd, Math.Max((ushort)512, udpPayloadSize));
             }
-            catch { }
-            return Convert.ToBase64String(query, 12, query.Length - 12);
+            catch
+            {
+                ushort queryId = query.Length >= 2 ? (ushort)((query[0] << 8) | query[1]) : (ushort)0;
+                return new ParsedDnsQuery(queryId, Convert.ToBase64String(query, 12, query.Length - 12), query.Length - 12, false, false, 512);
+            }
         }
 
         private static uint ExtractTtl(byte[] response)

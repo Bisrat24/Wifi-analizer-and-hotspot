@@ -565,25 +565,60 @@ namespace WifiAnalyzerHotspot.Models
                 }
             }
 
-            // Check if user entered down / up with flexible separators:
-            // e.g. "100/20", "100 / 20 Mbps", "100 down, 20 up", "100 down and 20 up", "100M down / 20M up", "down 100 up 20"
-            var dualMatch = Regex.Match(
-                choice,
-                @"(?:(?:down|d):\s*)?(\d+(?:\.\d+)?)\s*(?:M|Mbps|Mb)?(?:\s*down|\s*d)?\s*[/,;|and\s+]\s*(?:(?:up|u):\s*)?(\d+(?:\.\d+)?)\s*(?:M|Mbps|Mb)?(?:\s*up|\s*u)?",
-                RegexOptions.IgnoreCase);
-            if (dualMatch.Success &&
-                double.TryParse(dualMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dVal) &&
-                double.TryParse(dualMatch.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double uVal) &&
-                dVal > 0 && uVal > 0)
+            // Check for explicit down/up tagged entries:
+            // e.g. "down 100 up 20", "down: 100, up: 20", "100 down, 20 up", "100 down and 20 up", "up 20 down 100"
+            var downExplicit = Regex.Match(choice, @"(?:down|d)\s*:?\s*(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?|(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?\s*(?:down|d)", RegexOptions.IgnoreCase);
+            var upExplicit = Regex.Match(choice, @"(?:up|u)\s*:?\s*(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?|(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?\s*(?:up|u)", RegexOptions.IgnoreCase);
+
+            if (downExplicit.Success && upExplicit.Success)
             {
-                long downThrottle = (long)(dVal * 1_000_000 * 0.90);
-                long upThrottle = (long)(uVal * 1_000_000 * 0.90);
+                string dNum = !string.IsNullOrEmpty(downExplicit.Groups[1].Value) ? downExplicit.Groups[1].Value : downExplicit.Groups[3].Value;
+                string dUnit = !string.IsNullOrEmpty(downExplicit.Groups[2].Value) ? downExplicit.Groups[2].Value : downExplicit.Groups[4].Value;
+                string uNum = !string.IsNullOrEmpty(upExplicit.Groups[1].Value) ? upExplicit.Groups[1].Value : upExplicit.Groups[3].Value;
+                string uUnit = !string.IsNullOrEmpty(upExplicit.Groups[2].Value) ? upExplicit.Groups[2].Value : upExplicit.Groups[4].Value;
+
+                if (double.TryParse(dNum, NumberStyles.Float, CultureInfo.InvariantCulture, out double dVal) &&
+                    double.TryParse(uNum, NumberStyles.Float, CultureInfo.InvariantCulture, out double uVal) &&
+                    dVal > 0 && uVal > 0)
+                {
+                    double dMult = dUnit.StartsWith("G", StringComparison.OrdinalIgnoreCase) ? 1_000_000_000.0 : 1_000_000.0;
+                    double uMult = uUnit.StartsWith("G", StringComparison.OrdinalIgnoreCase) ? 1_000_000_000.0 : 1_000_000.0;
+                    long downThrottle = (long)(dVal * dMult * 0.90);
+                    long upThrottle = (long)(uVal * uMult * 0.90);
+                    BufferbloatHeadroomText = $"{downThrottle / 1_000_000.0:0.##}M↓ / {upThrottle / 1_000_000.0:0.##}M↑ (10% Ping Headroom)";
+                    return (downThrottle, upThrottle);
+                }
+            }
+
+            // Check for positional dual-number format (separated by / , ; | or "and" or whitespace):
+            // e.g. "100/20", "100 / 20 Mbps", "100 and 20", "100, 20"
+            var dualPositional = Regex.Match(
+                choice,
+                @"^\s*(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?\s*(?:/|,|;|\||\band\b|\s)\s*(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?(?:\s*Mbps)?\s*$",
+                RegexOptions.IgnoreCase);
+            if (dualPositional.Success &&
+                double.TryParse(dualPositional.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double pDVal) &&
+                double.TryParse(dualPositional.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double pUVal) &&
+                pDVal > 0 && pUVal > 0)
+            {
+                double dMult = dualPositional.Groups[2].Value.StartsWith("G", StringComparison.OrdinalIgnoreCase) ? 1_000_000_000.0 : 1_000_000.0;
+                double uMult = dualPositional.Groups[4].Value.StartsWith("G", StringComparison.OrdinalIgnoreCase) ? 1_000_000_000.0 : 1_000_000.0;
+                long downThrottle = (long)(pDVal * dMult * 0.90);
+                long upThrottle = (long)(pUVal * uMult * 0.90);
                 BufferbloatHeadroomText = $"{downThrottle / 1_000_000.0:0.##}M↓ / {upThrottle / 1_000_000.0:0.##}M↑ (10% Ping Headroom)";
                 return (downThrottle, upThrottle);
             }
 
+            // If input contains dual indicators (/ , ; | down up and) but failed parsing above,
+            // DO NOT fall through to single number match!
+            if (Regex.IsMatch(choice, @"[/,;|]|\b(?:down|up|and)\b", RegexOptions.IgnoreCase))
+            {
+                BufferbloatHeadroomText = "⚠️ Unrecognized dual-speed format (e.g. 100/20 or 100 down, 20 up) • Unthrottled";
+                return (0, 0);
+            }
+
             // Single line speed entry (e.g. "75", "75 Mbps", "1000 Mbps (1 Gbps)", "1 Gbps", "120M")
-            var singleMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?", RegexOptions.IgnoreCase);
+            var singleMatch = Regex.Match(choice, @"^\s*(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?(?:\s*Mbps|\s*\(.*?\))?\s*$", RegexOptions.IgnoreCase);
             if (singleMatch.Success &&
                 double.TryParse(singleMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedVal) &&
                 parsedVal > 0)
@@ -597,7 +632,6 @@ namespace WifiAnalyzerHotspot.Models
             }
 
             // If completely unparseable or unrecognized text (e.g. "fiber", "unlimited", random text):
-            // Show inline warning and do NOT apply arbitrary throttle
             BufferbloatHeadroomText = "⚠️ Unrecognized speed format (e.g. 50 Mbps or 100/20) • Unthrottled";
             return (0, 0);
         }

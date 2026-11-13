@@ -39,6 +39,12 @@ namespace WifiAnalyzerHotspot
                 }
             };
 
+            ContentRendered += (s, e) =>
+            {
+                App.LogStartupMilestone("MainWindow.ContentRendered (First Frame Paint)");
+                App.FlushStartupMilestones();
+            };
+
             StateChanged += MainWindow_StateChanged;
             Closing += MainWindow_Closing;
             App.LogStartupMilestone("MainWindow ctor exit");
