@@ -56,30 +56,32 @@ namespace WifiAnalyzerHotspot
 
         public static void FlushStartupMilestones()
         {
-            Task.Run(() =>
-            {
-                try
-                {
-                    if (_startupMilestones.IsEmpty) return;
-                    Directory.CreateDirectory(LogDirectory);
-                    var fi = new FileInfo(StartupLogPath);
-                    if (fi.Exists && fi.Length > 64 * 1024)
-                    {
-                        File.Delete(StartupLogPath);
-                    }
+            Task.Run(FlushStartupMilestonesSync);
+        }
 
-                    var lines = new List<string>();
-                    while (_startupMilestones.TryDequeue(out var line))
-                    {
-                        lines.Add(line);
-                    }
-                    if (lines.Count > 0)
-                    {
-                        File.AppendAllLines(StartupLogPath, lines);
-                    }
+        public static void FlushStartupMilestonesSync()
+        {
+            try
+            {
+                if (_startupMilestones.IsEmpty) return;
+                Directory.CreateDirectory(LogDirectory);
+                var fi = new FileInfo(StartupLogPath);
+                if (fi.Exists && fi.Length > 64 * 1024)
+                {
+                    File.Delete(StartupLogPath);
                 }
-                catch { }
-            });
+
+                var lines = new List<string>();
+                while (_startupMilestones.TryDequeue(out var line))
+                {
+                    lines.Add(line);
+                }
+                if (lines.Count > 0)
+                {
+                    File.AppendAllLines(StartupLogPath, lines);
+                }
+            }
+            catch { }
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -172,6 +174,12 @@ namespace WifiAnalyzerHotspot
                 _singleInstanceMutex?.ReleaseMutex();
                 _singleInstanceMutex?.Dispose();
                 _singleInstanceMutex = null;
+            }
+            catch { }
+
+            try
+            {
+                FlushStartupMilestonesSync();
             }
             catch { }
 

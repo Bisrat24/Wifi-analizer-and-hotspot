@@ -745,15 +745,20 @@ if ($connectionProfile) {{
         $op = $mgr.ConfigureAccessPointAsync($config)
         $cfgWait = 0
         $cfgSynced = $false
+        $cfgNote = ''
         while ($cfgWait -lt 30) {{
             Start-Sleep -Milliseconds 100
             try {{
                 $status = $op.Status
                 if ($status -eq 1) {{
                     $check = $mgr.GetCurrentAccessPointConfiguration()
-                    $passOk = [string]::IsNullOrEmpty($check.Passphrase) -or ($check.Passphrase -eq ""{safePass}"")
-                    if ($check.Ssid -eq ""{safeSsid}"" -and $passOk) {{
+                    $ssidOk = $check.Ssid -eq ""{safeSsid}""
+                    $passMatch = $check.Passphrase -eq ""{safePass}""
+                    $passMasked = [string]::IsNullOrEmpty($check.Passphrase)
+                    $bandOk = ($check.Band -eq $requestedBand) -or (-not $supported)
+                    if ($ssidOk -and $bandOk -and ($passMatch -or $passMasked)) {{
                         $cfgSynced = $true
+                        $cfgNote = if ($passMasked) {{ 'verified SSID and band (passphrase masked by OS)' }} else {{ 'verified SSID, passphrase, and band' }}
                         break
                     }}
                 }} elseif ($status -eq 2 -or $status -eq 3) {{
@@ -764,7 +769,7 @@ if ($connectionProfile) {{
         }}
         
         if ($cfgSynced) {{
-            @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+            @{{ Result = 'Success'; Note = $cfgNote }} | ConvertTo-Json -Compress
         }} else {{
             @{{ Result = 'Error'; Error = 'Access point configuration timed out or credentials failed to verify after 3s' }} | ConvertTo-Json -Compress
         }}
@@ -984,8 +989,11 @@ try {{
             $status = $cfgOp.Status
             if ($status -eq 1) {{
                 $check = $mgr.GetCurrentAccessPointConfiguration()
-                $passOk = [string]::IsNullOrEmpty($check.Passphrase) -or ($check.Passphrase -eq ""{safePass}"")
-                if ($check.Ssid -eq ""{safeSsid}"" -and $passOk) {{
+                $ssidOk = $check.Ssid -eq ""{safeSsid}""
+                $passMatch = $check.Passphrase -eq ""{safePass}""
+                $passMasked = [string]::IsNullOrEmpty($check.Passphrase)
+                $bandOk = ($check.Band -eq $requestedBand) -or (-not $supported)
+                if ($ssidOk -and $bandOk -and ($passMatch -or $passMasked)) {{
                     $cfgSynced = $true
                     break
                 }}
@@ -997,7 +1005,7 @@ try {{
     }}
 
     if (-not $cfgSynced) {{
-        @{{ Result = 'Error'; Error = 'Access point configuration timed out or credentials failed to verify after 3s.' }} | ConvertTo-Json -Compress
+        @{{ Result = 'Error'; Error = 'Access point configuration timed out or credentials/band failed to verify after 3s.' }} | ConvertTo-Json -Compress
         return
     }}
 

@@ -76,7 +76,17 @@ namespace WifiAnalyzerHotspot.Services
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
                         ApplyProxy(loaded);
-                        _lastConfiguredStartupEnabled = loaded.StartWithWindows;
+                        bool isActuallyEnabledInOs = IsWindowsStartupEnabled();
+                        if (loaded.StartWithWindows && !isActuallyEnabledInOs)
+                        {
+                            // OS state differs from user preference (e.g. task was removed externally):
+                            // Do not seed cache so ConfigureWindowsStartup can repair it
+                            _lastConfiguredStartupEnabled = null;
+                        }
+                        else
+                        {
+                            _lastConfiguredStartupEnabled = loaded.StartWithWindows;
+                        }
                         _lastConfiguredStartupMinimized = loaded.StartMinimized;
                         _lastConfiguredExePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
                         return loaded;

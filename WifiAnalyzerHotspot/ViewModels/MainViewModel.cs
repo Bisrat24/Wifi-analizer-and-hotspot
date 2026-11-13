@@ -38,6 +38,10 @@ namespace WifiAnalyzerHotspot.ViewModels
         private readonly SemaphoreSlim _tcpToggleLock = new(1, 1);
         private readonly SemaphoreSlim _priorityEngageLock = new(1, 1);
         private int _priorityEngagePending = 0;
+        private volatile string? _latestRequestedEngageStatus;
+        private volatile bool _isDisposed = false;
+        private Task? _activeEngageTask;
+        private readonly object _engageTaskLock = new();
         private int _fastWifiCheckCounter = 0;
         private bool _isFirstHotspotRefresh = true;
         private int _hotspotRefreshCounter = 0;
@@ -1400,6 +1404,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             Application.Current?.Dispatcher.InvokeAsync(async () =>
             {
                 App.LogStartupMilestone("First Background Dispatcher Idle Tick");
+                App.FlushStartupMilestones();
                 await PerformScanAsync();
                 await RefreshHotspotAsync();
                 _scanTimer.Start();
@@ -2236,56 +2241,73 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         private void TriggerPriorityEngage(string? customSuccessStatus = null)
         {
-            _ = Task.Run(async () =>
+            if (_isDisposed) return;
+            if (customSuccessStatus != null)
+            {
+                _latestRequestedEngageStatus = customSuccessStatus;
+            }
+
+            lock (_engageTaskLock)
             {
                 Interlocked.Exchange(ref _priorityEngagePending, 1);
-                if (!await _priorityEngageLock.WaitAsync(0))
+                if (_activeEngageTask != null && !_activeEngageTask.IsCompleted)
                 {
-                    return; // Another engage pass is actively running; it will execute a follow-up run after completion
+                    return; // Task is active; it will drain pending requests before completing
                 }
 
-                try
+                _activeEngageTask = Task.Run(async () =>
                 {
-                    while (Interlocked.Exchange(ref _priorityEngagePending, 0) > 0)
+                    while (!_isDisposed && Interlocked.Exchange(ref _priorityEngagePending, 0) > 0)
                     {
-                        var res = await _hotspotService.OptimizePriorityAsync();
-                        Dispatch(() =>
+                        try
                         {
-                            if (!string.IsNullOrEmpty(customSuccessStatus))
-                            {
-                                Hotspot.StatusMessage = customSuccessStatus;
-                            }
-                            else if (!Hotspot.IsAntiBufferbloatEnabled)
-                            {
-                                Hotspot.StatusMessage = "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)";
-                            }
-                            else if (HotspotPriorityService.BufferbloatDownThrottleRateBits == 0 && HotspotPriorityService.BufferbloatUpThrottleRateBits == 0)
-                            {
-                                Hotspot.StatusMessage = $"⚠️ Anti-Bufferbloat inactive ({Hotspot.BufferbloatHeadroomText})";
-                            }
-                            else
-                            {
-                                Hotspot.StatusMessage = $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})";
-                            }
+                            await _priorityEngageLock.WaitAsync();
+                        }
+                        catch (ObjectDisposedException) { return; }
 
-                            if (customSuccessStatus != null)
+                        try
+                        {
+                            if (_isDisposed) return;
+                            var res = await _hotspotService.OptimizePriorityAsync();
+                            if (_isDisposed) return;
+
+                            string? statusOverride = Interlocked.Exchange(ref _latestRequestedEngageStatus, null);
+                            Dispatch(() =>
                             {
-                                Hotspot.PriorityStatusText = res.success
-                                    ? "⚡ Highest PC Priority: HIGH"
-                                    : "⚠️ Priority applied with warnings";
-                            }
-                        });
+                                if (!string.IsNullOrEmpty(statusOverride))
+                                {
+                                    Hotspot.StatusMessage = statusOverride;
+                                    Hotspot.PriorityStatusText = res.success
+                                        ? "⚡ Highest PC Priority: HIGH"
+                                        : "⚠️ Priority applied with warnings";
+                                }
+                                else if (!Hotspot.IsAntiBufferbloatEnabled)
+                                {
+                                    Hotspot.StatusMessage = "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)";
+                                }
+                                else if (HotspotPriorityService.BufferbloatDownThrottleRateBits == 0 && HotspotPriorityService.BufferbloatUpThrottleRateBits == 0)
+                                {
+                                    Hotspot.StatusMessage = $"⚠️ Anti-Bufferbloat inactive ({Hotspot.BufferbloatHeadroomText})";
+                                }
+                                else
+                                {
+                                    Hotspot.StatusMessage = $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})";
+                                }
+                            });
+                        }
+                        catch { }
+                        finally
+                        {
+                            try { _priorityEngageLock.Release(); } catch { }
+                        }
                     }
-                }
-                finally
-                {
-                    _priorityEngageLock.Release();
-                }
-            });
+                });
+            }
         }
 
         public void Dispose()
         {
+            _isDisposed = true;
             if (_networkAddressChangedHandler != null)
                 NetworkChange.NetworkAddressChanged -= _networkAddressChangedHandler;
             if (_networkAvailabilityChangedHandler != null)
@@ -2296,6 +2318,15 @@ namespace WifiAnalyzerHotspot.ViewModels
             _settingsDebounceTimer?.Stop();
             _speedTestCts?.Cancel();
             _speedTestCts?.Dispose();
+
+            // Await in-flight engage task up to 2.5s before tearing down NetQoS policies
+            Task? engageTask;
+            lock (_engageTaskLock) { engageTask = _activeEngageTask; }
+            if (engageTask != null && !engageTask.IsCompleted)
+            {
+                try { engageTask.Wait(2500); } catch { }
+            }
+
             _priorityEngageLock?.Dispose();
             _tcpToggleLock?.Dispose();
             _dnsCacheService?.Dispose();

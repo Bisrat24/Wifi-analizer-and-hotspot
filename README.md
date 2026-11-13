@@ -1,6 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.4.7)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.4.8)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Host PC Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 Uplink Clamping, Target Selection, Dual-Speed Alternation & Robust Input Parser), Zero-Latency Local & Corporate DNS Cache (50,000 Entries Capacity, Question Splicing, 0x20 Casing Preservation, DO/CD/EDNS-Scoped Keys & Earliest-Expiry Sample Pruning), Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Host PC Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 Uplink Clamping, Target Selection, Dual & Single-Direction Parsing, Thousands Separators & Re-entrant Coalescing), Zero-Latency Local & Corporate DNS Cache (50,000 Entries Capacity, Question Splicing, 0x20 Casing Preservation, Explicit EDNS0/Version/DO/CD/ECS Keys, RFC 6891 TC OPT Preservation & Earliest-Expiry Sample Pruning), Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
 ---
 
@@ -9,12 +9,12 @@ A native Windows desktop application with standalone executable (`.exe`) for ana
 You can run the app immediately by double-clicking:
 - **`WifiAnalyzerHotspot.exe`** (located right in the root directory: `c:\Users\Bisrat\Documents\APPS\Wifi analizer and hotspot\WifiAnalyzerHotspot.exe`)
 - Or **`Launch.bat`** (instant zero-delay launch with native ADS Mark-of-the-Web check)
-- Or build/publish anytime with **`publish.cmd`** (one-click single-file win-x64 ReadyToRun compilation to `dist\` with graceful shutdown)
+- Or build/publish anytime with **`publish.cmd`** (one-click single-file win-x64 ReadyToRun compilation to `dist\` with polled graceful shutdown and error-checked staging)
 
 ### ⚡ Instant Startup (Ahead-of-Time Native ReadyToRun)
 - Built with **Ahead-Of-Time (ReadyToRun) native x64 machine code compilation** enabled.
 - Eliminates JIT compilation delay, cutting cold startup latency to sub-second on any PC (even low-power laptops or mechanical drives).
-- Asynchronous, non-blocking milestone logging (`%LOCALAPPDATA%\WifiAnalyzerHotspot\startup.log`) tracks `OnStartup`, `InitializeComponent`, `Loaded`, and exact `ContentRendered` (First Frame Paint) milestones with zero UI disk I/O.
+- Asynchronous, non-blocking milestone logging (`%LOCALAPPDATA%\WifiAnalyzerHotspot\startup.log`) tracks `OnStartup`, `InitializeComponent`, `Loaded`, exact `ContentRendered` (First Frame Paint), background dispatcher idle ticks, and graceful exit with zero UI disk I/O.
 
 ### 🛡️ Why Windows Shows a Warning on a New PC & 1-Click Fix
 When transferring or downloading the `.exe` to another PC, Windows adds an NTFS security tag (**Mark of the Web / Zone.Identifier**):
@@ -29,26 +29,26 @@ When transferring or downloading the `.exe` to another PC, Windows adds an NTFS 
 
 ---
 
-## ✨ Key Features (v1.4.7)
+## ✨ Key Features (v1.4.8)
 
-### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (v1.4.7)
+### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (v1.4.8)
 - **🛡️ Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 & Uplink Shaping)**:
   - Dynamically clamps bulk traffic to **90% of line speed** via Windows NetQoS kernel queues to defeat bufferbloat and maintain single-digit ping spikes under heavy uploads.
   - **Precedence 240 NetQoS Priority**: `Hotspot_PC_Bufferbloat_Up` elevated to precedence 240, ensuring it outranks desktop browsers (64) and default transit (128) in Windows NetQoS scheduling (where 255 is highest), while respecting per-device QoS caps (245) and block blackholes (255).
   - **Target Selection & Transit Inheritance**: Configure queue clamping for **Hotspot Only** (`Hotspot_Transit_Up` / `Hotspot_Transit_Down`) OR **Entire PC Uplink (All Adapters)** (`Hotspot_PC_Bufferbloat_Up`). When Entire PC Uplink is selected, transit policies also inherit the uplink clamp so hotspot clients cannot bypass the connection ceiling.
   - **Automatic Settings Migration**: Transparently migrates legacy persisted target `"Entire PC (Ethernet / Wi-Fi)"` to `"Entire PC Uplink (All Adapters)"` on load.
-  - **Keystroke-Safe QoS & Coalescing**: Line Speed ComboBox uses `LostFocus` updates, debounced settings saving, throttle delta checking, and `_priorityEngagePending` coalescing, preventing keystroke storms or stacking redundant 30s PowerShell scripts.
-  - **Robust Speed Parser**: Supports flexible text formats (e.g. `100/20`, `100 down, 20 up`, `100 down and 20 up`, `down: 100, up: 20`, `1 Gbps`, `75 Mbps`) with clear visual feedback when an unrecognized format is entered rather than silent fallbacks.
+  - **Re-entrant QoS Coalescing & Status Preservation**: QoS engage requests are coalesced with zero lost-wakeups; any request arriving during an active run triggers a clean follow-up pass while preserving user-facing status messages (such as Highest Priority engagement). Shutdown safely awaits active runs before policy cleanup.
+  - **Robust Speed Parser**: Supports flexible text formats including dual-speed (`100/20`, `100 down, 20 up`, `down: 100, up: 20`), single-direction explicit speeds (`100 Mbps down`, `20 Mbps up`), thousands commas (`1,000/20`), and single speeds (`1 Gbps`, `75 Mbps`) with clear visual feedback when an unrecognized format is entered rather than silent fallbacks.
 - **⚡ Zero-Latency Local & Corporate DNS Cache (50,000 Entries Capacity)**:
   - High-performance asynchronous UDP and TCP DNS caching forwarder bound to the hotspot interface (`192.168.137.1:53`), synchronized with the hotspot lifecycle.
   - **Question Splicing & 0x20 Casing Preservation**: On cache hits, the incoming query's exact question section bytes are spliced directly into the response header so strict resolvers validating 0x20 randomized casing receive matching replies.
-  - **DO / CD / EDNS / ECS Scoped Keys**: Cache keys partition DO=1 (DNSSEC OK) lookups from standard lookups and preserve CD flags and ECS option scopes, preventing DNSSEC validation errors or cross-subnet CDN poisoning.
-  - **EDNS Buffer Payload Size Enforcement**: Automatically enforces the client's advertised UDP buffer size, setting the TC (Truncation) bit if cached records exceed the client's payload capacity so clients cleanly fall back to TCP.
+  - **Explicit EDNS0, Version, DO, CD & ECS Scoped Keys**: Cache keys partition non-EDNS (`:edns=0`) from empty-OPT EDNS0 (`:edns=1&v=0`), DO=1 (DNSSEC OK), CD flags, and ECS option scopes, preventing DNSSEC validation errors or cross-subnet CDN poisoning. Malformed queries are safely bypassed without caching.
+  - **RFC 6891 TC OPT Preservation**: Automatically enforces the client's advertised UDP buffer size, setting the TC (Truncation) bit while preserving the client's OPT record if cached records exceed payload capacity so clients cleanly fall back to TCP.
   - **Earliest-Expiry Sample Pruning**: When cache approaches capacity, expired records are purged first; if still full, a bounded sample is ordered by earliest expiration date to evict decaying records without sorting all 50,000 entries.
   - **True Token-Enforced Timeouts**: Socket I/O calls register cancellation directly to abort pending kernel receives in strictly 350ms (local) and 2000ms (Anycast), preventing dead corporate resolvers from stalling queries.
   - **Deterministic Split-Horizon Preservation**: Queries physical adapter DNS servers (corporate domain controllers, enterprise security agents on 127.0.0.1, or ISP routers) with a dedicated 350ms window. Respects local NoError (0) and NXDOMAIN (3) as authoritative, while corporate SERVFAIL (2) or REFUSED (5) automatically fall through to Anycast resolvers (1.1.1.1 / 8.8.8.8) to ensure external lookups never fail.
-- **🔥 Bounded AP Sync & Credentials Verification**:
-  - Awaits WinRT async configuration and deterministically verifies Hotspot SSID **and** Passphrase application via bounded WinRT access point polling (`GetCurrentAccessPointConfiguration()`).
+- **🔥 Bounded AP Sync & Credentials/Band Verification**:
+  - Awaits WinRT async configuration and deterministically verifies Hotspot SSID, Band, and Passphrase application (handling OS-masked passphrases transparently) via bounded WinRT access point polling (`GetCurrentAccessPointConfiguration()`).
   - Aborts cleanly on timeout rather than attempting to start tethering with unverified credentials.
   - Automatically initializes DHCP scope (`OptimizeHotspotDhcpAsync`) on first launch and reconfiguration so clients always receive valid 192.168.137.x IP leases.
 - **⚡ Host PC Zero-Jitter Engine (Gaming & Desktop TCP Tuning)**:

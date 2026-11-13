@@ -511,14 +511,23 @@ namespace WifiAnalyzerHotspot.Services
                         }
 
                         // Enforce client's EDNS buffer size over UDP: set TC bit if response exceeds payload limit
-                        if (cachedResponse.Length > parsed.UdpPayloadSize)
+                        if (cachedResponse.Length > parsed.UdpPayloadSize && parsed.QuestionLength > 0 && cachedResponse.Length >= 12 + parsed.QuestionLength)
                         {
-                            byte[] tcResponse = new byte[12 + parsed.QuestionLength];
+                            int optRecordLen = parsed.OptRecordBytes?.Length ?? 0;
+                            byte[] tcResponse = new byte[12 + parsed.QuestionLength + optRecordLen];
                             Buffer.BlockCopy(cachedResponse, 0, tcResponse, 0, 12 + parsed.QuestionLength);
                             tcResponse[2] |= 0x02; // Set TC bit
                             tcResponse[6] = 0; tcResponse[7] = 0; // ANCOUNT = 0
                             tcResponse[8] = 0; tcResponse[9] = 0; // NSCOUNT = 0
-                            tcResponse[10] = 0; tcResponse[11] = 0; // ARCOUNT = 0
+                            if (optRecordLen > 0 && parsed.OptRecordBytes != null)
+                            {
+                                tcResponse[10] = 0; tcResponse[11] = 1; // ARCOUNT = 1 (preserve client's OPT record)
+                                Buffer.BlockCopy(parsed.OptRecordBytes, 0, tcResponse, 12 + parsed.QuestionLength, optRecordLen);
+                            }
+                            else
+                            {
+                                tcResponse[10] = 0; tcResponse[11] = 0; // ARCOUNT = 0
+                            }
                             cachedResponse = tcResponse;
                         }
 
@@ -815,12 +824,13 @@ namespace WifiAnalyzerHotspot.Services
             int QuestionLength,
             bool IsDo,
             bool IsCd,
-            ushort UdpPayloadSize
+            ushort UdpPayloadSize,
+            byte[]? OptRecordBytes
         );
 
         private static ParsedDnsQuery ParseDnsQuery(byte[] query)
         {
-            if (query.Length <= 12) return new ParsedDnsQuery(0, string.Empty, 0, false, false, 512);
+            if (query.Length <= 12) return new ParsedDnsQuery(0, string.Empty, 0, false, false, 512, null);
             try
             {
                 ushort queryId = (ushort)((query[0] << 8) | query[1]);
@@ -833,8 +843,8 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     byte len = query[pos++];
                     if (len == 0) break;
-                    if ((len & 0xC0) == 0xC0) { pos++; break; }
-                    if (pos + len > query.Length) return new ParsedDnsQuery(queryId, Convert.ToBase64String(query, 12, query.Length - 12), query.Length - 12, false, isCd, 512);
+                    if ((len & 0xC0) == 0xC0) { pos++; break; } // Pointer in question -> skip caching
+                    if (pos + len > query.Length) return new ParsedDnsQuery(queryId, string.Empty, 0, false, isCd, 512, null);
                     for (int i = 0; i < len; i++)
                     {
                         byte b = query[pos++];
@@ -843,51 +853,71 @@ namespace WifiAnalyzerHotspot.Services
                     sb.Append('.');
                 }
 
-                if (pos + 4 > query.Length) return new ParsedDnsQuery(queryId, string.Empty, 0, false, isCd, 512);
+                if (pos + 4 > query.Length) return new ParsedDnsQuery(queryId, string.Empty, 0, false, isCd, 512, null);
 
                 ushort qtype = (ushort)((query[pos] << 8) | query[pos + 1]);
                 ushort qclass = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
                 pos += 4;
                 int questionLength = pos - 12;
 
+                bool hasOpt = false;
+                byte ednsVersion = 0;
                 bool isDo = false;
                 ushort udpPayloadSize = 512;
                 string optData = string.Empty;
+                byte[]? optBytes = null;
 
                 if (arCount > 0 && pos < query.Length)
                 {
                     // Scan additional records for OPT RR (Type 41 / EDNS0)
+                    int optStart = pos;
                     if (query[pos] == 0 && pos + 11 <= query.Length)
                     {
                         pos++; // root domain (0)
                         ushort rrType = (ushort)((query[pos] << 8) | query[pos + 1]);
                         if (rrType == 41) // OPT
                         {
+                            hasOpt = true;
                             udpPayloadSize = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
+                            ednsVersion = query[pos + 5];
                             isDo = (query[pos + 6] & 0x80) != 0; // DO bit (DNSSEC OK)
                             ushort rdLength = (ushort)((query[pos + 8] << 8) | query[pos + 9]);
-                            if (rdLength > 0 && pos + 10 + rdLength <= query.Length)
+                            if (pos + 10 + rdLength <= query.Length)
                             {
-                                optData = Convert.ToBase64String(query, pos + 10, rdLength);
+                                int optTotalLen = 1 + 10 + rdLength;
+                                optBytes = new byte[optTotalLen];
+                                Buffer.BlockCopy(query, optStart, optBytes, 0, optTotalLen);
+                                if (rdLength > 0)
+                                {
+                                    optData = Convert.ToBase64String(query, pos + 10, rdLength);
+                                }
                             }
                         }
                     }
                 }
 
-                sb.Append(':').Append(qtype).Append(':').Append(qclass)
-                  .Append(":do=").Append(isDo ? 1 : 0)
-                  .Append(":cd=").Append(isCd ? 1 : 0);
-                if (!string.IsNullOrEmpty(optData))
+                sb.Append(':').Append(qtype).Append(':').Append(qclass);
+                if (hasOpt)
                 {
-                    sb.Append(":opt=").Append(optData);
+                    sb.Append(":edns=1&v=").Append(ednsVersion)
+                      .Append(":do=").Append(isDo ? 1 : 0);
+                    if (!string.IsNullOrEmpty(optData))
+                    {
+                        sb.Append("&opt=").Append(optData);
+                    }
                 }
+                else
+                {
+                    sb.Append(":edns=0:do=0");
+                }
+                sb.Append(":cd=").Append(isCd ? 1 : 0);
 
-                return new ParsedDnsQuery(queryId, sb.ToString(), questionLength, isDo, isCd, Math.Max((ushort)512, udpPayloadSize));
+                return new ParsedDnsQuery(queryId, sb.ToString(), questionLength, isDo, isCd, Math.Max((ushort)512, udpPayloadSize), optBytes);
             }
             catch
             {
                 ushort queryId = query.Length >= 2 ? (ushort)((query[0] << 8) | query[1]) : (ushort)0;
-                return new ParsedDnsQuery(queryId, Convert.ToBase64String(query, 12, query.Length - 12), query.Length - 12, false, false, 512);
+                return new ParsedDnsQuery(queryId, string.Empty, 0, false, false, 512, null);
             }
         }
 
