@@ -4,10 +4,26 @@ A native Windows desktop application with standalone executable (`.exe`) for ana
 
 ---
 
-## 🚀 Quick Launch
+## 🚀 Quick Launch & Performance
 
 You can run the app immediately by double-clicking:
 - **`WifiAnalyzerHotspot.exe`** (located right in the root directory: `c:\Users\Bisrat\Documents\APPS\Wifi analizer and hotspot\WifiAnalyzerHotspot.exe`)
+- Or **`Launch.bat`** (automatically strips Windows Mark-of-the-Web and launches immediately)
+
+### ⚡ Instant Startup (Ahead-of-Time Native ReadyToRun)
+- Built with **Ahead-Of-Time (ReadyToRun) native x64 machine code compilation** enabled.
+- Eliminates JIT compilation delay, cutting cold startup latency to sub-second on any PC (even low-power laptops or mechanical drives).
+
+### 🛡️ Why Windows Shows a Warning on a New PC & 1-Click Fix
+When transferring or downloading the `.exe` to another PC, Windows adds an NTFS security tag (**Mark of the Web / Zone.Identifier**):
+1. **The SmartScreen Blue Banner ("Windows protected your PC")**:
+   - Because the app is open-source and not signed with a commercial CA certificate, Windows Defender SmartScreen halts startup to query Microsoft cloud servers over the internet.
+   - On slow connections, this network query can cause a 5–15 second freeze before displaying the warning.
+2. **How to Permanently Unblock in 2 Seconds**:
+   - **Method A**: Double-click **`Launch.bat`** (automatically unblocks and starts the app with zero delay).
+   - **Method B**: Right-click **`WifiAnalyzerHotspot.exe`** ➔ **Properties** ➔ at the bottom, check **☑ Unblock** ➔ click **Apply** / **OK**.
+   - **Method C**: Run PowerShell: `Unblock-File -Path .\WifiAnalyzerHotspot.exe`
+   *(Once unblocked, Windows SmartScreen will never scan or prompt for this file again on that PC).*
 
 ---
 
