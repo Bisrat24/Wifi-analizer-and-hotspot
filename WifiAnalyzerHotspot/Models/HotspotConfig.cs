@@ -1,7 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace WifiAnalyzerHotspot.Models
 {
@@ -485,11 +487,29 @@ namespace WifiAnalyzerHotspot.Models
             set { _isAntiBufferbloatEnabled = value; OnPropertyChanged(); }
         }
 
+        private string _bufferbloatTarget = "Hotspot Only";
+        public string BufferbloatTarget
+        {
+            get => _bufferbloatTarget;
+            set { _bufferbloatTarget = value; OnPropertyChanged(); }
+        }
+
+        public List<string> BufferbloatTargetOptions { get; } = new()
+        {
+            "Hotspot Only",
+            "Entire PC (Ethernet / Wi-Fi)"
+        };
+
         private string _bufferbloatLineSpeed = "Auto (Sync from Speed Test)";
         public string BufferbloatLineSpeed
         {
             get => _bufferbloatLineSpeed;
-            set { _bufferbloatLineSpeed = value; OnPropertyChanged(); }
+            set
+            {
+                _bufferbloatLineSpeed = value;
+                OnPropertyChanged();
+                try { GetBufferbloatThrottleBits(); } catch { }
+            }
         }
 
         public List<string> BufferbloatSpeedOptions { get; } = new()
@@ -512,9 +532,9 @@ namespace WifiAnalyzerHotspot.Models
 
         public (long downBits, long upBits) GetBufferbloatThrottleBits(double? measuredDownMbps = null, double? measuredUpMbps = null, bool networkChanged = false)
         {
-            string choice = BufferbloatLineSpeed ?? "";
+            string choice = BufferbloatLineSpeed?.Trim() ?? "";
 
-            if (choice.Contains("Auto"))
+            if (choice.StartsWith("Auto", StringComparison.OrdinalIgnoreCase))
             {
                 if (measuredDownMbps.HasValue && measuredDownMbps.Value > 1.0)
                 {
@@ -545,18 +565,35 @@ namespace WifiAnalyzerHotspot.Models
                 }
             }
 
-            // Fixed line-speed presets: symmetric 90% clamping so symmetric fiber connections are not throttled unexpectedly
-            long lineBps = 100_000_000;
-            if (choice.Contains("25 Mbps")) lineBps = 25_000_000;
-            else if (choice.Contains("50 Mbps")) lineBps = 50_000_000;
-            else if (choice.Contains("100 Mbps")) lineBps = 100_000_000;
-            else if (choice.Contains("250 Mbps")) lineBps = 250_000_000;
-            else if (choice.Contains("500 Mbps")) lineBps = 500_000_000;
-            else if (choice.Contains("1000 Mbps") || choice.Contains("1 Gbps")) lineBps = 1_000_000_000;
+            // Check if user entered down / up separated by slash or comma, e.g. "100/20", "100M/20M", "100 / 20 Mbps"
+            var dualMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)\s*(?:M|Mbps)?\s*[/,]\s*(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+            if (dualMatch.Success &&
+                double.TryParse(dualMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dVal) &&
+                double.TryParse(dualMatch.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double uVal) &&
+                dVal > 0 && uVal > 0)
+            {
+                long downThrottle = (long)(dVal * 1_000_000 * 0.90);
+                long upThrottle = (long)(uVal * 1_000_000 * 0.90);
+                BufferbloatHeadroomText = $"{downThrottle / 1_000_000.0:0.##}M↓ / {upThrottle / 1_000_000.0:0.##}M↑ (10% Ping Headroom)";
+                return (downThrottle, upThrottle);
+            }
 
-            long fixedThrottle = (long)(lineBps * 0.90);
-            BufferbloatHeadroomText = $"{fixedThrottle / 1_000_000.0:0.##} Mbps (10% Ping Headroom)";
-            return (fixedThrottle, fixedThrottle);
+            // Single line speed entry (e.g. "75", "75 Mbps", "1000 Mbps (1 Gbps)", "120M")
+            var singleMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)");
+            if (singleMatch.Success &&
+                double.TryParse(singleMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedMbps) &&
+                parsedMbps > 0)
+            {
+                long lineBps = (long)(parsedMbps * 1_000_000);
+                long fixedThrottle = (long)(lineBps * 0.90);
+                BufferbloatHeadroomText = $"{fixedThrottle / 1_000_000.0:0.##} Mbps (10% Ping Headroom)";
+                return (fixedThrottle, fixedThrottle);
+            }
+
+            // Fallback default (100 Mbps line -> 90 Mbps clamped)
+            long fallbackThrottle = (long)(100_000_000 * 0.90);
+            BufferbloatHeadroomText = "90 Mbps (10% Ping Headroom)";
+            return (fallbackThrottle, fallbackThrottle);
         }
 
         // ── Zero-Latency DNS Caching ──

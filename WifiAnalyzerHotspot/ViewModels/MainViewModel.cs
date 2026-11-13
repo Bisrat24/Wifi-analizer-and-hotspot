@@ -437,6 +437,9 @@ namespace WifiAnalyzerHotspot.ViewModels
             Hotspot.IsAntiBufferbloatEnabled = _settings.EnableAntiBufferbloat;
             if (!string.IsNullOrWhiteSpace(_settings.BufferbloatLineSpeed))
                 Hotspot.BufferbloatLineSpeed = _settings.BufferbloatLineSpeed;
+            if (!string.IsNullOrWhiteSpace(_settings.BufferbloatTarget))
+                Hotspot.BufferbloatTarget = _settings.BufferbloatTarget;
+            HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
             Hotspot.IsZeroLatencyDnsEnabled = _settings.EnableZeroLatencyDns;
             Hotspot.IsAutoSteerEnabled = _settings.EnableAutoSteer;
 
@@ -584,13 +587,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                         }
                     });
                 }
-                else if (e.PropertyName == nameof(Hotspot.IsAntiBufferbloatEnabled) || e.PropertyName == nameof(Hotspot.BufferbloatLineSpeed))
+                else if (e.PropertyName == nameof(Hotspot.IsAntiBufferbloatEnabled) ||
+                         e.PropertyName == nameof(Hotspot.BufferbloatLineSpeed) ||
+                         e.PropertyName == nameof(Hotspot.BufferbloatTarget))
                 {
                     _settings.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
                     _settings.BufferbloatLineSpeed = Hotspot.BufferbloatLineSpeed;
+                    _settings.BufferbloatTarget = Hotspot.BufferbloatTarget;
                     _settingsService.SaveSettings(_settings);
 
                     HotspotPriorityService.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
+                    HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
                     var (downVal, upVal, netChanged) = GetScopedMeasuredSpeeds();
                     var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal, netChanged);
                     HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
@@ -600,7 +607,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     {
                         var res = await _hotspotService.OptimizePriorityAsync();
                         Dispatch(() => Hotspot.StatusMessage = Hotspot.IsAntiBufferbloatEnabled
-                            ? $"🛡️ Anti-Bufferbloat engaged ({Hotspot.BufferbloatHeadroomText})"
+                            ? $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})"
                             : "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)");
                     });
                 }
@@ -2062,18 +2069,22 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 else
                 {
-                    Hotspot.StatusMessage = "Creating fresh Hotspot & optimizing DHCP...";
-                    // Hotspot creation removes previous settings and creates it as new:
                     Hotspot.Clients.Clear();
                     Hotspot.ClientCount = 0;
 
-                    // Optimize DHCP scope (192.168.137.1)
-                    await _hotspotService.OptimizeHotspotDhcpAsync();
+                    // Only reconfigure access point credentials if they differ from the current active hotspot configuration
+                    bool needsReconfigure = string.IsNullOrWhiteSpace(Hotspot.Ssid) ||
+                                            !string.Equals(Hotspot.Ssid, HotspotSsidInput, StringComparison.Ordinal) ||
+                                            !string.Equals(Hotspot.Passphrase, HotspotPasswordInput, StringComparison.Ordinal) ||
+                                            !string.Equals(Hotspot.Band, HotspotChannelChoice, StringComparison.OrdinalIgnoreCase);
 
-                    // Configure fresh as new
-                    await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
+                    if (needsReconfigure)
+                    {
+                        Hotspot.StatusMessage = "Configuring Hotspot credentials...";
+                        await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
+                    }
 
-                    // Start Hotspot
+                    Hotspot.StatusMessage = "Starting Mobile Hotspot...";
                     var res = await _hotspotService.StartHotspotAsync();
                     Hotspot.StatusMessage = res.message;
                     if (res.success)

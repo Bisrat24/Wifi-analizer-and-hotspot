@@ -451,6 +451,13 @@ namespace WifiAnalyzerHotspot.Models
             set { _enableAntiBufferbloat = value; OnPropertyChanged(); }
         }
 
+        private string _bufferbloatTarget = "Hotspot Only";
+        public string BufferbloatTarget
+        {
+            get => _bufferbloatTarget;
+            set { _bufferbloatTarget = value; OnPropertyChanged(); }
+        }
+
         private string _bufferbloatLineSpeed = "Auto (Sync from Speed Test)";
         public string BufferbloatLineSpeed
         {

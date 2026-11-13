@@ -30,7 +30,7 @@ namespace WifiAnalyzerHotspot.Services
             new IPEndPoint(IPAddress.Parse("1.0.0.1"), 53)
         };
 
-        private const int MaxCacheEntries = 2000;
+        private const int MaxCacheEntries = 50000;
         private readonly ConcurrentDictionary<string, (byte[] Response, DateTime ExpiresAt, bool IsLocal)> _cache = new(StringComparer.Ordinal);
         private readonly SemaphoreSlim _concurrencyLimiter = new(16, 16);
         private volatile IPEndPoint[] _localUpstreamServers = Array.Empty<IPEndPoint>();
@@ -422,6 +422,11 @@ namespace WifiAnalyzerHotspot.Services
                                         bool isTruncated = (response[2] & 0x02) != 0;
                                         if (!string.IsNullOrEmpty(cacheKey) && !isTruncated)
                                         {
+                                            if (_cache.Count >= MaxCacheEntries)
+                                            {
+                                                PruneExpiredCache();
+                                            }
+
                                             if (_cache.Count < MaxCacheEntries)
                                             {
                                                 if (rcode == 0)
@@ -563,6 +568,22 @@ namespace WifiAnalyzerHotspot.Services
                 if (now >= kvp.Value.ExpiresAt)
                 {
                     _cache.TryRemove(kvp.Key, out _);
+                }
+            }
+
+            // If still at or near capacity, prune 20% of entries with earliest expiration
+            if (_cache.Count >= MaxCacheEntries)
+            {
+                int toRemove = MaxCacheEntries / 5;
+                var keysToEvict = _cache
+                    .OrderBy(kvp => kvp.Value.ExpiresAt)
+                    .Take(toRemove)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in keysToEvict)
+                {
+                    _cache.TryRemove(key, out _);
                 }
             }
         }

@@ -743,7 +743,7 @@ if ($connectionProfile) {{
         }}
         
         $op = $mgr.ConfigureAccessPointAsync($config)
-        while ($op.Status -eq 0) {{ Start-Sleep -Milliseconds 60 }}
+        Start-Sleep -Milliseconds 400
         
         @{{ Result = 'Success' }} | ConvertTo-Json -Compress
     }} catch {{
@@ -954,60 +954,36 @@ try {{
     }}
 
     $cfgOp = $mgr.ConfigureAccessPointAsync($config)
-    $cfgWait = 0
-    while ($cfgOp.Status -eq 0 -and $cfgWait -lt 50) {{
-        Start-Sleep -Milliseconds 100
-        $cfgWait++
+    Start-Sleep -Milliseconds 400
+
+    # 5. Start Tethering cleanly and poll operational state
+    if ($mgr.TetheringOperationalState -eq 1) {{
+        @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+        return
     }}
 
-    # 5. Start Tethering with Retry Logic (up to 3 attempts)
-    $started = $false
-    $lastErr = ''
+    $startOp = $mgr.StartTetheringAsync()
 
-    for ($attempt = 1; $attempt -le 3; $attempt++) {{
-        if ($mgr.TetheringOperationalState -eq 1) {{
-            $started = $true
-            break
-        }}
-
-        $startOp = $mgr.StartTetheringAsync()
-        $startWait = 0
-        while ($startOp.Status -eq 0 -and $startWait -lt 60) {{
-            Start-Sleep -Milliseconds 150
-            $startWait++
-        }}
-
-        if ($startOp.Status -eq 1) {{
-            $opResult = $startOp.GetResults()
-            if ($opResult.Status -eq 0 -or $opResult.Status.ToString() -eq 'Success' -or $opResult.Status.ToString() -eq 'AlreadyOn') {{
-                $started = $true
-                break
-            }} else {{
-                $lastErr = ""$($opResult.Status): $($opResult.AdditionalErrorMessage)""
-            }}
-        }} elseif ($startOp.Status -eq 3) {{
-            $lastErr = 'WinRT StartTetheringAsync returned error status'
-        }}
-
-        if ($mgr.TetheringOperationalState -eq 1) {{
-            $started = $true
-            break
-        }}
-
-        Start-Sleep -Milliseconds 800
+    # Poll TetheringOperationalState until On (1) for up to 15 seconds
+    $waitCount = 0
+    while ($mgr.TetheringOperationalState -ne 1 -and $waitCount -lt 60) {{
+        Start-Sleep -Milliseconds 250
+        $waitCount++
     }}
 
-    # Verify final operational state
-    $verifyCount = 0
-    while ($mgr.TetheringOperationalState -ne 1 -and $verifyCount -lt 15) {{
-        Start-Sleep -Milliseconds 200
-        $verifyCount++
+    # If still in transition at 15s mark, wait up to 5s more
+    if ($mgr.TetheringOperationalState -eq 3) {{
+        $extraCount = 0
+        while ($mgr.TetheringOperationalState -eq 3 -and $extraCount -lt 20) {{
+            Start-Sleep -Milliseconds 250
+            $extraCount++
+        }}
     }}
 
-    if ($mgr.TetheringOperationalState -eq 1 -or $started) {{
+    if ($mgr.TetheringOperationalState -eq 1) {{
         @{{ Result = 'Success' }} | ConvertTo-Json -Compress
     }} else {{
-        @{{ Result = 'Error'; Error = $(if ($lastErr) {{ $lastErr }} else {{ 'Timed out starting Hotspot after reset' }}) }} | ConvertTo-Json -Compress
+        @{{ Result = 'Error'; Error = ""Timed out starting Hotspot after reset (Operational state: $($mgr.TetheringOperationalState))."" }} | ConvertTo-Json -Compress
     }}
 }} catch {{
     @{{ Result = 'Error'; Error = $_.Exception.Message }} | ConvertTo-Json -Compress
@@ -1099,6 +1075,10 @@ if (-not $connectionProfile) {
 
 try {
     $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime]::CreateFromConnectionProfile($connectionProfile)
+    if (-not $mgr) {
+        @{ Result = 'Error'; Error = 'Failed to create Tethering Manager for active profile.' } | ConvertTo-Json -Compress
+        return
+    }
     
     # If already running, return success immediately
     if ($mgr.TetheringOperationalState -eq 1) {
@@ -1106,61 +1086,42 @@ try {
         return
     }
 
-    # If in transition, wait for it to settle into Off (2) before starting
+    # If in transition, wait up to 4s for it to settle into Off (2) or On (1)
     if ($mgr.TetheringOperationalState -eq 3) {
         $waitSettle = 0
         while ($mgr.TetheringOperationalState -eq 3 -and $waitSettle -lt 20) {
-            Start-Sleep -Milliseconds 150
+            Start-Sleep -Milliseconds 200
             $waitSettle++
         }
-    }
-
-    # Start tethering with retry logic (up to 3 attempts)
-    $started = $false
-    $lastErr = ''
-
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
         if ($mgr.TetheringOperationalState -eq 1) {
-            $started = $true
-            break
+            @{ Result = 'Success' } | ConvertTo-Json -Compress
+            return
         }
-
-        $startOp = $mgr.StartTetheringAsync()
-        $startWait = 0
-        while ($startOp.Status -eq 0 -and $startWait -lt 60) {
-            Start-Sleep -Milliseconds 150
-            $startWait++
-        }
-
-        if ($startOp.Status -eq 1) {
-            $opResult = $startOp.GetResults()
-            if ($opResult.Status -eq 0 -or $opResult.Status.ToString() -eq 'Success' -or $opResult.Status.ToString() -eq 'AlreadyOn') {
-                $started = $true
-                break
-            } else {
-                $lastErr = ""$($opResult.Status): $($opResult.AdditionalErrorMessage)""
-            }
-        }
-
-        if ($mgr.TetheringOperationalState -eq 1) {
-            $started = $true
-            break
-        }
-
-        Start-Sleep -Milliseconds 600
     }
 
-    # Final verification of operational state
-    $verifyCount = 0
-    while ($mgr.TetheringOperationalState -ne 1 -and $verifyCount -lt 15) {
-        Start-Sleep -Milliseconds 200
-        $verifyCount++
+    # Start tethering cleanly (single invocation)
+    $startOp = $mgr.StartTetheringAsync()
+
+    # Poll TetheringOperationalState until On (1) for up to 15 seconds
+    $waitCount = 0
+    while ($mgr.TetheringOperationalState -ne 1 -and $waitCount -lt 60) {
+        Start-Sleep -Milliseconds 250
+        $waitCount++
     }
 
-    if ($mgr.TetheringOperationalState -eq 1 -or $started) {
+    # If still in transition at 15s mark, wait up to 5s more
+    if ($mgr.TetheringOperationalState -eq 3) {
+        $extraCount = 0
+        while ($mgr.TetheringOperationalState -eq 3 -and $extraCount -lt 20) {
+            Start-Sleep -Milliseconds 250
+            $extraCount++
+        }
+    }
+
+    if ($mgr.TetheringOperationalState -eq 1) {
         @{ Result = 'Success' } | ConvertTo-Json -Compress
     } else {
-        @{ Result = 'Error'; Error = $(if ($lastErr) { $lastErr } else { 'Timed out starting Mobile Hotspot.' }) } | ConvertTo-Json -Compress
+        @{ Result = 'Error'; Error = ""Timed out starting Mobile Hotspot (Operational state: $($mgr.TetheringOperationalState))."" } | ConvertTo-Json -Compress
     }
 } catch {
     @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress

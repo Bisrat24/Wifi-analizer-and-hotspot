@@ -14,6 +14,7 @@ namespace WifiAnalyzerHotspot.Services
         public static bool IsPriorityEngaged => _isPriorityEngaged;
         public static bool PreserveGigabitLinkSpeed { get; set; } = false;
         public static bool EnableAntiBufferbloat { get; set; } = false;
+        public static string BufferbloatTarget { get; set; } = "Hotspot Only";
         public static long BufferbloatDownThrottleRateBits { get; set; } = 0;
         public static long BufferbloatUpThrottleRateBits { get; set; } = 0;
         public static long BufferbloatThrottleRateBits
@@ -56,13 +57,16 @@ namespace WifiAnalyzerHotspot.Services
                     // 2. System-level NetQoS & adapter routing via PowerShell script
                     bool checkPrioVlan = !_priorityVlanConfigured;
                     bool enableEthOpt = preserveGigabitLinkSpeed ?? PreserveGigabitLinkSpeed;
+                    bool isEntirePc = EnableAntiBufferbloat && !string.IsNullOrEmpty(BufferbloatTarget) &&
+                                      BufferbloatTarget.Contains("Entire PC", StringComparison.OrdinalIgnoreCase);
                     long downThrottle = (EnableAntiBufferbloat && BufferbloatDownThrottleRateBits > 0) ? BufferbloatDownThrottleRateBits : 0;
                     long upThrottle = (EnableAntiBufferbloat && BufferbloatUpThrottleRateBits > 0) ? BufferbloatUpThrottleRateBits : 0;
                     string script = EngageScript
                         .Replace("__ALLOW_REBIND__", allowPacerRebind ? "$true" : "$false")
                         .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false")
                         .Replace("__BUFFERBLOAT_DOWN_THROTTLE__", downThrottle > 0 ? downThrottle.ToString() : "0")
-                        .Replace("__BUFFERBLOAT_UP_THROTTLE__", upThrottle > 0 ? upThrottle.ToString() : "0");
+                        .Replace("__BUFFERBLOAT_UP_THROTTLE__", upThrottle > 0 ? upThrottle.ToString() : "0")
+                        .Replace("__BUFFERBLOAT_TARGET__", isEntirePc ? "Entire PC" : "Hotspot Only");
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
@@ -227,33 +231,64 @@ if ($checkPriorityVlan) {
     }
 }
 
-# D. Prioritize all Hotspot Transit Traffic across the Main Shared Connection (Precedence 128).
+# D. Anti-Bufferbloat Queue Clamping & Hotspot Transit Prioritization
 #    Client priorities (130-240), bandwidth caps (245) and blocks (255) still take precedence.
 $bufferbloatDownThrottle = __BUFFERBLOAT_DOWN_THROTTLE__
 $bufferbloatUpThrottle = __BUFFERBLOAT_UP_THROTTLE__
+$bufferbloatTarget = '__BUFFERBLOAT_TARGET__'
 
-try {
-    Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+try { Remove-NetQosPolicy -Name 'Hotspot_Transit_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Remove-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
+
+if ($bufferbloatTarget -eq 'Entire PC') {
+    # 1. Global uplink bufferbloat clamp for Entire PC (Ethernet / Wi-Fi main connection)
     if ($bufferbloatUpThrottle -gt 0) {
-        New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
-    } else {
+        try {
+            New-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -Precedence 50 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+            Get-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -ErrorAction Stop | Out-Null
+        } catch {
+            Add-Result ""QOS_FAIL:Hotspot_PC_Bufferbloat_Up $($_.Exception.Message)""
+        }
+    }
+    # 2. Hotspot Transit policies: Hotspot clients still get High Priority (802.1p=7, DSCP=46)
+    try {
         New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+    } catch {
+        Add-Result ""QOS_FAIL:Hotspot_Transit_Up $($_.Exception.Message)""
     }
-    Get-NetQosPolicy -Name 'Hotspot_Transit_Up' -ErrorAction Stop | Out-Null
-} catch {
-    Add-Result ""QOS_FAIL:Hotspot_Transit_Up $($_.Exception.Message)""
-}
+    try {
+        if ($bufferbloatDownThrottle -gt 0) {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatDownThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+        } else {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+        }
+    } catch {
+        Add-Result ""QOS_FAIL:Hotspot_Transit_Down $($_.Exception.Message)""
+    }
+} else {
+    # Hotspot Only target: NetQoS throttles apply strictly to 192.168.137.0/24 transit traffic
+    try {
+        if ($bufferbloatUpThrottle -gt 0) {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+        } else {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+        }
+        Get-NetQosPolicy -Name 'Hotspot_Transit_Up' -ErrorAction Stop | Out-Null
+    } catch {
+        Add-Result ""QOS_FAIL:Hotspot_Transit_Up $($_.Exception.Message)""
+    }
 
-try {
-    Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    if ($bufferbloatDownThrottle -gt 0) {
-        New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatDownThrottle -Confirm:$false -ErrorAction Stop | Out-Null
-    } else {
-        New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+    try {
+        if ($bufferbloatDownThrottle -gt 0) {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatDownThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+        } else {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Down' -IPDstPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+        }
+        Get-NetQosPolicy -Name 'Hotspot_Transit_Down' -ErrorAction Stop | Out-Null
+    } catch {
+        Add-Result ""QOS_FAIL:Hotspot_Transit_Down $($_.Exception.Message)""
     }
-    Get-NetQosPolicy -Name 'Hotspot_Transit_Down' -ErrorAction Stop | Out-Null
-} catch {
-    Add-Result ""QOS_FAIL:Hotspot_Transit_Down $($_.Exception.Message)""
 }
 
 # D2. Ensure any legacy Hotspot_Gaming_FastPath policy is removed so it does not bypass the transit throttle
