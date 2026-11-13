@@ -497,7 +497,7 @@ namespace WifiAnalyzerHotspot.Models
         public List<string> BufferbloatTargetOptions { get; } = new()
         {
             "Hotspot Only",
-            "Entire PC (Ethernet / Wi-Fi)"
+            "Entire PC Uplink (All Adapters)"
         };
 
         private string _bufferbloatLineSpeed = "Auto (Sync from Speed Test)";
@@ -565,8 +565,12 @@ namespace WifiAnalyzerHotspot.Models
                 }
             }
 
-            // Check if user entered down / up separated by slash or comma, e.g. "100/20", "100M/20M", "100 / 20 Mbps"
-            var dualMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)\s*(?:M|Mbps)?\s*[/,]\s*(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+            // Check if user entered down / up with flexible separators:
+            // e.g. "100/20", "100 / 20 Mbps", "100 down, 20 up", "100 down and 20 up", "100M down / 20M up", "down 100 up 20"
+            var dualMatch = Regex.Match(
+                choice,
+                @"(?:(?:down|d):\s*)?(\d+(?:\.\d+)?)\s*(?:M|Mbps|Mb)?(?:\s*down|\s*d)?\s*[/,;|and\s+]\s*(?:(?:up|u):\s*)?(\d+(?:\.\d+)?)\s*(?:M|Mbps|Mb)?(?:\s*up|\s*u)?",
+                RegexOptions.IgnoreCase);
             if (dualMatch.Success &&
                 double.TryParse(dualMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dVal) &&
                 double.TryParse(dualMatch.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double uVal) &&
@@ -578,22 +582,24 @@ namespace WifiAnalyzerHotspot.Models
                 return (downThrottle, upThrottle);
             }
 
-            // Single line speed entry (e.g. "75", "75 Mbps", "1000 Mbps (1 Gbps)", "120M")
-            var singleMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)");
+            // Single line speed entry (e.g. "75", "75 Mbps", "1000 Mbps (1 Gbps)", "1 Gbps", "120M")
+            var singleMatch = Regex.Match(choice, @"(\d+(?:\.\d+)?)\s*(G|Gbps|Gb|M|Mbps|Mb)?", RegexOptions.IgnoreCase);
             if (singleMatch.Success &&
-                double.TryParse(singleMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedMbps) &&
-                parsedMbps > 0)
+                double.TryParse(singleMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedVal) &&
+                parsedVal > 0)
             {
-                long lineBps = (long)(parsedMbps * 1_000_000);
+                string unit = singleMatch.Groups[2].Value.ToUpperInvariant();
+                double multiplier = unit.StartsWith("G") ? 1_000_000_000.0 : 1_000_000.0;
+                long lineBps = (long)(parsedVal * multiplier);
                 long fixedThrottle = (long)(lineBps * 0.90);
                 BufferbloatHeadroomText = $"{fixedThrottle / 1_000_000.0:0.##} Mbps (10% Ping Headroom)";
                 return (fixedThrottle, fixedThrottle);
             }
 
-            // Fallback default (100 Mbps line -> 90 Mbps clamped)
-            long fallbackThrottle = (long)(100_000_000 * 0.90);
-            BufferbloatHeadroomText = "90 Mbps (10% Ping Headroom)";
-            return (fallbackThrottle, fallbackThrottle);
+            // If completely unparseable or unrecognized text (e.g. "fiber", "unlimited", random text):
+            // Show inline warning and do NOT apply arbitrary throttle
+            BufferbloatHeadroomText = "⚠️ Unrecognized speed format (e.g. 50 Mbps or 100/20) • Unthrottled";
+            return (0, 0);
         }
 
         // ── Zero-Latency DNS Caching ──

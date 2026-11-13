@@ -743,9 +743,22 @@ if ($connectionProfile) {{
         }}
         
         $op = $mgr.ConfigureAccessPointAsync($config)
-        Start-Sleep -Milliseconds 400
+        $cfgWait = 0
+        $cfgSynced = $false
+        while ($cfgWait -lt 30) {{
+            Start-Sleep -Milliseconds 100
+            try {{
+                $check = $mgr.GetCurrentAccessPointConfiguration()
+                if ($check.Ssid -eq ""{safeSsid}"") {{ $cfgSynced = $true; break }}
+            }} catch {{}}
+            $cfgWait++
+        }}
         
-        @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+        if ($cfgSynced) {{
+            @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+        }} else {{
+            @{{ Result = 'Error'; Error = 'Access point configuration timed out after 3s' }} | ConvertTo-Json -Compress
+        }}
     }} catch {{
         @{{ Result = 'Error'; Error = $_.Exception.Message }} | ConvertTo-Json -Compress
     }}
@@ -954,7 +967,15 @@ try {{
     }}
 
     $cfgOp = $mgr.ConfigureAccessPointAsync($config)
-    Start-Sleep -Milliseconds 400
+    $cfgWait = 0
+    while ($cfgWait -lt 30) {{
+        Start-Sleep -Milliseconds 100
+        try {{
+            $check = $mgr.GetCurrentAccessPointConfiguration()
+            if ($check.Ssid -eq ""{safeSsid}"") {{ break }}
+        }} catch {{}}
+        $cfgWait++
+    }}
 
     # 5. Start Tethering cleanly and poll operational state
     if ($mgr.TetheringOperationalState -eq 1) {{

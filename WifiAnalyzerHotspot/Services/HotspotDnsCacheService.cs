@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -571,19 +572,18 @@ namespace WifiAnalyzerHotspot.Services
                 }
             }
 
-            // If still at or near capacity, prune 20% of entries with earliest expiration
+            // If still at or near capacity, prune 20% by quick key iteration rather than allocating & sorting 50k items
             if (_cache.Count >= MaxCacheEntries)
             {
                 int toRemove = MaxCacheEntries / 5;
-                var keysToEvict = _cache
-                    .OrderBy(kvp => kvp.Value.ExpiresAt)
-                    .Take(toRemove)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var key in keysToEvict)
+                int removed = 0;
+                foreach (var key in _cache.Keys)
                 {
-                    _cache.TryRemove(key, out _);
+                    if (_cache.TryRemove(key, out _))
+                    {
+                        removed++;
+                        if (removed >= toRemove) break;
+                    }
                 }
             }
         }
@@ -789,7 +789,32 @@ namespace WifiAnalyzerHotspot.Services
         private static string ExtractCacheKey(byte[] query)
         {
             if (query.Length <= 12) return string.Empty;
-            // Ignore transaction ID (first 2 bytes) and query flags for the cache key
+            try
+            {
+                var sb = new StringBuilder(64);
+                int pos = 12;
+                while (pos < query.Length)
+                {
+                    byte len = query[pos++];
+                    if (len == 0) break;
+                    if ((len & 0xC0) == 0xC0) { pos++; break; }
+                    if (pos + len > query.Length) return Convert.ToBase64String(query, 12, query.Length - 12);
+                    for (int i = 0; i < len; i++)
+                    {
+                        byte b = query[pos++];
+                        sb.Append((char)(b >= 'A' && b <= 'Z' ? b + 32 : b));
+                    }
+                    sb.Append('.');
+                }
+                if (pos + 4 <= query.Length)
+                {
+                    ushort qtype = (ushort)((query[pos] << 8) | query[pos + 1]);
+                    ushort qclass = (ushort)((query[pos + 2] << 8) | query[pos + 3]);
+                    sb.Append(':').Append(qtype).Append(':').Append(qclass);
+                    return sb.ToString();
+                }
+            }
+            catch { }
             return Convert.ToBase64String(query, 12, query.Length - 12);
         }
 

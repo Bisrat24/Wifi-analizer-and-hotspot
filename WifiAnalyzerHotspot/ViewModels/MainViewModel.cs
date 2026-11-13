@@ -36,6 +36,8 @@ namespace WifiAnalyzerHotspot.ViewModels
         private readonly DispatcherTimer _settingsDebounceTimer;
         private CancellationTokenSource? _speedTestCts;
         private readonly SemaphoreSlim _tcpToggleLock = new(1, 1);
+        private readonly SemaphoreSlim _priorityEngageLock = new(1, 1);
+        private int _fastWifiCheckCounter = 0;
         private bool _isFirstHotspotRefresh = true;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
@@ -419,6 +421,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         public MainViewModel()
         {
+            App.LogStartupMilestone("MainViewModel ctor enter");
             _settings = _settingsService.LoadSettings();
             _analyzerViewMode = _settings.AnalyzerViewMode ?? "Spectrum";
             ConnectionStabilizerService.CaptivePortalProbeUrl = _settings.CaptivePortalUrl;
@@ -462,10 +465,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                 TcpGamingOptimizer.LoadOriginalTcpBackup(_settings.OriginalTcpSettingsBackup);
             }
 
-            // Initialize active background engines if enabled
+            // Initialize active background engines if enabled (deferred so window renders instantly)
             if (Hotspot.IsGamingTuningEnabled)
             {
-                _ = Task.Run(async () => await TcpGamingOptimizer.ApplyGamingTuningAsync());
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3500);
+                    await TcpGamingOptimizer.ApplyGamingTuningAsync();
+                });
             }
             if (Hotspot.IsAntiBufferbloatEnabled)
             {
@@ -500,27 +507,10 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             if (_settings.BlockedClients != null)
             {
-                var blockedSnapshot = new List<BlockedClientInfo>();
                 foreach (var b in _settings.BlockedClients)
                 {
                     Hotspot.BlockedClients.Add(b);
                     HotspotService.RegisterBlockedMac(b.MacAddress);
-                    if (!string.IsNullOrEmpty(b.IpAddress) && b.IpAddress != "-")
-                    {
-                        blockedSnapshot.Add(b);
-                    }
-                }
-
-                // Asynchronously enforce kernel/firewall blocks in the background to ensure cold boot is instant on HDDs
-                if (blockedSnapshot.Count > 0)
-                {
-                    _ = Task.Run(() =>
-                    {
-                        foreach (var b in blockedSnapshot)
-                        {
-                            HotspotService.EnforceIpBlock(b.MacAddress, b.IpAddress);
-                        }
-                    });
                 }
             }
 
@@ -594,22 +584,40 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
                     _settings.BufferbloatLineSpeed = Hotspot.BufferbloatLineSpeed;
                     _settings.BufferbloatTarget = Hotspot.BufferbloatTarget;
-                    _settingsService.SaveSettings(_settings);
+                    RequestDebouncedSettingsSave();
+
+                    bool enabledChanged = HotspotPriorityService.EnableAntiBufferbloat != Hotspot.IsAntiBufferbloatEnabled;
+                    bool targetChanged = !string.Equals(HotspotPriorityService.BufferbloatTarget, Hotspot.BufferbloatTarget, StringComparison.OrdinalIgnoreCase);
 
                     HotspotPriorityService.EnableAntiBufferbloat = Hotspot.IsAntiBufferbloatEnabled;
                     HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
                     var (downVal, upVal, netChanged) = GetScopedMeasuredSpeeds();
                     var (downBits, upBits) = Hotspot.GetBufferbloatThrottleBits(downVal, upVal, netChanged);
+
+                    bool throttleChanged = HotspotPriorityService.BufferbloatDownThrottleRateBits != downBits ||
+                                           HotspotPriorityService.BufferbloatUpThrottleRateBits != upBits;
+
                     HotspotPriorityService.BufferbloatDownThrottleRateBits = downBits;
                     HotspotPriorityService.BufferbloatUpThrottleRateBits = upBits;
 
-                    _ = Task.Run(async () =>
+                    if (enabledChanged || targetChanged || throttleChanged)
                     {
-                        var res = await _hotspotService.OptimizePriorityAsync();
-                        Dispatch(() => Hotspot.StatusMessage = Hotspot.IsAntiBufferbloatEnabled
-                            ? $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})"
-                            : "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)");
-                    });
+                        _ = Task.Run(async () =>
+                        {
+                            await _priorityEngageLock.WaitAsync();
+                            try
+                            {
+                                var res = await _hotspotService.OptimizePriorityAsync();
+                                Dispatch(() => Hotspot.StatusMessage = Hotspot.IsAntiBufferbloatEnabled
+                                    ? $"🛡️ Anti-Bufferbloat engaged for {Hotspot.BufferbloatTarget} ({Hotspot.BufferbloatHeadroomText})"
+                                    : "🛡️ Anti-Bufferbloat disabled (Transit unthrottled)");
+                            }
+                            finally
+                            {
+                                _priorityEngageLock.Release();
+                            }
+                        });
+                    }
                 }
                 else if (e.PropertyName == nameof(Hotspot.IsZeroLatencyDnsEnabled))
                 {
@@ -706,11 +714,19 @@ namespace WifiAnalyzerHotspot.ViewModels
             ApplyHotspotPriorityCommand = new RelayCommand(async () =>
             {
                 Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
-                var res = await _hotspotService.OptimizePriorityAsync();
-                Hotspot.PriorityStatusText = res.success
-                    ? "⚡ Highest PC Priority: HIGH"
-                    : "⚠️ Priority applied with warnings";
-                Hotspot.StatusMessage = res.message;
+                await _priorityEngageLock.WaitAsync();
+                try
+                {
+                    var res = await _hotspotService.OptimizePriorityAsync();
+                    Hotspot.PriorityStatusText = res.success
+                        ? "⚡ Highest PC Priority: HIGH"
+                        : "⚠️ Priority applied with warnings";
+                    Hotspot.StatusMessage = res.message;
+                }
+                finally
+                {
+                    _priorityEngageLock.Release();
+                }
             });
 
             ScanNowCommand = new RelayCommand(async () => await PerformScanAsync());
@@ -1189,7 +1205,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 try
                 {
                     CurrentTraffic = _networkMonitorService.GetCurrentTraffic();
-                    CheckFastWifiState();
+                    CheckFastWifiState(force: false);
 
                     // Sample RSSI for Signal Strength vs Time Timeline
                     if (ConnectedInterface != null && ConnectedInterface.Signal > 0 && !string.IsNullOrWhiteSpace(ConnectedInterface.Ssid) && !ConnectedInterface.Ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase))
@@ -1403,10 +1419,13 @@ namespace WifiAnalyzerHotspot.ViewModels
             // Queue initial scans safely on UI dispatcher after window load
             Application.Current?.Dispatcher.InvokeAsync(async () =>
             {
+                App.LogStartupMilestone("First Background Dispatcher Idle Tick");
                 await PerformScanAsync();
                 await RefreshHotspotAsync();
                 _scanTimer.Start();
             }, DispatcherPriority.Background);
+
+            App.LogStartupMilestone("MainViewModel ctor exit");
         }
 
         public static string GetActiveNetworkSignature()
@@ -1455,7 +1474,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
         private void OnNetworkChanged()
         {
-            CheckFastWifiState();
+            CheckFastWifiState(force: true);
 
             string currentSig = GetActiveNetworkSignature();
             if (!string.IsNullOrEmpty(currentSig) && !string.IsNullOrEmpty(_lastActiveNetworkSignature) &&
@@ -1475,8 +1494,16 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     _ = Task.Run(async () =>
                     {
-                        await _hotspotService.OptimizePriorityAsync();
-                        Dispatch(() => Hotspot.StatusMessage = $"🛡️ Network changed: Anti-bufferbloat updated ({Hotspot.BufferbloatHeadroomText})");
+                        await _priorityEngageLock.WaitAsync();
+                        try
+                        {
+                            await _hotspotService.OptimizePriorityAsync();
+                            Dispatch(() => Hotspot.StatusMessage = $"🛡️ Network changed: Anti-bufferbloat updated ({Hotspot.BufferbloatHeadroomText})");
+                        }
+                        finally
+                        {
+                            _priorityEngageLock.Release();
+                        }
                     });
                 }
             }
@@ -1625,8 +1652,15 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
-        private void CheckFastWifiState()
+        private void CheckFastWifiState(bool force = false)
         {
+            if (!force)
+            {
+                _fastWifiCheckCounter++;
+                if (_fastWifiCheckCounter < 15) return;
+            }
+            _fastWifiCheckCounter = 0;
+
             try
             {
                 var ifaces = NetworkInterface.GetAllNetworkInterfaces();
@@ -1820,7 +1854,15 @@ namespace WifiAnalyzerHotspot.ViewModels
                     {
                         _ = Task.Run(async () =>
                         {
-                            await _hotspotService.OptimizePriorityAsync();
+                            await _priorityEngageLock.WaitAsync();
+                            try
+                            {
+                                await _hotspotService.OptimizePriorityAsync();
+                            }
+                            finally
+                            {
+                                _priorityEngageLock.Release();
+                            }
                         });
                     }
                 }
@@ -2080,7 +2122,8 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                     if (needsReconfigure)
                     {
-                        Hotspot.StatusMessage = "Configuring Hotspot credentials...";
+                        Hotspot.StatusMessage = "Configuring Hotspot credentials & DHCP scope...";
+                        await _hotspotService.OptimizeHotspotDhcpAsync();
                         await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
                     }
 

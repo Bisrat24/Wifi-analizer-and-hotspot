@@ -40,12 +40,34 @@ namespace WifiAnalyzerHotspot
         public static bool IsAdministrator { get; private set; } = false;
         public static bool IsSessionEnding { get; private set; } = false;
 
+        public static readonly Stopwatch StartupSw = Stopwatch.StartNew();
         private static readonly string LogDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WifiAnalyzerHotspot");
         private static readonly string CrashLogPath = Path.Combine(LogDirectory, "crash.log");
+        private static readonly string StartupLogPath = Path.Combine(LogDirectory, "startup.log");
+        private static readonly object _startupLogLock = new();
+
+        public static void LogStartupMilestone(string milestone)
+        {
+            try
+            {
+                lock (_startupLogLock)
+                {
+                    Directory.CreateDirectory(LogDirectory);
+                    var fi = new FileInfo(StartupLogPath);
+                    if (fi.Exists && fi.Length > 64 * 1024)
+                    {
+                        File.Delete(StartupLogPath);
+                    }
+                    File.AppendAllText(StartupLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{StartupSw.ElapsedMilliseconds,5} ms] {milestone}\n");
+                }
+            }
+            catch { }
+        }
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            LogStartupMilestone("App.OnStartup enter");
             // 1. Check Administrator elevation
             try
             {

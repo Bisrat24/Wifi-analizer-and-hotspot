@@ -17,10 +17,13 @@ namespace WifiAnalyzerHotspot
 
         public MainWindow()
         {
+            App.LogStartupMilestone("MainWindow ctor enter");
             InitializeComponent();
+            App.LogStartupMilestone("MainWindow InitializeComponent complete");
 
             Loaded += (s, e) =>
             {
+                App.LogStartupMilestone("MainWindow.Loaded event fired");
                 var wih = new WindowInteropHelper(this);
                 var source = HwndSource.FromHwnd(wih.EnsureHandle());
                 source?.AddHook(WndProc);
@@ -38,6 +41,7 @@ namespace WifiAnalyzerHotspot
 
             StateChanged += MainWindow_StateChanged;
             Closing += MainWindow_Closing;
+            App.LogStartupMilestone("MainWindow ctor exit");
         }
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)

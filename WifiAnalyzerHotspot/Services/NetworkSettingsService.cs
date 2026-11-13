@@ -63,6 +63,9 @@ namespace WifiAnalyzerHotspot.Services
                         loaded.ProxyPassword = DpapiSecret.Unprotect(loaded.ProxyPassword);
                         loaded.HotspotPassword = DpapiSecret.Unprotect(loaded.HotspotPassword);
                         ApplyProxy(loaded);
+                        _lastConfiguredStartupEnabled = loaded.StartWithWindows;
+                        _lastConfiguredStartupMinimized = loaded.StartMinimized;
+                        _lastConfiguredExePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WifiAnalyzerHotspot.exe");
                         return loaded;
                     }
                 }
@@ -133,65 +136,62 @@ namespace WifiAnalyzerHotspot.Services
                 return; // State unchanged; eliminate redundant schtasks.exe process spawn and disk thrashing on HDDs
             }
 
-            try
+            _lastConfiguredStartupEnabled = enable;
+            _lastConfiguredStartupMinimized = startMinimized;
+            _lastConfiguredExePath = exePath;
+
+            Task.Run(() =>
             {
                 try
                 {
-                    using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
-                    runKey?.DeleteValue(StartupTaskName, false);
+                    try
+                    {
+                        using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                        runKey?.DeleteValue(StartupTaskName, false);
+                    }
+                    catch { }
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "schtasks.exe",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    if (enable)
+                    {
+                        psi.ArgumentList.Add("/Create");
+                        psi.ArgumentList.Add("/TN");
+                        psi.ArgumentList.Add(StartupTaskName);
+                        psi.ArgumentList.Add("/SC");
+                        psi.ArgumentList.Add("ONLOGON");
+                        psi.ArgumentList.Add("/RL");
+                        psi.ArgumentList.Add("HIGHEST");
+                        psi.ArgumentList.Add("/TR");
+                        psi.ArgumentList.Add(startMinimized ? $"\"{exePath}\" --minimized" : $"\"{exePath}\"");
+                        psi.ArgumentList.Add("/F");
+                    }
+                    else
+                    {
+                        psi.ArgumentList.Add("/Delete");
+                        psi.ArgumentList.Add("/TN");
+                        psi.ArgumentList.Add(StartupTaskName);
+                        psi.ArgumentList.Add("/F");
+                    }
+
+                    using var p = Process.Start(psi);
+                    if (p == null) return;
+                    bool exited = p.WaitForExit(8000);
+                    if (!exited)
+                    {
+                        try { p.Kill(true); } catch { }
+                    }
                 }
                 catch { }
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "schtasks.exe",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                if (enable)
-                {
-                    psi.ArgumentList.Add("/Create");
-                    psi.ArgumentList.Add("/TN");
-                    psi.ArgumentList.Add(StartupTaskName);
-                    psi.ArgumentList.Add("/SC");
-                    psi.ArgumentList.Add("ONLOGON");
-                    psi.ArgumentList.Add("/RL");
-                    psi.ArgumentList.Add("HIGHEST");
-                    psi.ArgumentList.Add("/TR");
-                    psi.ArgumentList.Add(startMinimized ? $"\"{exePath}\" --minimized" : $"\"{exePath}\"");
-                    psi.ArgumentList.Add("/F");
-                }
-                else
-                {
-                    psi.ArgumentList.Add("/Delete");
-                    psi.ArgumentList.Add("/TN");
-                    psi.ArgumentList.Add(StartupTaskName);
-                    psi.ArgumentList.Add("/F");
-                }
-
-                using var p = Process.Start(psi);
-                if (p == null) return;
-                var stdout = p.StandardOutput.ReadToEndAsync();
-                var stderr = p.StandardError.ReadToEndAsync();
-                bool exited = p.WaitForExit(8000);
-                if (!exited)
-                {
-                    try { p.Kill(true); } catch { }
-                }
-                Task.WaitAll(new[] { stdout, stderr }, 1000);
-
-                if (exited && p.ExitCode == 0)
-                {
-                    _lastConfiguredStartupEnabled = enable;
-                    _lastConfiguredStartupMinimized = startMinimized;
-                    _lastConfiguredExePath = exePath;
-                }
-            }
-            catch { }
+            });
         }
 
         public static bool IsWindowsStartupEnabled()

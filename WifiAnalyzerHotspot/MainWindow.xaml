@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.4.5" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.4.6" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.5">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.6">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1249,7 +1249,7 @@
                                                 <TextBlock Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E676"/>
                                                 <TextBlock Text="Anti-Bufferbloat Queue Clamping" FontWeight="SemiBold" FontSize="12" Foreground="#00E676"/>
                                             </StackPanel>
-                                            <TextBlock Text="Clamps bulk traffic to 90% of line speed via Windows NetQoS, keeping ping jitter-free under heavy uploads/downloads." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Clamps bulk upload traffic to 90% of line speed via Windows NetQoS egress queues, keeping ping jitter-free under heavy loads." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </CheckBox>
                                     <WrapPanel Margin="24,8,0,0" VerticalAlignment="Center"
@@ -1259,15 +1259,15 @@
                                             <ComboBox ItemsSource="{Binding Hotspot.BufferbloatTargetOptions}"
                                                       SelectedItem="{Binding Hotspot.BufferbloatTarget, Mode=TwoWay}"
                                                       Background="#181C2B" Foreground="#000000" FontSize="11" Padding="6,2" Height="26" Width="145"
-                                                      VerticalAlignment="Center" ToolTip="Select whether to clamp Hotspot transit only or Entire PC (Ethernet / Wi-Fi)"/>
+                                                      VerticalAlignment="Center" ToolTip="Select whether to clamp Hotspot transit only or Entire PC Uplink (All Adapters)"/>
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
                                             <TextBlock Text="Line Speed:" FontSize="11" Foreground="#A2B1CD" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                             <ComboBox ItemsSource="{Binding Hotspot.BufferbloatSpeedOptions}"
-                                                      Text="{Binding Hotspot.BufferbloatLineSpeed, Mode=TwoWay}"
+                                                      Text="{Binding Hotspot.BufferbloatLineSpeed, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                       IsEditable="True"
                                                       Background="#181C2B" Foreground="#000000" FontSize="11" Padding="6,2" Height="26" Width="170"
-                                                      VerticalAlignment="Center" ToolTip="Select a preset or type any custom speed (e.g. 75 Mbps or 100/20)"/>
+                                                      VerticalAlignment="Center" ToolTip="Select a preset or type any custom speed (e.g. 75 Mbps or 100/20) - Applied when leaving field or pressing Enter"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding Hotspot.BufferbloatHeadroomText}" FontSize="10" Foreground="#00E676" VerticalAlignment="Center" Margin="0,0,0,4"/>
                                     </WrapPanel>

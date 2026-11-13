@@ -242,18 +242,22 @@ try { Remove-NetQosPolicy -Name 'Hotspot_Transit_Down' -Confirm:$false -ErrorAct
 try { Remove-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
 
 if ($bufferbloatTarget -eq 'Entire PC') {
-    # 1. Global uplink bufferbloat clamp for Entire PC (Ethernet / Wi-Fi main connection)
+    # 1. Global uplink bufferbloat clamp for Entire PC (Precedence 240 beats browsers [64] and transit [128], below caps [245] and blocks [255])
     if ($bufferbloatUpThrottle -gt 0) {
         try {
-            New-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -Precedence 50 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+            New-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -Precedence 240 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
             Get-NetQosPolicy -Name 'Hotspot_PC_Bufferbloat_Up' -ErrorAction Stop | Out-Null
         } catch {
             Add-Result ""QOS_FAIL:Hotspot_PC_Bufferbloat_Up $($_.Exception.Message)""
         }
     }
-    # 2. Hotspot Transit policies: Hotspot clients still get High Priority (802.1p=7, DSCP=46)
+    # 2. Hotspot Transit policies: Hotspot clients get High Priority (802.1p=7, DSCP=46) and matching up-throttle
     try {
-        New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+        if ($bufferbloatUpThrottle -gt 0) {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -ThrottleRateActionBitsPerSecond $bufferbloatUpThrottle -Confirm:$false -ErrorAction Stop | Out-Null
+        } else {
+            New-NetQosPolicy -Name 'Hotspot_Transit_Up' -IPSrcPrefixMatchCondition '192.168.137.0/24' -PriorityValue8021Action 7 -DSCPAction 46 -Precedence 128 -Confirm:$false -ErrorAction Stop | Out-Null
+        }
     } catch {
         Add-Result ""QOS_FAIL:Hotspot_Transit_Up $($_.Exception.Message)""
     }
