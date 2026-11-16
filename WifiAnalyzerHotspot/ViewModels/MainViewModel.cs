@@ -501,9 +501,15 @@ namespace WifiAnalyzerHotspot.ViewModels
             // Stabilizer preferences
             Stabilizer.KeepAliveLogLimit = _settings.KeepAliveLogLimit > 0 ? _settings.KeepAliveLogLimit : 100;
             Stabilizer.ReconnectLogLimit = _settings.ReconnectLogLimit > 0 ? _settings.ReconnectLogLimit : 100;
-            Stabilizer.KeepAliveIntervalSeconds = _settings.KeepAliveIntervalSeconds > 0 ? _settings.KeepAliveIntervalSeconds : 5;
+            Stabilizer.KeepAliveIntervalSeconds = _settings.KeepAliveIntervalSeconds > 0 ? _settings.KeepAliveIntervalSeconds : 1;
             if (!string.IsNullOrWhiteSpace(_settings.KeepAliveTarget)) Stabilizer.KeepAliveTarget = _settings.KeepAliveTarget;
-            if (!string.IsNullOrWhiteSpace(_settings.KeepAliveMethod)) Stabilizer.KeepAliveMethod = _settings.KeepAliveMethod;
+            if (!string.IsNullOrWhiteSpace(_settings.KeepAliveMethod))
+            {
+                if (_settings.KeepAliveMethod == "ICMP Ping")
+                    Stabilizer.KeepAliveMethod = "ICMP Ping (Ultra-Lightweight / Fast)";
+                else
+                    Stabilizer.KeepAliveMethod = _settings.KeepAliveMethod;
+            }
 
             if (!string.IsNullOrWhiteSpace(_settings.TargetSsid)) Stabilizer.TargetSsid = _settings.TargetSsid;
             Stabilizer.FailureThreshold = _settings.FailureThreshold > 0 ? _settings.FailureThreshold : 3;
@@ -653,7 +659,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.ReconnectLogLimit = Stabilizer.ReconnectLogLimit;
                 else if (e.PropertyName == nameof(Stabilizer.IsKeepAliveActive))
                     _settings.IsKeepAliveActive = Stabilizer.IsKeepAliveActive;
-                else if (e.PropertyName == nameof(Stabilizer.KeepAliveIntervalSeconds))
+                else if (e.PropertyName == nameof(Stabilizer.KeepAliveIntervalSeconds) || e.PropertyName == nameof(Stabilizer.KeepAliveIntervalChoice))
                     _settings.KeepAliveIntervalSeconds = Stabilizer.KeepAliveIntervalSeconds;
                 else if (e.PropertyName == nameof(Stabilizer.KeepAliveTarget))
                     _settings.KeepAliveTarget = Stabilizer.KeepAliveTarget;
@@ -663,11 +669,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.IsReconnectActive = Stabilizer.IsReconnectActive;
                 else if (e.PropertyName == nameof(Stabilizer.TargetSsid))
                     _settings.TargetSsid = Stabilizer.TargetSsid;
-                else if (e.PropertyName == nameof(Stabilizer.FailureThreshold))
+                else if (e.PropertyName == nameof(Stabilizer.FailureThreshold) || e.PropertyName == nameof(Stabilizer.FailureThresholdChoice))
                     _settings.FailureThreshold = Stabilizer.FailureThreshold;
                 else if (e.PropertyName == nameof(Stabilizer.ReconnectStrategy))
                     _settings.ReconnectStrategy = Stabilizer.ReconnectStrategy;
-                else if (e.PropertyName == nameof(Stabilizer.ReconnectBufferSeconds))
+                else if (e.PropertyName == nameof(Stabilizer.ReconnectBufferSeconds) || e.PropertyName == nameof(Stabilizer.ReconnectBufferChoice))
                     _settings.ReconnectBufferSeconds = Stabilizer.ReconnectBufferSeconds;
                 else if (e.PropertyName == nameof(Stabilizer.PreserveGigabitLinkSpeed))
                 {

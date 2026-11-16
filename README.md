@@ -1,4 +1,4 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.4.8)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.4.9)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Host PC Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 Uplink Clamping, Target Selection, Dual & Single-Direction Parsing, Thousands Separators & Re-entrant Coalescing), Zero-Latency Local & Corporate DNS Cache (50,000 Entries Capacity, Question Splicing, 0x20 Casing Preservation, Explicit EDNS0/Version/DO/CD/ECS Keys, RFC 6891 TC OPT Preservation & Earliest-Expiry Sample Pruning), Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
 
@@ -10,6 +10,22 @@ You can run the app immediately by double-clicking:
 - **`WifiAnalyzerHotspot.exe`** (located right in the root directory: `c:\Users\Bisrat\Documents\APPS\Wifi analizer and hotspot\WifiAnalyzerHotspot.exe`)
 - Or **`Launch.bat`** (instant zero-delay launch with native ADS Mark-of-the-Web check)
 - Or build/publish anytime with **`publish.cmd`** (one-click single-file win-x64 ReadyToRun compilation to `dist\` with polled graceful shutdown and error-checked staging)
+
+### 🎨 Native Dark Theme Title Bar Matching App Display (v1.4.9)
+- **Seamless Dark Top Bar**: Eliminates Windows' default white non-client title bar by engaging Desktop Window Manager (DWM) immersive dark mode (`DWMWA_USE_IMMERSIVE_DARK_MODE` 20/19) and custom caption coloring (`DWMWA_CAPTION_COLOR = 0x00140E0C`, `DWMWA_TEXT_COLOR = 0x00F0E8E2`, `DWMWA_BORDER_COLOR = 0x0038251F`).
+- **Zero White Flash**: Applied during `OnSourceInitialized` as soon as the HWND is created, rendering the title bar, caption buttons, and border in `#0C0E14` from the very first frame.
+
+### ⚡ Active Keep-Alive Settings Persistence & 1-Second Default (v1.4.9)
+- **Settings Persistence**: The Active Keep-Alive settings (Pulse Interval, Target Server, Probe Protocol, and Log Limits) now cleanly synchronize with `settings.json`. Fixed ComboBoxItem selection binding mismatches and hardcoded template overrides so user preferences are remembered across reboots and window re-openings.
+- **1-Second High-Intensity Default**: Defaults to **1 second (High Intensity - Gaming/Streaming)** for maximum link stability, keeping Wi-Fi power-save sleep awake and preventing NAT table timeouts.
+
+### 🖥️ Universal Screen Size Responsiveness (v1.4.9)
+- **Adaptive Layout**: Supports 1366x768 laptop screens, 1280x720 viewports, high display scaling (125%, 150%, 175%), and multi-monitor setups without clipping or off-screen controls.
+- **Usable Work Area Adaptation**: Automatically fits window dimensions within `SystemParameters.WorkArea` with minimum bounds (`MinHeight=480`, `MinWidth=720`), centering comfortably on any display.
+- **Scrollable & Flexible Content**:
+  - Main tab containers (Speed Test, Mobile Hotspot right column, Sidebar navigation, and Settings dialog) now feature smooth auto-scrolling (`VerticalScrollBarVisibility="Auto"`), preventing squeezed or compressed controls.
+  - Spectrum curves and networks list in Tab 1 use proportional flexible row sizing (`1.1*` / `1*`) with minimum constraints, ensuring both the graph and table remain simultaneously visible on compact screens.
+  - Settings modal dynamically adapts (`MaxWidth=820`, `Margin=16,20`) to prevent modal clipping or overflow on compact laptop displays.
 
 ### ⚡ Instant Startup (Ahead-of-Time Native ReadyToRun)
 - Built with **Ahead-Of-Time (ReadyToRun) native x64 machine code compilation** enabled.
@@ -29,7 +45,7 @@ When transferring or downloading the `.exe` to another PC, Windows adds an NTFS 
 
 ---
 
-## ✨ Key Features (v1.4.8)
+## ✨ Key Features (v1.4.9)
 
 ### 🚀 Low-Latency, Gaming & Hotspot Performance Engine (v1.4.8)
 - **🛡️ Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 & Uplink Shaping)**:

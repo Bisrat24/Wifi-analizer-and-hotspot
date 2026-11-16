@@ -345,7 +345,7 @@ namespace WifiAnalyzerHotspot.Models
             set { _isKeepAliveActive = value; OnPropertyChanged(); }
         }
 
-        private int _keepAliveIntervalSeconds = 5;
+        private int _keepAliveIntervalSeconds = 1;
         public int KeepAliveIntervalSeconds
         {
             get => _keepAliveIntervalSeconds;
@@ -359,11 +359,11 @@ namespace WifiAnalyzerHotspot.Models
             set { _keepAliveTarget = value ?? "1.1.1.1"; OnPropertyChanged(); }
         }
 
-        private string _keepAliveMethod = "ICMP Ping";
+        private string _keepAliveMethod = "ICMP Ping (Ultra-Lightweight / Fast)";
         public string KeepAliveMethod
         {
             get => _keepAliveMethod;
-            set { _keepAliveMethod = value ?? "ICMP Ping"; OnPropertyChanged(); }
+            set { _keepAliveMethod = value ?? "ICMP Ping (Ultra-Lightweight / Fast)"; OnPropertyChanged(); }
         }
 
         // ==================== ACTIVE RECONNECT SETTINGS ====================
@@ -388,11 +388,11 @@ namespace WifiAnalyzerHotspot.Models
             set { _failureThreshold = Math.Clamp(value, 1, 10); OnPropertyChanged(); }
         }
 
-        private string _reconnectStrategy = "Fast Wi-Fi Re-auth";
+        private string _reconnectStrategy = "Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)";
         public string ReconnectStrategy
         {
             get => _reconnectStrategy;
-            set { _reconnectStrategy = value ?? "Fast Wi-Fi Re-auth"; OnPropertyChanged(); }
+            set { _reconnectStrategy = value ?? "Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)"; OnPropertyChanged(); }
         }
 
         private int _reconnectBufferSeconds = 10;

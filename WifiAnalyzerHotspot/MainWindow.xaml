@@ -8,8 +8,8 @@
         mc:Ignorable="d"
         Title="WiFi Analyzer &amp; Hotspot Pro"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
-        Height="780" Width="1220"
-        MinHeight="540" MinWidth="760"
+        Height="720" Width="1180"
+        MinHeight="480" MinWidth="720"
         WindowStartupLocation="CenterScreen"
         Background="#0C0E14"
         Foreground="#E2E8F0">
@@ -128,7 +128,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.4.8" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.4.9" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +146,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.8">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.9">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -160,7 +160,8 @@
                 <Separator Grid.Row="1" Background="#1D2336" Margin="0,0,0,12"/>
 
                 <!-- Navigation Tabs List -->
-                <StackPanel Grid.Row="2">
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
                     <!-- Tab 1: Spectrum & Channels -->
                     <Button Command="{Binding SetTabCommand}" CommandParameter="Analyzer"
                             ToolTip="Spectrum &amp; Channels"
@@ -389,6 +390,7 @@
                         </Button.Template>
                     </Button>
                 </StackPanel>
+                </ScrollViewer>
 
                 <!-- Bottom Sidebar Card: Connected Adapter Status -->
                 <!-- Expanded View -->
@@ -451,8 +453,8 @@
                         </Button>
 
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="Wi-Fi Spectrum &amp; Hotspot Manager" FontSize="19" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock Text="{Binding ScanStatus}" FontSize="12" Foreground="#8B96AF" Margin="0,2,0,0"/>
+                            <TextBlock Text="Wi-Fi Spectrum &amp; Hotspot Manager" FontSize="19" FontWeight="Bold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding ScanStatus}" FontSize="12" Foreground="#8B96AF" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                     </StackPanel>
 
@@ -484,8 +486,8 @@
             <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=Analyzer}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="290"/>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="1.1*" MinHeight="170" MaxHeight="300"/>
+                    <RowDefinition Height="1*" MinHeight="130"/>
                 </Grid.RowDefinitions>
 
                 <!-- Filter Controls: Band Switcher & Search Filter -->
@@ -781,14 +783,16 @@
             </Grid>
 
             <!-- ==================== TAB 3: SPEED TEST & LIVE TRAFFIC ==================== -->
-            <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=SpeedTest}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="380"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=SpeedTest}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="350" MinWidth="280" MaxWidth="400"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <!-- Left Column: Speedometer Dial & Test Controls -->
-                <Border Grid.Column="0" Style="{StaticResource CardBorder}" Margin="0,0,16,0">
+                    <!-- Left Column: Speedometer Dial & Test Controls -->
+                    <Border Grid.Column="0" Style="{StaticResource CardBorder}" Margin="0,0,16,0">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -926,10 +930,10 @@
                             </DockPanel>
 
                             <!-- Live Gauges / Readout Display -->
-                            <Grid Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Grid Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="500">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="220"/>
-                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="*" MinWidth="140"/>
+                                    <ColumnDefinition Width="*" MinWidth="140"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Live Download Speed -->
@@ -955,12 +959,13 @@
                         </Grid>
                     </Border>
                 </Grid>
-            </Grid>
+                </Grid>
+            </ScrollViewer>
 
             <!-- ==================== TAB 4: MOBILE HOTSPOT CREATOR ==================== -->
             <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=Hotspot}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="380" MinWidth="340" MaxWidth="440"/>
+                    <ColumnDefinition Width="360" MinWidth="290" MaxWidth="420"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
@@ -1350,15 +1355,16 @@
                 </Border>
 
                                 <!-- Right Column: Connected Clients, Blocked Devices & Auto-Reset Log -->
-                <Grid Grid.Column="1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="1.3*"/>
-                        <RowDefinition Height="0.85*"/>
-                        <RowDefinition Height="0.85*"/>
-                    </Grid.RowDefinitions>
+                <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
 
-                    <!-- Top Card: Connected Clients -->
-                    <Border Grid.Row="0" Style="{StaticResource CardBorder}" Margin="0,0,0,12">
+                        <!-- Top Card: Connected Clients -->
+                        <Border Grid.Row="0" Style="{StaticResource CardBorder}" MinHeight="220" Margin="0,0,0,12">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1692,7 +1698,7 @@
                     </Border>
 
                     <!-- Middle Card: Blocked Devices (Blacklist) -->
-                    <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,12">
+                    <Border Grid.Row="1" Style="{StaticResource CardBorder}" MinHeight="160" Margin="0,0,0,12">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1753,7 +1759,7 @@
                     </Border>
 
                     <!-- Bottom Card: Automatic Reset & Recovery Log -->
-                    <Border Grid.Row="2" Style="{StaticResource CardBorder}">
+                    <Border Grid.Row="2" Style="{StaticResource CardBorder}" MinHeight="140">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1793,6 +1799,7 @@
                         </Grid>
                     </Border>
                 </Grid>
+                </ScrollViewer>
             </Grid>
 
             <!-- ==================== TAB 5: NETWORK DETAILS ==================== -->
@@ -1990,7 +1997,7 @@
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
                                             <ComboBoxItem Content="1 second (High Intensity - Gaming/Streaming)"/>
                                             <ComboBoxItem Content="3 seconds (Recommended for Unstable Wi-Fi)"/>
-                                            <ComboBoxItem Content="5 seconds (Balanced - Standard Keep-Alive)" IsSelected="True"/>
+                                            <ComboBoxItem Content="5 seconds (Balanced - Standard Keep-Alive)"/>
                                             <ComboBoxItem Content="10 seconds (Lightweight / Low Battery)"/>
                                             <ComboBoxItem Content="15 seconds (Minimal Heartbeat)"/>
                                         </ComboBox>
@@ -1999,7 +2006,7 @@
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Target Server:" Foreground="#8F9EBC" VerticalAlignment="Center" Margin="0,0,0,10"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1" Text="{Binding Stabilizer.KeepAliveTarget}" IsEditable="True"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
-                                            <ComboBoxItem Content="1.1.1.1" IsSelected="True"/>
+                                            <ComboBoxItem Content="1.1.1.1"/>
                                             <ComboBoxItem Content="8.8.8.8"/>
                                             <ComboBoxItem Content="9.9.9.9"/>
                                             <ComboBoxItem Content="192.168.1.1"/>
@@ -2009,7 +2016,7 @@
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Probe Protocol:" Foreground="#8F9EBC" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="2" Grid.Column="1" SelectedValue="{Binding Stabilizer.KeepAliveMethod}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
-                                            <ComboBoxItem Content="ICMP Ping (Ultra-Lightweight / Fast)" IsSelected="True"/>
+                                            <ComboBoxItem Content="ICMP Ping (Ultra-Lightweight / Fast)"/>
                                             <ComboBoxItem Content="TCP Port 53 (Bypasses Ping Firewalls)"/>
                                             <ComboBoxItem Content="HTTP HEAD (Web Proxy / Captive Portal Bypass)"/>
                                         </ComboBox>
@@ -2095,22 +2102,24 @@
                                             <TextBlock DockPanel.Dock="Right" Text="LATENCY" FontSize="10" FontWeight="Bold" Foreground="#7888A8" Margin="0,0,60,0" VerticalAlignment="Center"/>
                                         </DockPanel>
 
-                                        <ItemsControl Grid.Row="1" ItemsSource="{Binding Stabilizer.HeartbeatHistory}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border BorderBrush="#1C2133" BorderThickness="0,0,0,1" Padding="4,4">
-                                                        <DockPanel LastChildFill="False">
-                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                                <Border Width="7" Height="7" CornerRadius="3.5" Background="{Binding StatusBrush}" Margin="0,0,8,0"/>
-                                                                <TextBlock Text="{Binding Time}" FontSize="11" Foreground="#8F9EBC" FontFamily="Consolas"/>
-                                                            </StackPanel>
-                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding StatusBrush}"/>
-                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LatencyMs, StringFormat='{}{0:F0} ms'}" FontSize="11" Foreground="#00E5FF" FontWeight="Bold" Margin="0,0,24,0"/>
-                                                        </DockPanel>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        <ScrollViewer Grid.Row="1" MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding Stabilizer.HeartbeatHistory}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border BorderBrush="#1C2133" BorderThickness="0,0,0,1" Padding="4,4">
+                                                            <DockPanel LastChildFill="False">
+                                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                    <Border Width="7" Height="7" CornerRadius="3.5" Background="{Binding StatusBrush}" Margin="0,0,8,0"/>
+                                                                    <TextBlock Text="{Binding Time}" FontSize="11" Foreground="#8F9EBC" FontFamily="Consolas"/>
+                                                                </StackPanel>
+                                                                <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding StatusBrush}"/>
+                                                                <TextBlock DockPanel.Dock="Right" Text="{Binding LatencyMs, StringFormat='{}{0:F0} ms'}" FontSize="11" Foreground="#00E5FF" FontWeight="Bold" Margin="0,0,24,0"/>
+                                                            </DockPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
                                     </Grid>
                                 </Border>
                             </Grid>
@@ -2235,7 +2244,7 @@
                                         <ComboBox Grid.Row="1" Grid.Column="1" SelectedValue="{Binding Stabilizer.FailureThresholdChoice}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
                                             <ComboBoxItem Content="2 consecutive drops (Aggressive Reconnect)"/>
-                                            <ComboBoxItem Content="3 consecutive drops (Recommended Standard)" IsSelected="True"/>
+                                            <ComboBoxItem Content="3 consecutive drops (Recommended Standard)"/>
                                             <ComboBoxItem Content="5 consecutive drops (High Tolerance)"/>
                                         </ComboBox>
 
@@ -2243,7 +2252,7 @@
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Recovery Mode:" Foreground="#8F9EBC" VerticalAlignment="Center" Margin="0,0,0,10"/>
                                         <ComboBox Grid.Row="2" Grid.Column="1" SelectedValue="{Binding Stabilizer.ReconnectStrategy}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
-                                            <ComboBoxItem Content="Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)" IsSelected="True"/>
+                                            <ComboBoxItem Content="Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)"/>
                                             <ComboBoxItem Content="DHCP IP Renew &amp; Reconnect (Fixes IP conflict)"/>
                                             <ComboBoxItem Content="Radio Cycle &amp; Reconnect (Full Wi-Fi Reset)"/>
                                             <ComboBoxItem Content="Adapter Reset (Disable/Enable NIC &#x2014; Most Aggressive)"/>
@@ -2253,7 +2262,7 @@
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="VPN / Link Buffer:" Foreground="#8F9EBC" VerticalAlignment="Center" Margin="0,0,0,10"/>
                                         <ComboBox Grid.Row="3" Grid.Column="1" SelectedValue="{Binding Stabilizer.ReconnectBufferChoice}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5" Margin="0,0,0,10">
-                                            <ComboBoxItem Content="10 seconds (Recommended &#x2022; Cisco AnyConnect &amp; VPN)" IsSelected="True"/>
+                                            <ComboBoxItem Content="10 seconds (Recommended &#x2022; Cisco AnyConnect &amp; VPN)"/>
                                             <ComboBoxItem Content="5 seconds (Fast &#x2022; Standard Home Wi-Fi)"/>
                                             <ComboBoxItem Content="15 seconds (Enterprise VPN &amp; MFA Token)"/>
                                             <ComboBoxItem Content="25 seconds (Slow Satellite / Corporate DHCP)"/>
@@ -2353,7 +2362,7 @@
         <Grid Grid.Column="0" Grid.ColumnSpan="2" Background="#DD080A12"
               Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolVisConv}}"
               Panel.ZIndex="100">
-            <Border Width="820" MaxHeight="680" Background="#131622" BorderBrush="#2D354D" BorderThickness="1.5" CornerRadius="12" Padding="22"
+            <Border MaxWidth="820" Margin="16,20" Background="#131622" BorderBrush="#2D354D" BorderThickness="1.5" CornerRadius="12" Padding="22"
                     VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Grid>
                     <Grid.RowDefinitions>

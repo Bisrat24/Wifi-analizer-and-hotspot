@@ -19,9 +19,9 @@ namespace WifiAnalyzerHotspot.Models
     {
         // ==================== ACTIVE KEEP-ALIVE ====================
         private bool _isKeepAliveActive;
-        private int _keepAliveIntervalSeconds = 5;
+        private int _keepAliveIntervalSeconds = 1;
         private string _keepAliveTarget = "1.1.1.1";
-        private string _keepAliveMethod = "ICMP Ping";
+        private string _keepAliveMethod = "ICMP Ping (Ultra-Lightweight / Fast)";
         private long _packetsSent;
         private long _packetsSuccess;
         private long _packetsLost;
@@ -48,20 +48,39 @@ namespace WifiAnalyzerHotspot.Models
         public int KeepAliveIntervalSeconds
         {
             get => _keepAliveIntervalSeconds;
-            set { _keepAliveIntervalSeconds = Math.Clamp(value, 1, 60); OnPropertyChanged(); }
+            set
+            {
+                _keepAliveIntervalSeconds = Math.Clamp(value, 1, 60);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(KeepAliveIntervalChoice));
+            }
         }
 
         public string KeepAliveIntervalChoice
         {
-            get => $"{_keepAliveIntervalSeconds}s";
+            get => _keepAliveIntervalSeconds switch
+            {
+                1 => "1 second (High Intensity - Gaming/Streaming)",
+                3 => "3 seconds (Recommended for Unstable Wi-Fi)",
+                5 => "5 seconds (Balanced - Standard Keep-Alive)",
+                10 => "10 seconds (Lightweight / Low Battery)",
+                15 => "15 seconds (Minimal Heartbeat)",
+                _ => $"{_keepAliveIntervalSeconds} seconds"
+            };
             set
             {
                 if (string.IsNullOrEmpty(value)) return;
-                if (value.StartsWith("1 second")) KeepAliveIntervalSeconds = 1;
-                else if (value.StartsWith("3 seconds")) KeepAliveIntervalSeconds = 3;
-                else if (value.StartsWith("5 seconds")) KeepAliveIntervalSeconds = 5;
-                else if (value.StartsWith("10 seconds")) KeepAliveIntervalSeconds = 10;
-                else if (value.StartsWith("15 seconds")) KeepAliveIntervalSeconds = 15;
+                if (value.StartsWith("1 second") || value == "1") KeepAliveIntervalSeconds = 1;
+                else if (value.StartsWith("3 second") || value == "3") KeepAliveIntervalSeconds = 3;
+                else if (value.StartsWith("5 second") || value == "5") KeepAliveIntervalSeconds = 5;
+                else if (value.StartsWith("10 second") || value == "10") KeepAliveIntervalSeconds = 10;
+                else if (value.StartsWith("15 second") || value == "15") KeepAliveIntervalSeconds = 15;
+                else
+                {
+                    var digits = new string(value.TakeWhile(char.IsDigit).ToArray());
+                    if (int.TryParse(digits, out int sec) && sec > 0)
+                        KeepAliveIntervalSeconds = sec;
+                }
                 OnPropertyChanged();
             }
         }
@@ -173,7 +192,7 @@ namespace WifiAnalyzerHotspot.Models
         private bool _isReconnectActive;
         private string _targetSsid = "Africa";
         private int _failureThreshold = 3;
-        private string _reconnectStrategy = "Fast Wi-Fi Re-auth";
+        private string _reconnectStrategy = "Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)";
         private int _totalDropsDetected;
         private int _totalReconnected;
         private string _reconnectStatusText = "Active Reconnect is Idle";
@@ -247,18 +266,35 @@ namespace WifiAnalyzerHotspot.Models
         public int FailureThreshold
         {
             get => _failureThreshold;
-            set { _failureThreshold = Math.Clamp(value, 1, 10); OnPropertyChanged(); }
+            set
+            {
+                _failureThreshold = Math.Clamp(value, 1, 10);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FailureThresholdChoice));
+            }
         }
 
         public string FailureThresholdChoice
         {
-            get => $"{_failureThreshold} drops";
+            get => _failureThreshold switch
+            {
+                2 => "2 consecutive drops (Aggressive Reconnect)",
+                3 => "3 consecutive drops (Recommended Standard)",
+                5 => "5 consecutive drops (High Tolerance)",
+                _ => $"{_failureThreshold} consecutive drops"
+            };
             set
             {
                 if (string.IsNullOrEmpty(value)) return;
                 if (value.StartsWith("2")) FailureThreshold = 2;
                 else if (value.StartsWith("3")) FailureThreshold = 3;
                 else if (value.StartsWith("5")) FailureThreshold = 5;
+                else
+                {
+                    var digits = new string(value.TakeWhile(char.IsDigit).ToArray());
+                    if (int.TryParse(digits, out int count) && count > 0)
+                        FailureThreshold = count;
+                }
                 OnPropertyChanged();
             }
         }
@@ -267,7 +303,12 @@ namespace WifiAnalyzerHotspot.Models
         public int ReconnectBufferSeconds
         {
             get => _reconnectBufferSeconds;
-            set { _reconnectBufferSeconds = Math.Clamp(value, 3, 60); OnPropertyChanged(); }
+            set
+            {
+                _reconnectBufferSeconds = Math.Clamp(value, 3, 60);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ReconnectBufferChoice));
+            }
         }
 
         private bool _preserveGigabitLinkSpeed = false;
@@ -279,7 +320,14 @@ namespace WifiAnalyzerHotspot.Models
 
         public string ReconnectBufferChoice
         {
-            get => $"{_reconnectBufferSeconds} seconds";
+            get => _reconnectBufferSeconds switch
+            {
+                10 => "10 seconds (Recommended • Cisco AnyConnect & VPN)",
+                5 => "5 seconds (Fast • Standard Home Wi-Fi)",
+                15 => "15 seconds (Enterprise VPN & MFA Token)",
+                25 => "25 seconds (Slow Satellite / Corporate DHCP)",
+                _ => $"{_reconnectBufferSeconds} seconds"
+            };
             set
             {
                 if (string.IsNullOrEmpty(value)) return;
@@ -287,6 +335,12 @@ namespace WifiAnalyzerHotspot.Models
                 else if (value.StartsWith("10")) ReconnectBufferSeconds = 10;
                 else if (value.StartsWith("15")) ReconnectBufferSeconds = 15;
                 else if (value.StartsWith("25")) ReconnectBufferSeconds = 25;
+                else
+                {
+                    var digits = new string(value.TakeWhile(char.IsDigit).ToArray());
+                    if (int.TryParse(digits, out int sec) && sec > 0)
+                        ReconnectBufferSeconds = sec;
+                }
                 OnPropertyChanged();
             }
         }
@@ -294,7 +348,16 @@ namespace WifiAnalyzerHotspot.Models
         public string ReconnectStrategy
         {
             get => _reconnectStrategy;
-            set { _reconnectStrategy = value; OnPropertyChanged(); }
+            set
+            {
+                if (string.IsNullOrEmpty(value)) return;
+                if (value.Contains("Fast Wi-Fi")) _reconnectStrategy = "Fast Wi-Fi Re-auth (Instant 802.11 Reconnect)";
+                else if (value.Contains("DHCP")) _reconnectStrategy = "DHCP IP Renew & Reconnect (Fixes IP conflict)";
+                else if (value.Contains("Radio")) _reconnectStrategy = "Radio Cycle & Reconnect (Full Wi-Fi Reset)";
+                else if (value.Contains("Adapter")) _reconnectStrategy = "Adapter Reset (Disable/Enable NIC — Most Aggressive)";
+                else _reconnectStrategy = value;
+                OnPropertyChanged();
+            }
         }
 
         public int TotalDropsDetected
