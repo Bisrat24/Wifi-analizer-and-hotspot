@@ -1,6 +1,34 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.4.9)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.5.0)
 
-A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), and creating/managing a custom Wi-Fi Mobile Hotspot with High OS priority on hotspot launch, Upstream Shared Connection Top Priority (over desktop browsers), Host PC Zero-Jitter TCP Stack Tuning, Anti-Bufferbloat Dynamic Queue Clamping (Precedence 240 Uplink Clamping, Target Selection, Dual & Single-Direction Parsing, Thousands Separators & Re-entrant Coalescing), Zero-Latency Local & Corporate DNS Cache (50,000 Entries Capacity, Question Splicing, 0x20 Casing Preservation, Explicit EDNS0/Version/DO/CD/ECS Keys, RFC 6891 TC OPT Preservation & Earliest-Expiry Sample Pruning), Smart Band Auto-Steering, Join/Leave Persistent Timeline Event Logging with CSV Export, One-Click Timed Client Internet Pause, Refresh Rules re-enforcement engine, continuous watchdog testing with 15s auto-reset countdown, top network link speed display (1.0 Gbps / 100 Mbps), on-demand manual reconnect/reset, complete settings persistence across restarts, per-client priority levels (1-7), granular low-bandwidth throttling (30 KB/s, 100 KB/s, 300 KB/s), instant disconnect on block, multi-layer ARP poison / WFP / NetQoS block isolation, dynamic Single-Channel Concurrency (SCC) radio detection, automated watchdog reset event logs, real-time in-process client polling (<10ms), zero phantom devices, customizable watchdog/log buffers, collapsible icon-only sidebar, and vibrant color-coded vector icons for effortless recognition.
+A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## ⚡ What's New in v1.5.0: Secure Connect (AnyConnect Wi-Fi Manager)
+
+- **🛡️ Dedicated Sidebar Navigation Tab (Tab 7)**:
+  - Added **Secure Connect** to the main sidebar with a custom violet/cyan AnyConnect shield badge.
+  - Full dashboard featuring active connection stats, responsive 2-column available network picker and saved profiles manager, and inline password authentication.
+- **⚡ Master ON/OFF Switch (Zero Feature Limitation)**:
+  - Positioned prominently at the top of the interface and mini window.
+  - When **OFF**, Secure Connect runs in pure **passive mode**: it places zero restrictions, limits, or overrides on other application subsystems. Hotspot, Connection Stabilizer, Wi-Fi Analyzer, and NetQoS policies operate completely untouched.
+- **🚀 Full Power Mode (Zero Throttling & No Power Saving)**:
+  - Enforces **100% Maximum Performance** on the Wi-Fi adapter via Windows Power Schemes:
+    - Sets Wireless Adapter Power Saving Mode (`19cbb8fa-5279-450e-9fac-8a3d5fedd0c1` / `12bbebe6-58d6-4636-95bb-3217ef867c1a`) index to `0` (Maximum Performance) for both AC and DC (battery) profiles.
+    - Forces TCP window auto-tuning level to `normal` (`netsh int tcp set global autotuninglevel=normal`).
+    - Runs a lightweight micro-pulse keep-alive that prevents the 802.11 radio from falling into high-latency D2/D3 power-saving sleep states.
+- **⚡ Saved Network Fast Connection (<1 Second)**:
+  - Direct native profile re-authentication via Windows WLAN API without waiting for slow Windows discovery sweeps.
+  - Connects to saved home, office, and campus networks in under 1 second.
+  - Includes a 1-click "Forget Profile" button to safely clean up obsolete networks from Windows.
+- **🪟 AnyConnect Compact Companion Mini Window**:
+  - A lightweight floating window (`SecureConnectWindow.xaml`) modeled after AnyConnect for fast, distraction-free Wi-Fi management.
+  - Accessible via:
+    - **Header Bar Button**: Quick-launch `⚡` icon button right next to the Settings gear.
+    - **Sidebar Tab**: "AnyConnect Mini Window" button inside Tab 7.
+    - **System Tray**: Right-click menu ➔ `⚡ Secure Connect (AnyConnect Mini)`.
+  - Native Windows 11/10 DWM dark title bar matching `#0C0E14` (zero white caption flash).
+  - Pin-on-top toggle (`📌 Pin / Unpin`), real-time signal strength, link speed, inline password expander, and 1-click connect.
 
 ---
 

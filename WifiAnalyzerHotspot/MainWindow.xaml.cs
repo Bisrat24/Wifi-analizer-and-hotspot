@@ -67,6 +67,13 @@ namespace WifiAnalyzerHotspot
                 _trayManager = new TrayIconManager(this);
                 _trayManager.Initialize();
                 _trayManager.OnOpenRequested += RestoreWindow;
+                _trayManager.OnSecureConnectRequested += () =>
+                {
+                    if (DataContext is ViewModels.MainViewModel vm)
+                    {
+                        vm.OpenSecureConnectMiniWindow();
+                    }
+                };
                 _trayManager.OnExitRequested += ShutdownApp;
 
                 if (App.IsStartMinimized)

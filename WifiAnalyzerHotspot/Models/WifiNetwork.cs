@@ -131,6 +131,17 @@ namespace WifiAnalyzerHotspot.Models
             set { _isConnected = value; OnPropertyChanged(); }
         }
 
+        private bool _isSaved;
+        public bool IsSaved
+        {
+            get => _isSaved;
+            set { _isSaved = value; OnPropertyChanged(); }
+        }
+
+        public bool IsSecured => !Authentication.Equals("Open", StringComparison.OrdinalIgnoreCase);
+        public string SecurityIcon => IsSecured ? "🔒" : "🔓";
+        public string SecurityBadge => IsSecured ? $"🔒 {Authentication}" : "🔓 Open Network";
+
         public int ColorIndex
         {
             get => _colorIndex;
@@ -162,6 +173,7 @@ namespace WifiAnalyzerHotspot.Models
             Authentication = other.Authentication;
             Encryption = other.Encryption;
             IsConnected = other.IsConnected;
+            IsSaved = other.IsSaved;
             ColorIndex = other.ColorIndex;
         }
 

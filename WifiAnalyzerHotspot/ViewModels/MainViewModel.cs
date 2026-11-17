@@ -362,6 +362,9 @@ namespace WifiAnalyzerHotspot.ViewModels
             set { _stabilizer = value; OnPropertyChanged(); }
         }
 
+        public SecureConnectModel SecureConnect { get; } = new();
+        private SecureConnectWindow? _miniWindow;
+
         public AppSettingsModel Settings
         {
             get => _settings;
@@ -423,6 +426,16 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand ApplyAutoSteerCommand { get; }
         public ICommand ShowActiveClientsViewCommand { get; }
         public ICommand ShowTimelineViewCommand { get; }
+        public ICommand ToggleSecureConnectCommand { get; }
+        public ICommand ConnectToNetworkCommand { get; }
+        public ICommand ConnectToSavedProfileCommand { get; }
+        public ICommand SubmitPasswordConnectCommand { get; }
+        public ICommand CancelPasswordPromptCommand { get; }
+        public ICommand DisconnectNetworkCommand { get; }
+        public ICommand ForgetProfileCommand { get; }
+        public ICommand RefreshSecureConnectNetworksCommand { get; }
+        public ICommand OpenSecureConnectMiniWindowCommand { get; }
+        public ICommand ToggleTopmostMiniWindowCommand { get; }
 
         public MainViewModel()
         {
@@ -713,6 +726,49 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _settingsService.SaveSettings(_settings);
             };
 
+            // Secure Connect preferences & state
+            SecureConnect.IsMasterEnabled = _settings.IsSecureConnectEnabled;
+            SecureConnect.IsFullPowerActive = _settings.IsSecureConnectFullPower;
+            SecureConnect.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(SecureConnect.IsMasterEnabled))
+                {
+                    _settings.IsSecureConnectEnabled = SecureConnect.IsMasterEnabled;
+                    _settingsService.SaveSettings(_settings);
+                    if (SecureConnect.IsMasterEnabled)
+                    {
+                        if (SecureConnect.IsFullPowerActive)
+                        {
+                            _ = Task.Run(() => SecureConnectService.SetFullPowerMode(true));
+                        }
+                        SecureConnect.StatusMessage = "⚡ Secure Connect active (Full Power & Fast Connect enabled)";
+                    }
+                    else
+                    {
+                        _ = Task.Run(() => SecureConnectService.SetFullPowerMode(false));
+                        SecureConnect.StatusMessage = "Secure Connect is Idle (OFF)";
+                    }
+                }
+                else if (e.PropertyName == nameof(SecureConnect.IsFullPowerActive))
+                {
+                    _settings.IsSecureConnectFullPower = SecureConnect.IsFullPowerActive;
+                    _settingsService.SaveSettings(_settings);
+                    if (SecureConnect.IsMasterEnabled)
+                    {
+                        _ = Task.Run(() => SecureConnectService.SetFullPowerMode(SecureConnect.IsFullPowerActive));
+                    }
+                }
+                else if (e.PropertyName == nameof(SecureConnect.SearchFilter))
+                {
+                    FilterSecureConnectNetworks();
+                }
+            };
+
+            if (SecureConnect.IsMasterEnabled && SecureConnect.IsFullPowerActive)
+            {
+                _ = Task.Run(() => SecureConnectService.SetFullPowerMode(true));
+            }
+
             ApplyHotspotPriorityCommand = new RelayCommand(() =>
             {
                 Hotspot.StatusMessage = "⚡ Engaging Highest PC Priority Mode...";
@@ -801,10 +857,14 @@ namespace WifiAnalyzerHotspot.ViewModels
             SetTabCommand = new RelayCommand(param =>
             {
                 CurrentTab = param?.ToString() ?? "Analyzer";
-                if (CurrentTab == "Analyzer")
+                if (CurrentTab == "Analyzer" || CurrentTab == "SecureConnect")
                 {
                     if (_scanTimer != null) _scanTimer.Interval = TimeSpan.FromSeconds(5);
                     _ = PerformScanAsync();
+                    if (CurrentTab == "SecureConnect")
+                    {
+                        _ = RefreshSecureConnectProfilesAsync();
+                    }
                 }
                 else
                 {
@@ -1141,6 +1201,68 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.StatusMessage = res.message;
             });
 
+            // ==================== SECURE CONNECT COMMANDS ====================
+            ToggleSecureConnectCommand = new RelayCommand(() =>
+            {
+                SecureConnect.IsMasterEnabled = !SecureConnect.IsMasterEnabled;
+            });
+
+            ConnectToNetworkCommand = new RelayCommand<WifiNetwork>(async net =>
+            {
+                if (net == null) return;
+                await ConnectToNetworkAsync(net);
+            });
+
+            ConnectToSavedProfileCommand = new RelayCommand<SavedWifiProfile>(async prof =>
+            {
+                if (prof == null) return;
+                await ConnectToSavedProfileAsync(prof.Name);
+            });
+
+            SubmitPasswordConnectCommand = new RelayCommand(async () =>
+            {
+                await SubmitPasswordConnectAsync();
+            });
+
+            CancelPasswordPromptCommand = new RelayCommand(() =>
+            {
+                SecureConnect.IsPasswordPromptOpen = false;
+                SecureConnect.PasswordPromptInput = "";
+                SecureConnect.PasswordPromptSsid = "";
+            });
+
+            DisconnectNetworkCommand = new RelayCommand(async () =>
+            {
+                await DisconnectNetworkAsync();
+            });
+
+            ForgetProfileCommand = new RelayCommand<SavedWifiProfile>(async prof =>
+            {
+                if (prof == null) return;
+                await ForgetProfileAsync(prof.Name);
+            });
+
+            RefreshSecureConnectNetworksCommand = new RelayCommand(async () =>
+            {
+                await PerformScanAsync();
+                await RefreshSecureConnectProfilesAsync();
+            });
+
+            OpenSecureConnectMiniWindowCommand = new RelayCommand(OpenSecureConnectMiniWindow);
+
+            ToggleTopmostMiniWindowCommand = new RelayCommand(() =>
+            {
+                if (_miniWindow != null)
+                {
+                    _miniWindow.Topmost = !_miniWindow.Topmost;
+                    SecureConnect.IsTopmost = _miniWindow.Topmost;
+                }
+                else
+                {
+                    SecureConnect.IsTopmost = !SecureConnect.IsTopmost;
+                }
+            });
+
             // Windows Startup Automation: Auto-start Hotspot / Stabilizer if configured
             if (_settings.AutoStartHotspotOnLaunch)
             {
@@ -1413,6 +1535,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 App.FlushStartupMilestones();
                 await PerformScanAsync();
                 await RefreshHotspotAsync();
+                await RefreshSecureConnectProfilesAsync();
                 _scanTimer.Start();
             }, DispatcherPriority.Background);
 
@@ -1598,6 +1721,7 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                 MergeNetworks(scanResults);
                 ApplyFilter();
+                UpdateSecureConnectStatus(connInfo, scanResults);
 
                 Ratings24G.Clear();
                 foreach (var r in ratings24) Ratings24G.Add(r);
@@ -2311,9 +2435,227 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
+        #region Secure Connect Methods
+
+        private List<WifiNetwork> _rawSecureConnectNetworks = new();
+
+        public void OpenSecureConnectMiniWindow()
+        {
+            Dispatch(() =>
+            {
+                if (_miniWindow == null || !_miniWindow.IsLoaded)
+                {
+                    _miniWindow = new SecureConnectWindow
+                    {
+                        DataContext = this
+                    };
+                    _miniWindow.Closed += (s, e) => _miniWindow = null;
+                }
+
+                if (_miniWindow.WindowState == WindowState.Minimized)
+                    _miniWindow.WindowState = WindowState.Normal;
+
+                _miniWindow.Show();
+                _miniWindow.Activate();
+            });
+        }
+
+        public async Task RefreshSecureConnectProfilesAsync()
+        {
+            try
+            {
+                var profiles = await Task.Run(() => SecureConnectService.GetSavedProfiles());
+                Dispatch(() =>
+                {
+                    SecureConnect.SavedProfiles.Clear();
+                    foreach (var p in profiles)
+                    {
+                        if (!string.IsNullOrEmpty(ConnectedInterface?.Ssid) &&
+                            ConnectedInterface.Ssid.Equals(p.Name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            p.IsConnected = true;
+                            p.SignalPercent = ConnectedInterface.Signal;
+                            p.IsAvailable = true;
+                        }
+                        else
+                        {
+                            var matchingNet = Networks.FirstOrDefault(n => n.Ssid.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
+                            if (matchingNet != null)
+                            {
+                                p.IsAvailable = true;
+                                p.SignalPercent = matchingNet.SignalPercent;
+                            }
+                        }
+                        SecureConnect.SavedProfiles.Add(p);
+                    }
+                });
+            }
+            catch { }
+        }
+
+        public void UpdateSecureConnectStatus(ConnectedInterfaceInfo connInfo, List<WifiNetwork> scanResults)
+        {
+            try
+            {
+                Dispatch(() =>
+                {
+                    bool isConnected = connInfo != null &&
+                                       !string.IsNullOrWhiteSpace(connInfo.Ssid) &&
+                                       !connInfo.Ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase);
+
+                    SecureConnect.ConnectionState = isConnected ? "Connected" : "Disconnected";
+                    SecureConnect.ConnectedSsid = isConnected ? connInfo!.Ssid : "Disconnected";
+                    SecureConnect.ConnectedBssid = connInfo?.Bssid ?? "";
+                    SecureConnect.ConnectedSignal = connInfo?.Signal ?? 0;
+                    SecureConnect.ConnectedSecurity = connInfo?.Auth ?? "";
+                    SecureConnect.ConnectedIp = connInfo?.Ipv4 ?? "";
+                    SecureConnect.ConnectedLinkSpeed = connInfo != null && connInfo.Channel > 0 ? $"{connInfo.Band} (Ch {connInfo.Channel})" : "";
+                    SecureConnect.AdapterName = connInfo?.InterfaceName ?? "";
+
+                    var savedNames = new HashSet<string>(SecureConnect.SavedProfiles.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
+
+                    var list = new List<WifiNetwork>();
+                    foreach (var net in scanResults)
+                    {
+                        if (string.IsNullOrWhiteSpace(net.Ssid)) continue;
+                        net.IsSaved = savedNames.Contains(net.Ssid);
+                        list.Add(net);
+                    }
+
+                    _rawSecureConnectNetworks = list;
+                    FilterSecureConnectNetworks();
+                });
+            }
+            catch { }
+        }
+
+        private void FilterSecureConnectNetworks()
+        {
+            var filter = SecureConnect.SearchFilter?.Trim();
+            var filtered = string.IsNullOrEmpty(filter)
+                ? _rawSecureConnectNetworks
+                : _rawSecureConnectNetworks.Where(n => n.Ssid.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                                                       n.Bssid.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            SecureConnect.AvailableNetworks.Clear();
+            var sorted = filtered.OrderByDescending(n => n.IsConnected)
+                                 .ThenByDescending(n => n.IsSaved)
+                                 .ThenByDescending(n => n.SignalPercent);
+
+            foreach (var n in sorted)
+            {
+                SecureConnect.AvailableNetworks.Add(n);
+            }
+        }
+
+        private async Task ConnectToNetworkAsync(WifiNetwork net)
+        {
+            if (net == null) return;
+
+            if (net.IsConnected)
+            {
+                SecureConnect.StatusMessage = $"Already connected to '{net.Ssid}'.";
+                return;
+            }
+
+            bool isSaved = SecureConnect.SavedProfiles.Any(p => p.Name.Equals(net.Ssid, StringComparison.OrdinalIgnoreCase)) || net.IsSaved;
+
+            if (isSaved)
+            {
+                await ConnectToSavedProfileAsync(net.Ssid);
+            }
+            else if (!net.IsSecured)
+            {
+                SecureConnect.IsConnecting = true;
+                SecureConnect.StatusMessage = $"Connecting to open network '{net.Ssid}'...";
+                var res = await SecureConnectService.ConnectWithPasswordAsync(net.Ssid, "", "Open", "None", ConnectedInterface?.InterfaceName);
+                SecureConnect.IsConnecting = false;
+                SecureConnect.StatusMessage = res.message;
+                await Task.Delay(1000);
+                await PerformScanAsync();
+                await RefreshSecureConnectProfilesAsync();
+            }
+            else
+            {
+                SecureConnect.PasswordPromptSsid = net.Ssid;
+                SecureConnect.PasswordPromptSecurity = net.SecurityBadge;
+                SecureConnect.PasswordPromptInput = "";
+                SecureConnect.IsPasswordPromptOpen = true;
+                SecureConnect.StatusMessage = $"Enter password for '{net.Ssid}'...";
+            }
+        }
+
+        private async Task ConnectToSavedProfileAsync(string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return;
+
+            SecureConnect.IsConnecting = true;
+            SecureConnect.StatusMessage = $"⚡ Fast connecting to saved profile '{profileName}'...";
+
+            var res = await SecureConnectService.ConnectToProfileAsync(profileName, ConnectedInterface?.InterfaceName);
+            SecureConnect.IsConnecting = false;
+            SecureConnect.StatusMessage = res.message;
+
+            await Task.Delay(1500);
+            await PerformScanAsync();
+            await RefreshSecureConnectProfilesAsync();
+        }
+
+        private async Task SubmitPasswordConnectAsync()
+        {
+            string ssid = SecureConnect.PasswordPromptSsid;
+            string pass = SecureConnect.PasswordPromptInput;
+            string sec = SecureConnect.PasswordPromptSecurity;
+
+            if (string.IsNullOrWhiteSpace(ssid)) return;
+
+            SecureConnect.IsPasswordPromptOpen = false;
+            SecureConnect.IsConnecting = true;
+            SecureConnect.StatusMessage = $"Saving profile and connecting to '{ssid}'...";
+
+            var res = await SecureConnectService.ConnectWithPasswordAsync(
+                ssid,
+                pass,
+                sec,
+                "AES",
+                ConnectedInterface?.InterfaceName);
+
+            SecureConnect.IsConnecting = false;
+            SecureConnect.StatusMessage = res.message;
+            SecureConnect.PasswordPromptInput = "";
+
+            await Task.Delay(1500);
+            await PerformScanAsync();
+            await RefreshSecureConnectProfilesAsync();
+        }
+
+        private async Task DisconnectNetworkAsync()
+        {
+            SecureConnect.StatusMessage = "Disconnecting Wi-Fi...";
+            bool ok = await SecureConnectService.DisconnectAsync(ConnectedInterface?.InterfaceName);
+            SecureConnect.StatusMessage = ok ? "✓ Disconnected from Wi-Fi." : "Failed to disconnect.";
+            await Task.Delay(1000);
+            await PerformScanAsync();
+            await RefreshSecureConnectProfilesAsync();
+        }
+
+        private async Task ForgetProfileAsync(string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return;
+            SecureConnect.StatusMessage = $"Removing profile '{profileName}'...";
+            bool ok = await SecureConnectService.ForgetProfileAsync(profileName, ConnectedInterface?.InterfaceName);
+            SecureConnect.StatusMessage = ok ? $"✓ Profile '{profileName}' forgotten." : $"Could not remove profile '{profileName}'.";
+            await RefreshSecureConnectProfilesAsync();
+            await PerformScanAsync();
+        }
+
+        #endregion
+
         public void Dispose()
         {
             _isDisposed = true;
+            try { _miniWindow?.Close(); } catch { }
+            try { SecureConnectService.SetFullPowerMode(false); } catch { }
             if (_networkAddressChangedHandler != null)
                 NetworkChange.NetworkAddressChanged -= _networkAddressChangedHandler;
             if (_networkAvailabilityChangedHandler != null)

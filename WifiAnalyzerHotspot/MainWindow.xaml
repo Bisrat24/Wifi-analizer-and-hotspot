@@ -66,6 +66,19 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Primary Emerald Button Style -->
+        <Style x:Key="PrimaryEmeraldBtn" TargetType="Button" BasedOn="{StaticResource ModernBtn}">
+            <Setter Property="Background" Value="#00C853"/>
+            <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#00E676"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Card Container Style -->
         <Style x:Key="CardBorder" TargetType="Border">
             <Setter Property="Background" Value="#141724"/>
@@ -128,7 +141,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.4.9" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.5.0" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -146,7 +159,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.4.9">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.5.0">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -389,6 +402,43 @@
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
+
+                    <!-- Tab 7: Secure Connect (AnyConnect Fast Wi-Fi Manager) -->
+                    <Button Command="{Binding SetTabCommand}" CommandParameter="SecureConnect"
+                            ToolTip="Secure Connect (AnyConnect Fast Wi-Fi Manager)"
+                            Background="{Binding CurrentTab, Converter={StaticResource TabBrushConv}, ConverterParameter=SecureConnect}"
+                            BorderBrush="{Binding CurrentTab, Converter={StaticResource TabBorderBrushConv}, ConverterParameter=SecureConnect}"
+                            BorderThickness="2" Margin="0,0,0,6" Height="44" Cursor="Hand">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5,0">
+                                    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <!-- Colorful Icon Badge: Violet / Cyan AnyConnect Shield -->
+                                        <Border Grid.Column="0" Width="30" Height="30" CornerRadius="7"
+                                                Background="#211033" BorderBrush="#6A1B9A" BorderThickness="1"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Width="17" Height="17">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M12 2 L4 5.5 L4 11.5 C4 16.5 7.4 20.8 12 22 C16.6 20.8 20 16.5 20 11.5 L20 5.5 Z"
+                                                          Fill="#33AB47BC" Stroke="#BA68C8" StrokeThickness="2" StrokeLineJoin="Round"/>
+                                                    <Path Data="M13 7 L8 14 L12 14 L11 18 L16 11 L12 11 Z"
+                                                          Fill="#00E5FF" Stroke="#00E5FF" StrokeThickness="1"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Border>
+                                        <TextBlock Grid.Column="1" Text="Secure Connect" FontSize="13" FontWeight="SemiBold" Foreground="#E2E8F0"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisConv}}"/>
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
                 </StackPanel>
                 </ScrollViewer>
 
@@ -477,6 +527,13 @@
                                 ToolTip="Network &amp; Connection Settings (Secure DNS, Captive Portal, Proxy)"
                                 Width="36" Height="34" Padding="0" Margin="8,0,0,0">
                             <TextBlock Text="&#x2699;&#xFE0F;" FontFamily="Segoe UI Emoji" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <!-- Secure Connect AnyConnect Mini Window Quick Button -->
+                        <Button Style="{StaticResource ModernBtn}" Command="{Binding OpenSecureConnectMiniWindowCommand}"
+                                ToolTip="⚡ Open Secure Connect Mini Window (AnyConnect)"
+                                Width="36" Height="34" Padding="0" Margin="8,0,0,0">
+                            <TextBlock Text="⚡" FontSize="16" Foreground="#00E676" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
                     </StackPanel>
                 </DockPanel>
@@ -2352,6 +2409,344 @@
                             </Grid>
                         </Border>
                     </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- ==================== TAB 7: SECURE CONNECT ==================== -->
+            <Grid Grid.Row="1" Visibility="{Binding CurrentTab, Converter={StaticResource TabVisConv}, ConverterParameter=SecureConnect}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,0,10,0">
+
+                        <!-- SECTION 1: MASTER ON/OFF SWITCH & FULL POWER CONTROLS -->
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,14" Background="#161B29" BorderBrush="{Binding SecureConnect.MasterToggleStatusColor}" BorderThickness="1.5">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Top Bar: Title, Status, and Controls -->
+                                <DockPanel Grid.Row="0" LastChildFill="True">
+                                    <!-- Pop-Out Mini Window Button -->
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Command="{Binding OpenSecureConnectMiniWindowCommand}"
+                                                Style="{StaticResource ModernBtn}" Height="36" Padding="12,4" Margin="0,0,10,0"
+                                                ToolTip="Open compact AnyConnect floating companion window">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="⚡" FontSize="13" Foreground="#00E5FF" Margin="0,0,6,0"/>
+                                                <TextBlock Text="AnyConnect Mini Window" FontWeight="SemiBold" FontSize="12"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <!-- Master ON/OFF Switch -->
+                                        <Button Command="{Binding ToggleSecureConnectCommand}"
+                                                Style="{StaticResource ModernBtn}" Height="36" Padding="14,4"
+                                                Background="{Binding SecureConnect.MasterButtonBackground}"
+                                                BorderBrush="{Binding SecureConnect.MasterToggleStatusColor}" BorderThickness="1.5">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="10" Height="10" CornerRadius="5" Background="{Binding SecureConnect.MasterToggleStatusColor}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding SecureConnect.MasterToggleText}" FontWeight="Bold" FontSize="12" Foreground="#FFFFFF"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <!-- Title & Description -->
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="28" Height="28" CornerRadius="7" Background="#211033" BorderBrush="#6A1B9A" BorderThickness="1" Margin="0,0,10,0">
+                                                <TextBlock Text="⚡" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <TextBlock Text="SECURE CONNECT — ANYCONNECT WI-FI MANAGER" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                        </StackPanel>
+                                        <TextBlock Text="Connect to any Wi-Fi network with 100% full adapter power, zero throttling, no PSP sleep, and rapid saved network reconnect."
+                                                   FontSize="11" Foreground="#8F9EBC" Margin="38,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <!-- Performance Details Banner -->
+                                <Border Grid.Row="1" Background="#0F1420" CornerRadius="8" Padding="12,8" Margin="0,12,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="8" Height="8" CornerRadius="4" Background="{Binding SecureConnect.MasterToggleStatusColor}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="MODE: " FontSize="11" FontWeight="Bold" Foreground="#7C88A8"/>
+                                            <TextBlock Text="{Binding SecureConnect.MasterToggleText}" FontSize="11" FontWeight="Bold" Foreground="{Binding SecureConnect.MasterToggleStatusColor}"/>
+                                            <TextBlock Text=" • Power Saving Mode (802.11 PSP): Disabled (100% Performance) • TCP Auto-Tuning: Normal • Fast Native Re-auth"
+                                                       FontSize="11" Foreground="#94A3B8" Margin="6,0,0,0"/>
+                                        </StackPanel>
+
+                                        <TextBlock Grid.Column="1" Text="Passive when OFF • Does not limit Hotspot or Stabilizer" FontSize="10" Foreground="#64748B" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <!-- SECTION 2: ACTIVE CONNECTION STATUS CARD -->
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,14" Background="#141826">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Connected Mode -->
+                                <DockPanel Grid.Row="0" LastChildFill="True"
+                                           Visibility="{Binding SecureConnect.IsConnected, Converter={StaticResource BoolVisConv}}">
+                                    <Button DockPanel.Dock="Right" Command="{Binding DisconnectNetworkCommand}"
+                                            Style="{StaticResource ModernBtn}" Height="34" Padding="14,4"
+                                            Background="#2B141B" BorderBrush="#FF1744" Foreground="#FF5252"
+                                            VerticalAlignment="Center" ToolTip="Disconnect from active Wi-Fi connection">
+                                        <TextBlock Text="Disconnect" FontSize="12" FontWeight="Bold"/>
+                                    </Button>
+
+                                    <StackPanel VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="📶" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding SecureConnect.ConnectedSsid}" FontSize="16" FontWeight="Bold" Foreground="#00E5FF"/>
+                                            <Border Background="#102C1F" BorderBrush="#00E676" BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="12,0,0,0">
+                                                <TextBlock Text="ACTIVE &amp; CONNECTED" FontSize="10" FontWeight="Bold" Foreground="#00E676"/>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" Margin="26,6,0,0">
+                                            <TextBlock Text="{Binding SecureConnect.ConnectedSignal, StringFormat='Signal: {0}%'}" FontSize="12" Foreground="#8F9EBC"/>
+                                            <TextBlock Text=" • " FontSize="12" Foreground="#475569"/>
+                                            <TextBlock Text="{Binding SecureConnect.ConnectedLinkSpeed, StringFormat='Band: {0}'}" FontSize="12" Foreground="#00E676" FontWeight="SemiBold"/>
+                                            <TextBlock Text=" • " FontSize="12" Foreground="#475569"/>
+                                            <TextBlock Text="{Binding SecureConnect.ConnectedIp, StringFormat='IPv4: {0}'}" FontSize="12" Foreground="#94A3B8"/>
+                                            <TextBlock Text=" • " FontSize="12" Foreground="#475569"/>
+                                            <TextBlock Text="{Binding SecureConnect.AdapterName, StringFormat='Adapter: {0}'}" FontSize="12" Foreground="#7C88A8"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <!-- Disconnected Mode -->
+                                <DockPanel Grid.Row="0" LastChildFill="True"
+                                           Visibility="{Binding SecureConnect.IsConnected, Converter={StaticResource BoolVisConv}, ConverterParameter=Inverse}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="⚪" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Not Connected to Wi-Fi" FontSize="14" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="— Select an available network below to connect." FontSize="12" Foreground="#64748B" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- SECTION 3: INLINE PASSWORD PROMPT MODAL (When connecting to new password-protected Wi-Fi) -->
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,14" Background="#1D2133" BorderBrush="#00E5FF" BorderThickness="1.5"
+                                Visibility="{Binding SecureConnect.IsPasswordPromptOpen, Converter={StaticResource BoolVisConv}}">
+                            <StackPanel>
+                                <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🔒" FontSize="16" Margin="0,0,8,0"/>
+                                        <TextBlock Text="AUTHENTICATION REQUIRED" FontSize="13" FontWeight="Bold" Foreground="#00E5FF"/>
+                                    </StackPanel>
+                                    <Button DockPanel.Dock="Right" Command="{Binding CancelPasswordPromptCommand}"
+                                            Style="{StaticResource ModernBtn}" Width="26" Height="26" Padding="0">
+                                        <TextBlock Text="✕" FontSize="11" HorizontalAlignment="Center"/>
+                                    </Button>
+                                </DockPanel>
+
+                                <TextBlock Text="{Binding SecureConnect.PasswordPromptSsid, StringFormat='Enter network security key for: &quot;{0}&quot;'}"
+                                           FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+
+                                <Grid Margin="0,0,0,12">
+                                    <TextBox Style="{StaticResource ModernTextBox}"
+                                             Text="{Binding SecureConnect.PasswordPromptInput, UpdateSourceTrigger=PropertyChanged}"
+                                             Padding="10,8" FontSize="13" Height="36"/>
+                                </Grid>
+
+                                <DockPanel LastChildFill="False">
+                                    <Button DockPanel.Dock="Right" Command="{Binding SubmitPasswordConnectCommand}"
+                                            Style="{StaticResource PrimaryEmeraldBtn}" Height="34" Padding="20,4" Content="Connect &amp; Save Profile"/>
+                                    <Button DockPanel.Dock="Right" Command="{Binding CancelPasswordPromptCommand}"
+                                            Style="{StaticResource ModernBtn}" Height="34" Padding="14,4" Content="Cancel" Margin="0,0,10,0"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- SECTION 4: AVAILABLE NETWORKS & SAVED PROFILES (2-COLUMN RESPONSIVE LAYOUT) -->
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.2*"/>
+                                <ColumnDefinition Width="1*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- COLUMN 1: AVAILABLE WI-FI NETWORKS -->
+                            <Border Grid.Column="0" Style="{StaticResource CardBorder}" Margin="0,0,8,0" Background="#141724" MinHeight="380">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Header & Search Toolbar -->
+                                    <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="True">
+                                        <Button DockPanel.Dock="Right" Command="{Binding RefreshSecureConnectNetworksCommand}"
+                                                Style="{StaticResource ModernBtn}" Height="32" Width="36" Padding="0" Margin="8,0,0,0"
+                                                ToolTip="Refresh visible networks">
+                                            <TextBlock Text="🔄" FontSize="13" HorizontalAlignment="Center"/>
+                                        </Button>
+
+                                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="AVAILABLE NETWORKS" FontSize="12" FontWeight="Bold" Foreground="#00E5FF"/>
+                                            <TextBlock Text="{Binding SecureConnect.AvailableNetworks.Count, StringFormat=' ({0})'}" FontSize="12" Foreground="#7C88A8"/>
+                                        </StackPanel>
+
+                                        <TextBox Style="{StaticResource ModernTextBox}"
+                                                 Text="{Binding SecureConnect.SearchFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                 Height="32" Padding="8,4" FontSize="12"/>
+                                    </DockPanel>
+
+                                    <!-- Networks List -->
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="450">
+                                        <ItemsControl ItemsSource="{Binding SecureConnect.AvailableNetworks}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#161B29" BorderBrush="#232C42" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,8">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/> <!-- Signal Badge -->
+                                                                <ColumnDefinition Width="*"/>    <!-- SSID & Details -->
+                                                                <ColumnDefinition Width="Auto"/> <!-- Connect Button -->
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <!-- Signal Strength Badge -->
+                                                            <Border Grid.Column="0" Width="38" Height="38" CornerRadius="6" Background="#1D2436" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding SignalPercent, StringFormat='{}{0}%'}" FontSize="10" FontWeight="Bold"
+                                                                               Foreground="{Binding SignalPercent, Converter={StaticResource SignalBrushConv}}" HorizontalAlignment="Center"/>
+                                                                    <TextBlock Text="{Binding Band}" FontSize="8" Foreground="#8F9EBC" HorizontalAlignment="Center"/>
+                                                                </StackPanel>
+                                                            </Border>
+
+                                                            <!-- SSID, Security, & Saved Badge -->
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Ssid}" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                                    <TextBlock Text="{Binding SecurityBadge}" FontSize="10" Foreground="#8F9EBC"/>
+                                                                    <TextBlock Text=" • " FontSize="10" Foreground="#475569"/>
+                                                                    <TextBlock Text="{Binding Channel, StringFormat='Ch {0}'}" FontSize="10" Foreground="#7C88A8"/>
+                                                                    <Border Background="#1E2A38" CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
+                                                                            Visibility="{Binding IsSaved, Converter={StaticResource BoolVisConv}}">
+                                                                        <TextBlock Text="SAVED" FontSize="8" FontWeight="Bold" Foreground="#00E5FF"/>
+                                                                    </Border>
+                                                                </StackPanel>
+                                                            </StackPanel>
+
+                                                            <!-- Action Button -->
+                                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                                <Border Background="#102C1F" BorderBrush="#00E676" BorderThickness="1" CornerRadius="5" Padding="10,5"
+                                                                        Visibility="{Binding IsConnected, Converter={StaticResource BoolVisConv}}">
+                                                                    <TextBlock Text="✓ Connected" FontSize="11" FontWeight="Bold" Foreground="#00E676"/>
+                                                                </Border>
+
+                                                                <Button Style="{StaticResource PrimaryEmeraldBtn}" Height="30" Padding="12,2"
+                                                                        Command="{Binding DataContext.ConnectToNetworkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        Visibility="{Binding IsConnected, Converter={StaticResource BoolVisConv}, ConverterParameter=Inverse}">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="⚡" FontSize="11" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="Connect" FontSize="12"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+
+                            <!-- COLUMN 2: SAVED WI-FI PROFILES -->
+                            <Border Grid.Column="1" Style="{StaticResource CardBorder}" Margin="8,0,0,0" Background="#141724" MinHeight="380">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Header -->
+                                    <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="False">
+                                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="SAVED PROFILES" FontSize="12" FontWeight="Bold" Foreground="#00E676"/>
+                                            <TextBlock Text="{Binding SecureConnect.SavedProfiles.Count, StringFormat=' ({0})'}" FontSize="12" Foreground="#7C88A8"/>
+                                        </StackPanel>
+                                        <Border DockPanel.Dock="Right" Background="#112B1F" BorderBrush="#00E676" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                                            <TextBlock Text="&lt;1s Fast Connect" FontSize="9" FontWeight="Bold" Foreground="#00E676"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <!-- Profiles List -->
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="450">
+                                        <ItemsControl ItemsSource="{Binding SecureConnect.SavedProfiles}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#161B29" BorderBrush="#232C42" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,8">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <!-- Profile Info -->
+                                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                                    <TextBlock Text="{Binding Authentication}" FontSize="10" Foreground="#8F9EBC"/>
+                                                                    <TextBlock Text=" • " FontSize="10" Foreground="#475569" Visibility="{Binding IsAvailable, Converter={StaticResource BoolVisConv}}"/>
+                                                                    <TextBlock Text="{Binding SignalPercent, StringFormat='In range: {0}%'}" FontSize="10" Foreground="#00E676"
+                                                                               Visibility="{Binding IsAvailable, Converter={StaticResource BoolVisConv}}"/>
+                                                                </StackPanel>
+                                                            </StackPanel>
+
+                                                            <!-- Actions -->
+                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <!-- Fast Connect Button -->
+                                                                <Button Style="{StaticResource ModernBtn}" Height="30" Padding="10,2" Margin="0,0,6,0"
+                                                                        Command="{Binding DataContext.ConnectToSavedProfileCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        ToolTip="Fast-connect using saved Windows credentials in under 1 second">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="⚡" FontSize="11" Foreground="#00E676" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="Fast Connect" FontSize="11" FontWeight="SemiBold"/>
+                                                                    </StackPanel>
+                                                                </Button>
+
+                                                                <!-- Forget Button -->
+                                                                <Button Style="{StaticResource ModernBtn}" Height="30" Width="30" Padding="0"
+                                                                        Command="{Binding DataContext.ForgetProfileCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        ToolTip="Forget / Delete saved profile from Windows">
+                                                                    <TextBlock Text="🗑️" FontSize="11" HorizontalAlignment="Center"/>
+                                                                </Button>
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                        </Grid>
+
+                        <!-- SECTION 5: LIVE STATUS FOOTER -->
+                        <Border Background="#10131E" CornerRadius="6" Padding="12,8">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding SecureConnect.AvailableNetworks.Count, StringFormat='{}{0} visible Wi-Fi networks'}"
+                                           FontSize="11" Foreground="#64748B" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SecureConnect.StatusMessage}" FontSize="11" Foreground="#8FA0C2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

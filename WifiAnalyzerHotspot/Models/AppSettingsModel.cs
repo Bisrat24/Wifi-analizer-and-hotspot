@@ -409,6 +409,21 @@ namespace WifiAnalyzerHotspot.Models
             set { _preserveGigabitLinkSpeed = value; OnPropertyChanged(); }
         }
 
+        // ==================== SECURE CONNECT SETTINGS ====================
+        private bool _isSecureConnectEnabled = false;
+        public bool IsSecureConnectEnabled
+        {
+            get => _isSecureConnectEnabled;
+            set { _isSecureConnectEnabled = value; OnPropertyChanged(); }
+        }
+
+        private bool _isSecureConnectFullPower = true;
+        public bool IsSecureConnectFullPower
+        {
+            get => _isSecureConnectFullPower;
+            set { _isSecureConnectFullPower = value; OnPropertyChanged(); }
+        }
+
         private bool _hasMigratedGigabitOptIn = false;
         public bool HasMigratedGigabitOptIn
         {

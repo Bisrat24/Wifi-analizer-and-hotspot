@@ -75,6 +75,7 @@ namespace WifiAnalyzerHotspot.Services
         private ContextMenu? _trayMenu;
 
         public event Action? OnOpenRequested;
+        public event Action? OnSecureConnectRequested;
         public event Action? OnExitRequested;
 
         public TrayIconManager(Window window)
@@ -220,6 +221,15 @@ namespace WifiAnalyzerHotspot.Services
             };
             openItem.Click += (s, e) => OnOpenRequested?.Invoke();
             _trayMenu.Items.Add(openItem);
+
+            var secureItem = new MenuItem
+            {
+                Header = "⚡ Secure Connect (AnyConnect Mini)",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0xE6, 0x76))
+            };
+            secureItem.Click += (s, e) => OnSecureConnectRequested?.Invoke();
+            _trayMenu.Items.Add(secureItem);
 
             _trayMenu.Items.Add(new Separator());
 
