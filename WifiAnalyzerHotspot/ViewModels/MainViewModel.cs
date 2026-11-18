@@ -43,6 +43,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private Task? _activeEngageTask;
         private readonly object _engageTaskLock = new();
         private int _fastWifiCheckCounter = 0;
+        private int _watchdogTickBusy = 0;
         private bool _isFirstHotspotRefresh = true;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
@@ -1270,10 +1271,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(2500);
-                    if (!Hotspot.IsRunning && Hotspot.State == HotspotState.Off)
+                    Application.Current?.Dispatcher.InvokeAsync(() =>
                     {
-                        await ToggleHotspotAsync();
-                    }
+                        if (!Hotspot.IsRunning && Hotspot.State == HotspotState.Off)
+                            _ = ToggleHotspotAsync();
+                    });
                 });
             }
 
@@ -1291,8 +1293,9 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             // Instant OS network change notification (fires in <50ms when Wi-Fi or upstream adapter changes)
             _lastActiveNetworkSignature = GetActiveNetworkSignature();
-            _networkAddressChangedHandler = (s, e) => OnNetworkChanged();
-            _networkAvailabilityChangedHandler = (s, e) => OnNetworkChanged();
+            // NetworkChange callbacks run on a thread-pool thread; marshal before touching models/settings.
+            _networkAddressChangedHandler = (s, e) => Application.Current?.Dispatcher.InvokeAsync(OnNetworkChanged);
+            _networkAvailabilityChangedHandler = (s, e) => Application.Current?.Dispatcher.InvokeAsync(OnNetworkChanged);
             NetworkChange.NetworkAddressChanged += _networkAddressChangedHandler;
             NetworkChange.NetworkAvailabilityChanged += _networkAvailabilityChangedHandler;
 
@@ -1315,6 +1318,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             _trafficTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _trafficTimer.Tick += async (s, e) =>
             {
+                // A 1-second async tick must never overlap with a previous in-flight tick.
+                if (Interlocked.Exchange(ref _watchdogTickBusy, 1) != 0) return;
                 try
                 {
                     CurrentTraffic = _networkMonitorService.GetCurrentTraffic();
@@ -1378,7 +1383,19 @@ namespace WifiAnalyzerHotspot.ViewModels
                                 _inTransitionCountSeconds = 0;
                                 _unknownStateCountSeconds = 0;
                                 _noDataCountSeconds = 0;
-                                await PerformHotspotResetAsync(_resetTriggerReason);
+
+                                // One backoff gate for every watchdog trigger (data flow,
+                                // infrastructure, stuck transition, unknown tethering state).
+                                if (_consecutiveResetCount >= 3)
+                                {
+                                    Hotspot.StatusMessage = "⚠️ Watchdog paused after 3 consecutive resets. Check upstream network.";
+                                    _resetCooldownSeconds = 90;
+                                    _consecutiveResetCount = 0;
+                                }
+                                else
+                                {
+                                    await PerformHotspotResetAsync(_resetTriggerReason);
+                                }
                             }
                             else
                             {
@@ -1523,6 +1540,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     }
                 }
                 catch { }
+                finally { Interlocked.Exchange(ref _watchdogTickBusy, 0); }
             };
             _trafficTimer.Start();
 

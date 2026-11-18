@@ -1491,7 +1491,9 @@ if ($connectionProfile) {
             }
             catch (Exception ex)
             {
-                return (true, ex.Message);
+                // A failed health probe must not be reported as healthy: the watchdog
+                // would then never attempt recovery for a genuinely broken hotspot.
+                return (false, ex.Message);
             }
         }
 
