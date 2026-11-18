@@ -402,7 +402,6 @@ namespace WifiAnalyzerHotspot.Services
                 string safeIf = !string.IsNullOrEmpty(activeInterfaceName) ? activeInterfaceName : "Wi-Fi";
 
                 string script = $@"
-try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }} catch {{}}
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {{
     $profiles = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetConnectionProfiles()
@@ -1088,7 +1087,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 # Elevate hotspot creation process to High priority
 try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High } catch {}
 
-# 1. Ensure SharedAccess service is running and boosted to RealTime priority
+# 1. Ensure SharedAccess service is running
 try {
     $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
     if ($svc) {
@@ -1099,11 +1098,6 @@ try {
             Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 400
         }
-    }
-    $sa = Get-CimInstance Win32_Service -Filter ""Name='SharedAccess'"" -ErrorAction SilentlyContinue
-    if ($sa -and $sa.ProcessId -gt 0) {
-        $sap = Get-Process -Id $sa.ProcessId -ErrorAction SilentlyContinue
-        if ($sap) { $sap.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
     }
 } catch {}
 
@@ -2820,7 +2814,6 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                 using var process = Process.Start(psi);
                 if (process == null) return string.Empty;
 
-                try { process.PriorityClass = ProcessPriorityClass.RealTime; } catch { }
                 string output = process.StandardOutput.ReadToEnd();
                 if (!process.WaitForExit(3000))
                 {
