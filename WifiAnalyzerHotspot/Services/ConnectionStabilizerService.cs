@@ -332,8 +332,8 @@ namespace WifiAnalyzerHotspot.Services
                     {
                         Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
                         RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
-                        await Task.Delay(1500, token);
-                        RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled");
+                        try { await Task.Delay(1500, token); }
+                        finally { RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled"); }
                         await Task.Delay(4000, token); // Allow 4s for Gigabit/Fast-Ethernet auto-negotiation to complete
                     }
                     RunCmd("ipconfig", "/renew");
@@ -343,8 +343,8 @@ namespace WifiAnalyzerHotspot.Services
                     Log(model, "Renewing Ethernet DHCP lease & flushing DNS...");
                     RunCmd("ipconfig", "/flushdns");
                     RunCmd("ipconfig", "/release");
-                    await Task.Delay(800, token);
-                    RunCmd("ipconfig", "/renew");
+                    try { await Task.Delay(800, token); }
+                    finally { RunCmd("ipconfig", "/renew"); }
                 }
                 else // Fast Re-auth / Re-negotiate (default)
                 {
@@ -362,8 +362,8 @@ namespace WifiAnalyzerHotspot.Services
                     {
                         Log(model, $"Resetting Wi-Fi adapter '{adapterName}' (disable → enable)...");
                         RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
-                        await Task.Delay(1200, token);
-                        RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled");
+                        try { await Task.Delay(1200, token); }
+                        finally { RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled"); }
                         await Task.Delay(2000, token);
                     }
                     ConnectToWifi(target, adapterName);
@@ -374,8 +374,8 @@ namespace WifiAnalyzerHotspot.Services
                     ConnectToWifi(target, adapterName);
                     await Task.Delay(1500, token);
                     RunCmd("ipconfig", "/release");
-                    await Task.Delay(500, token);
-                    RunCmd("ipconfig", "/renew");
+                    try { await Task.Delay(500, token); }
+                    finally { RunCmd("ipconfig", "/renew"); }
                 }
                 else if (model.ReconnectStrategy.Contains("Radio"))
                 {
