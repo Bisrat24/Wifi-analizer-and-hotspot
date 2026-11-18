@@ -316,11 +316,11 @@ namespace WifiAnalyzerHotspot.Models
             set { _hotspotSsid = value ?? "Wifi_Hotspot"; OnPropertyChanged(); }
         }
 
-        private string _hotspotPassword = "HotspotPass123";
+        private string _hotspotPassword = string.Empty;
         public string HotspotPassword
         {
             get => _hotspotPassword;
-            set { _hotspotPassword = value ?? "HotspotPass123"; OnPropertyChanged(); }
+            set { _hotspotPassword = value ?? string.Empty; OnPropertyChanged(); }
         }
 
         private string _hotspotBand = "2.4 GHz";

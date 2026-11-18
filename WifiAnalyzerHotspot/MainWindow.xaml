@@ -110,6 +110,28 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ModernPasswordBox" TargetType="PasswordBox">
+            <Setter Property="Background" Value="#181C2B"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#2D354D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CaretBrush" Value="#00E5FF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -1190,7 +1212,9 @@
 
                             <!-- Password -->
                             <TextBlock Text="Password / Security Key (Min 8 chars)" FontSize="12" Foreground="#8FA0C2" Margin="0,0,0,4"/>
-                            <TextBox Style="{StaticResource ModernTextBox}" Text="{Binding HotspotPasswordInput, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"/>
+                            <PasswordBox Style="{StaticResource ModernPasswordBox}"
+                                         controls:PasswordBoxHelper.BoundPassword="{Binding HotspotPasswordInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         controls:PasswordBoxHelper.UpdateOnPasswordChanged="True" Margin="0,0,0,12"/>
 
                             <!-- Hardware Radio Architecture Explanation -->
                             <Border Background="#131B2A" BorderBrush="#25354F" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
@@ -2556,9 +2580,10 @@
                                            FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
 
                                 <Grid Margin="0,0,0,12">
-                                    <TextBox Style="{StaticResource ModernTextBox}"
-                                             Text="{Binding SecureConnect.PasswordPromptInput, UpdateSourceTrigger=PropertyChanged}"
-                                             Padding="10,8" FontSize="13" Height="36"/>
+                                    <PasswordBox Style="{StaticResource ModernPasswordBox}"
+                                                 controls:PasswordBoxHelper.BoundPassword="{Binding SecureConnect.PasswordPromptInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 controls:PasswordBoxHelper.UpdateOnPasswordChanged="True"
+                                                 Padding="10,8" FontSize="13" Height="36"/>
                                 </Grid>
 
                                 <DockPanel LastChildFill="False">

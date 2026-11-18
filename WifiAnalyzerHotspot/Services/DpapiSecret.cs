@@ -45,8 +45,9 @@ namespace WifiAnalyzerHotspot.Services
             }
             catch
             {
-                // Never lose a user-entered password: keep it usable in memory this session.
-                return plain;
+                // Fail closed: never write a plaintext password to settings.json. A sentinel
+                // makes the stored value unreadable on load so the user is asked to re-enter it.
+                return Prefix + "ERROR";
             }
         }
 

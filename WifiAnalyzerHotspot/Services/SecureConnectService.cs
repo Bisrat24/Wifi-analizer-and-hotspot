@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
 using System.Security;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WifiAnalyzerHotspot.Models;
@@ -253,23 +254,31 @@ namespace WifiAnalyzerHotspot.Services
 </WLANProfile>";
                     }
 
-                    await File.WriteAllTextAsync(tempProfilePath, xml);
+                    // Keep the file handle open with DeleteOnClose so the plaintext key never
+                    // lingers on disk after the netsh call, even if the process is killed.
+                    using (var profileFile = new FileStream(tempProfilePath, FileMode.Create, FileAccess.Write,
+                               FileShare.Read, 4096, FileOptions.DeleteOnClose))
+                    {
+                        byte[] bytes = Encoding.UTF8.GetBytes(xml);
+                        await profileFile.WriteAsync(bytes, 0, bytes.Length);
+                        await profileFile.FlushAsync();
 
-                    var addArgs = new List<string> { "wlan", "add", "profile", $"filename=\"{tempProfilePath}\"" };
-                    if (!string.IsNullOrWhiteSpace(adapterName))
-                        addArgs.Add($"interface=\"{adapterName}\"");
+                        var addArgs = new List<string> { "wlan", "add", "profile", $"filename=\"{tempProfilePath}\"" };
+                        if (!string.IsNullOrWhiteSpace(adapterName))
+                            addArgs.Add($"interface=\"{adapterName}\"");
 
-                    RunCmd("netsh", addArgs.ToArray());
+                        RunCmd("netsh", addArgs.ToArray());
 
-                    // Direct connection
-                    var connArgs = new List<string> { "wlan", "connect", $"name=\"{ssid}\"" };
-                    if (!string.IsNullOrWhiteSpace(adapterName))
-                        connArgs.Add($"interface=\"{adapterName}\"");
+                        // Direct connection
+                        var connArgs = new List<string> { "wlan", "connect", $"name=\"{ssid}\"" };
+                        if (!string.IsNullOrWhiteSpace(adapterName))
+                            connArgs.Add($"interface=\"{adapterName}\"");
 
-                    string connOut = RunCmd("netsh", connArgs.ToArray());
-                    await Task.Delay(1500);
+                        string connOut = RunCmd("netsh", connArgs.ToArray());
+                        await Task.Delay(1500);
 
-                    return (true, $"Saved profile and connected to '{ssid}'.");
+                        return (true, $"Saved profile and connected to '{ssid}'.");
+                    }
                 }
                 catch (Exception ex)
                 {

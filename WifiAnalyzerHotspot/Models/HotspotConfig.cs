@@ -239,7 +239,7 @@ namespace WifiAnalyzerHotspot.Models
     public class HotspotModel : INotifyPropertyChanged
     {
         private string _ssid = "MyHotspot";
-        private string _passphrase = "password123";
+        private string _passphrase = string.Empty;
         private string _band = "2.4 GHz";
         private string _preferredChannel = "Auto (Recommended)";
         private string _activeChannel = "Auto";

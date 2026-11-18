@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:WifiAnalyzerHotspot.ViewModels"
+        xmlns:controls="clr-namespace:WifiAnalyzerHotspot.Controls"
         mc:Ignorable="d"
         Title="Secure Connect — AnyConnect Wi-Fi Manager"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
@@ -96,6 +97,28 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MiniPasswordBox" TargetType="PasswordBox">
+            <Setter Property="Background" Value="#181C2B"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#2D354D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CaretBrush" Value="#00E5FF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
@@ -243,8 +266,9 @@
 
                 <TextBlock Text="{Binding SecureConnect.PasswordPromptSsid, StringFormat='Network: {0}'}" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
 
-                <TextBox Style="{StaticResource MiniTextBox}" Text="{Binding SecureConnect.PasswordPromptInput, UpdateSourceTrigger=PropertyChanged}"
-                         Tag="Enter Wi-Fi Password / Security Key..." Margin="0,0,0,10"/>
+                <PasswordBox Style="{StaticResource MiniPasswordBox}"
+                             controls:PasswordBoxHelper.BoundPassword="{Binding SecureConnect.PasswordPromptInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             controls:PasswordBoxHelper.UpdateOnPasswordChanged="True" Margin="0,0,0,10"/>
 
                 <Grid>
                     <Grid.ColumnDefinitions>

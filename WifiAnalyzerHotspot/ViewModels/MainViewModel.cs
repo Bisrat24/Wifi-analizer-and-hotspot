@@ -73,7 +73,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private NetworkAvailabilityChangedEventHandler? _networkAvailabilityChangedHandler;
 
         private string _hotspotSsidInput = "Wifi_Hotspot";
-        private string _hotspotPasswordInput = "HotspotPass123";
+        private string _hotspotPasswordInput = string.Empty;
         private string _hotspotBandInput = "2.4 GHz";
         private string _hotspotChannelChoice = "Auto (Recommended)";
         private string _bestChannelAdvice = "Channel 1 is recommended for Hotspot.";
@@ -799,9 +799,10 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 try
                 {
-                    string info = $"SSID: {Hotspot.Ssid}\nPassword: {Hotspot.Passphrase}\nBand: {Hotspot.Band}";
+                    // Never put the password on the clipboard (it is synced to history/cloud).
+                    string info = $"SSID: {Hotspot.Ssid}\nBand: {Hotspot.Band}";
                     Clipboard.SetText(info);
-                    Hotspot.StatusMessage = "✓ Hotspot credentials copied to clipboard!";
+                    Hotspot.StatusMessage = "✓ Hotspot network details copied to clipboard (password excluded).";
                 }
                 catch (Exception ex)
                 {
@@ -2186,6 +2187,21 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
+        private bool ValidateHotspotCredentials()
+        {
+            if (string.IsNullOrWhiteSpace(HotspotSsidInput))
+            {
+                Hotspot.StatusMessage = "Enter a network name (SSID) first.";
+                return false;
+            }
+            if (HotspotPasswordInput.Length < 8 || HotspotPasswordInput.Length > 63)
+            {
+                Hotspot.StatusMessage = "Enter a password of 8-63 characters before starting the hotspot.";
+                return false;
+            }
+            return true;
+        }
+
         private async Task ToggleHotspotAsync()
         {
             Hotspot.IsBusy = true;
@@ -2203,6 +2219,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 else
                 {
+                    if (!ValidateHotspotCredentials()) return;
+
                     Hotspot.Clients.Clear();
                     Hotspot.ClientCount = 0;
 
@@ -2249,6 +2267,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             _inTransitionCountSeconds = 0;
             try
             {
+                if (!ValidateHotspotCredentials()) return;
+
                 Hotspot.StatusMessage = "Wiping old settings & applying fresh configuration...";
                 await _hotspotService.OptimizeHotspotDhcpAsync();
                 var res = await _hotspotService.ConfigureHotspotAsync(HotspotSsidInput, HotspotPasswordInput, HotspotChannelChoice);
