@@ -2716,7 +2716,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             _priorityEngageLock?.Dispose();
             _tcpToggleLock?.Dispose();
             _dnsCacheService?.Dispose();
-            HotspotPriorityService.CleanupAllPolicies();
+            // Policy cleanup runs once from App.OnExit; duplicating it here can delete
+            // policies while a shutdown engage task is still finishing.
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

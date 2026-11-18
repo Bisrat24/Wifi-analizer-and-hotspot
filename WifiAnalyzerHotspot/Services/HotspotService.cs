@@ -2358,7 +2358,6 @@ try {{
                             RunCommand("arp", $"-d {targetIp}");
                             RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_TempDrop_{cleanMac}\"");
                             RunCommand("netsh", $"advfirewall firewall delete rule name=\"Hotspot_TempDrop_Out_{cleanMac}\"");
-                            RunCommand("netsh", "interface ip delete arpcache");
                         });
                     }
                     else
@@ -2482,10 +2481,16 @@ try {{
                             }
                         }
 
-                        foreach (var ip in ipsToRemove)
+                        // After an app restart the in-memory map is empty. Re-derive the sealed
+                        // IP from the live ARP table so unblocking actually removes the blackhole.
+                        var currentArp = NativeArpHelper.GetHotspotArpEntries();
+                        if (currentArp.TryGetValue(cleanMac, out var arpIp) && !string.IsNullOrEmpty(arpIp))
+                            ipsToRemove.Add(arpIp);
+
+                        foreach (var ip in ipsToRemove.Where(IsCanonicalIp))
                         {
                             // 1. Remove static ARP entry
-                            RunCommand("arp", $"-d {ip}");
+                            RunCommand("arp", $"-d {ip.Trim()}");
                         }
 
                         // 2. Delete netsh firewall rules
@@ -2504,8 +2509,8 @@ try {{
 ";
                         RunPowerShell(psUnblock, 3000);
 
-                        // 4. Flush ARP cache
-                        RunCommand("netsh", "interface ip delete arpcache");
+                        // 4. ARP entries for this client were removed above; do not flush the
+                        //    entire system ARP cache, which disrupts unrelated connections.
 
                         // 5. Automatically restore configured Priority & QoS policies once unblocked
                         string restoreIp = ipAddress;
