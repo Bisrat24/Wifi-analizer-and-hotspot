@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Networking.Connectivity;
 using Windows.Networking.NetworkOperators;
@@ -46,11 +47,13 @@ namespace WifiAnalyzerHotspot.Services
         {
             public string? Result { get; set; }
             public string? Error { get; set; }
+            public string? Note { get; set; }
         }
 
         private static (int channel, string band) _cachedVirtualChannel = (0, "");
         private static DateTime _lastVirtualChannelCheck = DateTime.MinValue;
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _clientConsecutiveMisses = new(StringComparer.OrdinalIgnoreCase);
+        private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
 
         private static string EscapePowerShellString(string input)
         {
@@ -683,6 +686,13 @@ if ($connectionProfile) {{
         /// </summary>
         public async Task<(bool success, string message)> ConfigureHotspotAsync(string ssid, string passphrase, string bandOrChannel)
         {
+            await _lifecycleLock.WaitAsync();
+            try { return await ConfigureHotspotCoreAsync(ssid, passphrase, bandOrChannel); }
+            finally { _lifecycleLock.Release(); }
+        }
+
+        private async Task<(bool success, string message)> ConfigureHotspotCoreAsync(string ssid, string passphrase, string bandOrChannel)
+        {
             return await Task.Run(() =>
             {
                 if (string.IsNullOrWhiteSpace(ssid))
@@ -703,6 +713,19 @@ if ($connectionProfile) {{
 
                 string safeSsid = EscapePowerShellString(ssid);
                 string safePass = EscapePowerShellString(passphrase);
+
+                bool wasRunning = false;
+                try
+                {
+                    var profile = GetActiveConnectionProfile();
+                    if (profile != null)
+                    {
+                        var mgr = NetworkOperatorTetheringManager.CreateFromConnectionProfile(profile);
+                        var state = mgr?.TetheringOperationalState;
+                        wasRunning = state == TetheringOperationalState.On || state == TetheringOperationalState.InTransition;
+                    }
+                }
+                catch { }
 
                 string script = $@"
 try {{ [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }} catch {{}}
@@ -795,7 +818,15 @@ if ($connectionProfile) {{
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        return (true, "Hotspot configuration updated fresh as new!");
+                        string detail = string.IsNullOrWhiteSpace(res.Note) ? "SSID and band verified." : res.Note;
+                        if (wasRunning)
+                        {
+                            var restart = StartHotspotCoreAsync().GetAwaiter().GetResult();
+                            if (!restart.success)
+                                return (false, $"Configuration applied but the hotspot could not be restarted: {restart.message}");
+                            return (true, $"Hotspot reconfigured and restarted. {detail}");
+                        }
+                        return (true, $"Hotspot configuration saved. {detail}");
                     }
                     return (false, res?.Error ?? "Configuration failed.");
                 }
@@ -892,6 +923,13 @@ try {
         /// wipes previous configuration, clears stale ARP cache, and recreates & starts the hotspot fresh as new.
         /// </summary>
         public async Task<(bool success, string message)> ResetAndRecreateHotspotAsync(string ssid, string passphrase, string bandOrChannel)
+        {
+            await _lifecycleLock.WaitAsync();
+            try { return await ResetAndRecreateHotspotCoreAsync(ssid, passphrase, bandOrChannel); }
+            finally { _lifecycleLock.Release(); }
+        }
+
+        private async Task<(bool success, string message)> ResetAndRecreateHotspotCoreAsync(string ssid, string passphrase, string bandOrChannel)
         {
             return await Task.Run(() =>
             {
@@ -1098,6 +1136,13 @@ try {{
         /// </summary>
         public async Task<(bool success, string message)> StartHotspotAsync()
         {
+            await _lifecycleLock.WaitAsync();
+            try { return await StartHotspotCoreAsync(); }
+            finally { _lifecycleLock.Release(); }
+        }
+
+        private async Task<(bool success, string message)> StartHotspotCoreAsync()
+        {
             return await Task.Run(() =>
             {
                 lock (_clientDataUsageMap)
@@ -1229,6 +1274,13 @@ try {
         /// Stops the Windows Mobile Hotspot and waits until virtual adapter is completely released.
         /// </summary>
         public async Task<(bool success, string message)> StopHotspotAsync()
+        {
+            await _lifecycleLock.WaitAsync();
+            try { return await StopHotspotCoreAsync(); }
+            finally { _lifecycleLock.Release(); }
+        }
+
+        private async Task<(bool success, string message)> StopHotspotCoreAsync()
         {
             return await Task.Run(() =>
             {
