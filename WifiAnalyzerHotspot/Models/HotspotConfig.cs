@@ -566,7 +566,9 @@ namespace WifiAnalyzerHotspot.Models
             }
 
             // Normalize thousands separators: e.g. "1,000" -> "1000", "1,000/20" -> "1000/20"
-            string normalized = Regex.Replace(choice, @"(?<=\d),(?=\d)", "");
+            // Only strip a comma when it is a thousands separator (exactly three digits follow).
+            // "100,20" is a dual-speed entry and must keep its comma as the separator.
+            string normalized = Regex.Replace(choice, @"(?<=\d),(?=\d{3}(?:\D|$))", "");
 
             // 1. Check for explicit down/up tagged entries:
             // e.g. "down 100 up 20", "down: 100, up: 20", "100 down, 20 up", "100 down and 20 up", "up 20 down 100"

@@ -893,6 +893,11 @@ namespace WifiAnalyzerHotspot.ViewModels
 
                 // 1. Enforce permanent multi-layer block (Layer 2 ARP poison, Netsh Firewall, Kernel NetQoS)
                 var res = await _hotspotService.BlockClientAsync(client.MacAddress, client.IpAddress);
+                if (!res.success)
+                {
+                    Hotspot.StatusMessage = $"Block failed: {res.message}";
+                    return;
+                }
 
                 // 3. Immediately remove from active clients list
                 var toRemove = Hotspot.Clients.Where(c => HotspotModel.NormalizeMac(c.MacAddress) == cleanMac).ToList();
@@ -926,6 +931,11 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (blocked == null) return;
                 string cleanMac = HotspotModel.NormalizeMac(blocked.MacAddress);
                 var res = await _hotspotService.UnblockClientAsync(blocked.MacAddress, blocked.IpAddress);
+                if (!res.success)
+                {
+                    Hotspot.StatusMessage = $"Unblock failed: {res.message}";
+                    return;
+                }
                 var toRemove = Hotspot.BlockedClients.Where(b => HotspotModel.NormalizeMac(b.MacAddress) == cleanMac).ToList();
                 foreach (var b in toRemove)
                 {
@@ -1176,6 +1186,10 @@ namespace WifiAnalyzerHotspot.ViewModels
             SetClientQosLimitCommand = new RelayCommand<HotspotClientInfo>(async client =>
             {
                 if (client == null) return;
+                var res = await _hotspotService.SetClientQosLimitAsync(client.MacAddress, client.IpAddress, client.QosLimit);
+                Hotspot.StatusMessage = res.message;
+                if (!res.success) return;
+
                 string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
                 if (_settings != null && !string.IsNullOrEmpty(cleanMac))
                 {
@@ -1183,14 +1197,15 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.ClientQosLimits[cleanMac] = client.QosLimit;
                     _settingsService.SaveSettings(_settings);
                 }
-
-                var res = await _hotspotService.SetClientQosLimitAsync(client.MacAddress, client.IpAddress, client.QosLimit);
-                Hotspot.StatusMessage = res.message;
             });
 
             SetClientPriorityCommand = new RelayCommand<HotspotClientInfo>(async client =>
             {
                 if (client == null) return;
+                var res = await _hotspotService.SetClientPriorityAsync(client.MacAddress, client.IpAddress, client.Priority);
+                Hotspot.StatusMessage = res.message;
+                if (!res.success) return;
+
                 string cleanMac = HotspotModel.NormalizeMac(client.MacAddress);
                 if (_settings != null && !string.IsNullOrEmpty(cleanMac))
                 {
@@ -1198,9 +1213,6 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.ClientPriorities[cleanMac] = client.Priority;
                     _settingsService.SaveSettings(_settings);
                 }
-
-                var res = await _hotspotService.SetClientPriorityAsync(client.MacAddress, client.IpAddress, client.Priority);
-                Hotspot.StatusMessage = res.message;
             });
 
             // ==================== SECURE CONNECT COMMANDS ====================
@@ -2396,6 +2408,11 @@ namespace WifiAnalyzerHotspot.ViewModels
         {
             if (client == null) return;
             var res = await _hotspotService.ResumeClientAsync(client.MacAddress, client.IpAddress);
+            if (!res.success)
+            {
+                Hotspot.StatusMessage = $"Resume failed: {res.message}";
+                return;
+            }
             client.IsPaused = false;
             client.PauseExpiresAt = null;
             client.PauseStatusText = string.Empty;
