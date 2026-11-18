@@ -1,6 +1,15 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.5.0)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.5.1)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🛡️ What's New in v1.5.1: Safety & Reliability Update
+
+- Removed `RealTime` priority from child processes and the ICS service; adapter/DHCP recovery is now restored even when cancelled.
+- Global power/TCP overrides are gone. ICS, route-metric and NIC priority/VLAN changes are snapshotted and restored on stop, exit, or startup after a crash.
+- Hardened credentials (no published default password, masked password fields, no plaintext fallback), command arguments, DNS reply validation and the hotspot watchdog.
+- See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ---
 
