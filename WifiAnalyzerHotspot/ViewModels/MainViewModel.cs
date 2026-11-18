@@ -1258,7 +1258,19 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             RefreshSecureConnectNetworksCommand = new RelayCommand(async () =>
             {
-                await PerformScanAsync();
+                var networks = await Task.Run(() => NativeWlanService.GetAvailableNetworks());
+                if (networks.Count > 0)
+                {
+                    Dispatch(() =>
+                    {
+                        _rawSecureConnectNetworks = networks;
+                        FilterSecureConnectNetworks();
+                    });
+                }
+                else
+                {
+                    await PerformScanAsync();
+                }
                 await RefreshSecureConnectProfilesAsync();
             });
 

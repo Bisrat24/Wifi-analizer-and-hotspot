@@ -96,34 +96,36 @@ namespace WifiAnalyzerHotspot.Services
         public static List<SavedWifiProfile> GetSavedProfiles()
         {
             var list = new List<SavedWifiProfile>();
-            try
-            {
-                string output = RunCmd("netsh", "wlan", "show", "profiles");
-                var lines = output.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var names = NativeWlanService.GetProfileNames();
 
-                foreach (var line in lines)
+            // Fallback only when the native API is unavailable (unsupported driver / service).
+            if (names.Count == 0)
+            {
+                try
                 {
-                    if (line.Contains(':') && (line.Contains("All User Profile") || line.Contains("User Profile")))
+                    string output = RunCmd("netsh", "wlan", "show", "profiles");
+                    foreach (var line in output.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
                     {
-                        var parts = line.Split(new[] { ':' }, 2);
-                        if (parts.Length > 1)
+                        if (line.Contains(':') && (line.Contains("All User Profile") || line.Contains("User Profile")))
                         {
-                            string name = parts[1].Trim();
-                            if (!string.IsNullOrEmpty(name))
-                            {
-                                list.Add(new SavedWifiProfile
-                                {
-                                    Name = name,
-                                    Ssid = name,
-                                    Authentication = "WPA2-Personal",
-                                    IsAutoConnect = true
-                                });
-                            }
+                            string name = line.Split(new[] { ':' }, 2)[1].Trim();
+                            if (!string.IsNullOrEmpty(name)) names.Add(name);
                         }
                     }
                 }
+                catch { }
             }
-            catch { }
+
+            foreach (string name in names)
+            {
+                list.Add(new SavedWifiProfile
+                {
+                    Name = name,
+                    Ssid = name,
+                    Authentication = "Saved profile",
+                    IsAutoConnect = true
+                });
+            }
             return list;
         }
 
@@ -139,19 +141,21 @@ namespace WifiAnalyzerHotspot.Services
             {
                 try
                 {
-                    var args = new List<string> { "wlan", "connect", $"name={profileName}" };
-                    if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface={adapterName}");
-
-                    string outText = RunCmd("netsh", args.ToArray());
+                    uint error = NativeWlanService.ConnectToProfile(profileName);
+                    if (error != 0)
+                    {
+                        // Fallback for drivers that reject WlanConnect.
+                        var args = new List<string> { "wlan", "connect", $"name={profileName}" };
+                        if (!string.IsNullOrWhiteSpace(adapterName)) args.Add($"interface={adapterName}");
+                        RunCmd("netsh", args.ToArray());
+                    }
                     await Task.Delay(1500);
 
-                    if (outText.Contains("successfully", StringComparison.OrdinalIgnoreCase) ||
-                        outText.Contains("Connection request was completed", StringComparison.OrdinalIgnoreCase))
-                    {
+                    string connected = new WifiScannerService().GetConnectedInterfaceInfo().Ssid ?? string.Empty;
+                    if (connected.Equals(profileName, StringComparison.OrdinalIgnoreCase))
                         return (true, $"Fast-connected to '{profileName}'.");
-                    }
-                    return (false, $"Could not confirm connection to '{profileName}'.");
+
+                    return (false, $"Could not confirm connection to '{profileName}' (current: {connected}).");
                 }
                 catch (Exception ex)
                 {
@@ -269,13 +273,20 @@ namespace WifiAnalyzerHotspot.Services
 
                         RunCmd("netsh", addArgs.ToArray());
 
-                        // Direct connection
-                        var connArgs = new List<string> { "wlan", "connect", $"name={ssid}" };
-                        if (!string.IsNullOrWhiteSpace(adapterName))
-                            connArgs.Add($"interface={adapterName}");
-
-                        string connOut = RunCmd("netsh", connArgs.ToArray());
+                        // Native connect with netsh fallback, then verify the actual SSID.
+                        uint error = NativeWlanService.ConnectToProfile(ssid);
+                        if (error != 0)
+                        {
+                            var connArgs = new List<string> { "wlan", "connect", $"name={ssid}" };
+                            if (!string.IsNullOrWhiteSpace(adapterName))
+                                connArgs.Add($"interface={adapterName}");
+                            RunCmd("netsh", connArgs.ToArray());
+                        }
                         await Task.Delay(1500);
+
+                        string connected = new WifiScannerService().GetConnectedInterfaceInfo().Ssid ?? string.Empty;
+                        if (!connected.Equals(ssid, StringComparison.OrdinalIgnoreCase))
+                            return (false, $"Profile saved for '{ssid}' but connection could not be confirmed (current: {connected}).");
 
                         return (true, $"Saved profile and connected to '{ssid}'.");
                     }
