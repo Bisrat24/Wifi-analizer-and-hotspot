@@ -16,11 +16,9 @@ namespace WifiAnalyzerHotspot.Services
         private static readonly object _lock = new();
 
         /// <summary>
-        /// Engages or disengages Full Power / Maximum Performance Mode for the Wi-Fi adapter.
-        /// When enabled:
-        /// 1. Configures Windows Power Scheme Wireless Adapter Settings to Maximum Performance (0) for AC and DC.
-        /// 2. Ensures TCP auto-tuning is active with no throttling.
-        /// 3. Starts an ultra-lightweight micro-pulse to keep the Wi-Fi radio from falling into D2/D3 sleep states.
+        /// Engages or disengages the keep-alive micro-pulse that keeps the Wi-Fi radio awake.
+        /// Global power-scheme and TCP settings are deliberately not modified: they are machine-wide
+        /// and cannot be reliably restored when this feature is switched off.
         /// </summary>
         public static void SetFullPowerMode(bool enable)
         {
@@ -30,16 +28,9 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     if (enable)
                     {
-                        // Subgroup: Wireless Adapter Settings (19cbb8fa-5279-450e-9fac-8a3d5fedd0c1)
-                        // Setting:  Power Saving Mode (12bbebe6-58d6-4636-95bb-3217ef867c1a)
-                        // Index 0 = Maximum Performance
-                        RunCmd("powercfg", "/setacvalueindex", "scheme_current", "19cbb8fa-5279-450e-9fac-8a3d5fedd0c1", "12bbebe6-58d6-4636-95bb-3217ef867c1a", "0");
-                        RunCmd("powercfg", "/setdcvalueindex", "scheme_current", "19cbb8fa-5279-450e-9fac-8a3d5fedd0c1", "12bbebe6-58d6-4636-95bb-3217ef867c1a", "0");
-                        RunCmd("powercfg", "/setactive", "scheme_current");
-
-                        // Disable TCP throttling
-                        RunCmd("netsh", "int", "tcp", "set", "global", "autotuninglevel=normal");
-
+                        // Only the keep-alive pulse is owned by this feature. Changing the global
+                        // Windows power scheme or TCP autotuning cannot be safely restored, so it is
+                        // deliberately left untouched.
                         StartMicroPulse();
                     }
                     else

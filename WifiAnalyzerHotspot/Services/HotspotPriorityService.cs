@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +27,24 @@ namespace WifiAnalyzerHotspot.Services
             set { BufferbloatDownThrottleRateBits = value; BufferbloatUpThrottleRateBits = value; }
         }
 
+        private static string? GetUpstreamAdapterName()
+        {
+            try
+            {
+                foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                    if (ni.GetIPProperties().GatewayAddresses.Any(g =>
+                            g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)))
+                        return ni.Name;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private static string Ps(string? value) => SystemRestoreService.Escape(value);
+
         /// <summary>
         /// Elevates network priority for the Hotspot without destabilizing the Windows desktop:
         /// 1. Sets process priority to High (optimal responsiveness without starving OS input/audio/DWM).
@@ -32,7 +54,7 @@ namespace WifiAnalyzerHotspot.Services
         /// 5. Deprioritizes desktop browsers (Precedence 64).
         /// </summary>
         /// <param name="allowPacerRebind">
-        /// When true, a disabled QoS Packet Scheduler binding may be enabled on any active adapter.
+        /// When true, a disabled QoS Packet Scheduler binding may be enabled on the upstream adapter only.
         /// Rebinding briefly resets the link, so callers should only pass true for explicit user actions
         /// (hotspot start, refresh rules, priority button). The hotspot's own virtual adapter is always bound.
         /// </param>
@@ -66,7 +88,8 @@ namespace WifiAnalyzerHotspot.Services
                         .Replace("__CHECK_PRIO_VLAN__", checkPrioVlan ? "$true" : "$false")
                         .Replace("__BUFFERBLOAT_DOWN_THROTTLE__", downThrottle > 0 ? downThrottle.ToString() : "0")
                         .Replace("__BUFFERBLOAT_UP_THROTTLE__", upThrottle > 0 ? upThrottle.ToString() : "0")
-                        .Replace("__BUFFERBLOAT_TARGET__", isEntirePc ? "Entire PC" : "Hotspot Only");
+                        .Replace("__BUFFERBLOAT_TARGET__", isEntirePc ? "Entire PC" : "Hotspot Only")
+                        .Replace("__UPSTREAM_ADAPTER__", Ps(GetUpstreamAdapterName()));
                     string output = await RunPowerShellAsync(script, 30000);
                     Debug.WriteLine($"HotspotPriorityService engage output: {output}");
 
@@ -74,13 +97,29 @@ namespace WifiAnalyzerHotspot.Services
                     var pacerMissing = new List<string>();
                     var pacerDisabled = new List<string>();
                     var nicPrioEnabled = new List<string>();
+                    var metricSet = new List<string>();
+                    var restoreLines = new List<string>();
                     var failures = new List<string>();
 
                     bool hasNicPrioFail = false;
                     foreach (var raw in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                     {
                         string line = raw.Trim();
-                        if (line.StartsWith("PACER_ENABLED:", StringComparison.Ordinal))
+                        if (line.StartsWith("METRIC_ORIGINAL:", StringComparison.Ordinal))
+                        {
+                            var p = line.Substring("METRIC_ORIGINAL:".Length).Split('|');
+                            if (p.Length == 2 && int.TryParse(p[1], out int metric))
+                                restoreLines.Add($"try {{ Get-NetIPInterface -InterfaceAlias '{Ps(p[0])}' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Set-NetIPInterface -InterfaceMetric {metric} -ErrorAction SilentlyContinue }} catch {{}}");
+                        }
+                        else if (line.StartsWith("NIC_PRIO_ORIGINAL:", StringComparison.Ordinal))
+                        {
+                            var p = line.Substring("NIC_PRIO_ORIGINAL:".Length).Split('|');
+                            if (p.Length == 3)
+                                restoreLines.Add($"try {{ Set-NetAdapterAdvancedProperty -Name '{Ps(p[0])}' -DisplayName '{Ps(p[1])}' -DisplayValue '{Ps(p[2])}' -ErrorAction SilentlyContinue }} catch {{}}");
+                        }
+                        else if (line.StartsWith("METRIC_SET:", StringComparison.Ordinal))
+                            metricSet.Add(line.Substring("METRIC_SET:".Length).Trim());
+                        else if (line.StartsWith("PACER_ENABLED:", StringComparison.Ordinal))
                             pacerEnabled.Add(line.Substring("PACER_ENABLED:".Length).Trim());
                         else if (line.StartsWith("PACER_MISSING:", StringComparison.Ordinal))
                             pacerMissing.Add(line.Substring("PACER_MISSING:".Length).Trim());
@@ -97,6 +136,10 @@ namespace WifiAnalyzerHotspot.Services
                                  line.StartsWith("QOS_FAIL:", StringComparison.Ordinal))
                             failures.Add(line.Substring(line.IndexOf(':') + 1).Trim());
                     }
+
+                    // Persist a restore script BEFORE reporting success so a crash can be rolled back.
+                    if (restoreLines.Count > 0)
+                        SystemRestoreService.Stage("QosAdapters", string.Join(Environment.NewLine, restoreLines));
 
                     // Unified Ethernet speed optimization (routed through the shared cache and concurrency lock)
                     var ethModified = new List<string>();
@@ -128,7 +171,8 @@ namespace WifiAnalyzerHotspot.Services
 
                     var parts = new List<string>
                     {
-                        "⚡ High Priority Active: High CPU priority • Upstream connection top priority (over browsers) • Route metric optimized"
+                        "⚡ High Priority Active: High CPU priority • Upstream connection top priority (over browsers)" +
+                        (metricSet.Count > 0 ? " • Route metric optimized" : "")
                     };
 
                     if (pacerEnabled.Count > 0)
@@ -168,11 +212,16 @@ $checkPriorityVlan = __CHECK_PRIO_VLAN__
 $results = New-Object System.Collections.ArrayList
 function Add-Result([string]$v) { [void]$results.Add($v) }
 
-# A. Prioritize Hotspot Virtual Adapter Route Metric (Metric = 5)
+# A. Prioritize Hotspot Virtual Adapter Route Metric (Metric = 5). Originals are emitted
+#    so they can be persisted and restored after a crash.
 try {
-    Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { ($_.InterfaceAlias -like '*Wi-Fi Direct*' -or $_.InterfaceAlias -like '*Local Area Connection*') -and $_.ConnectionState -eq 'Connected' } |
-        Set-NetIPInterface -InterfaceMetric 5 -ErrorAction SilentlyContinue
+    $metricIfaces = @(Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { ($_.InterfaceAlias -like '*Wi-Fi Direct*' -or $_.InterfaceAlias -like '*Local Area Connection*') -and $_.ConnectionState -eq 'Connected' })
+    foreach ($mi in $metricIfaces) {
+        Add-Result ""METRIC_ORIGINAL:$($mi.InterfaceAlias)|$($mi.InterfaceMetric)""
+        Set-NetIPInterface -InterfaceAlias $mi.InterfaceAlias -AddressFamily IPv4 -InterfaceMetric 5 -ErrorAction SilentlyContinue
+        Add-Result ""METRIC_SET:$($mi.InterfaceAlias)""
+    }
 } catch {}
 
 # B. QoS Packet Scheduler (ms_pacer) must be bound to every active adapter. Without it,
@@ -185,7 +234,8 @@ foreach ($adapter in @(Get-NetAdapter -ErrorAction SilentlyContinue)) {
     if (-not $bind) { Add-Result ""PACER_MISSING:$($adapter.Name)""; continue }
     if ($bind.Enabled) { Add-Result ""PACER_OK:$($adapter.Name)""; continue }
     $isHotspotAdapter = ($adapter.Name -like '*Local Area Connection*' -or $adapter.InterfaceDescription -like '*Wi-Fi Direct*')
-    if (-not $isHotspotAdapter -and -not $allowRebind) { Add-Result ""PACER_DISABLED:$($adapter.Name)""; continue }
+    $isUpstream = ($adapter.Name -eq '__UPSTREAM_ADAPTER__')
+    if (-not $isHotspotAdapter -and -not ($allowRebind -and $isUpstream)) { Add-Result ""PACER_DISABLED:$($adapter.Name)""; continue }
     try {
         Enable-NetAdapterBinding -Name $adapter.Name -ComponentID 'ms_pacer' -ErrorAction Stop
         Start-Sleep -Milliseconds 900
@@ -200,7 +250,7 @@ foreach ($adapter in @(Get-NetAdapter -ErrorAction SilentlyContinue)) {
 # C. Enable 802.1p Priority & VLAN Tagging on physical uplink adapters (checked at most once per session)
 if ($checkPriorityVlan) {
     try {
-        $physAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })
+        $physAdapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -and $_.Name -eq '__UPSTREAM_ADAPTER__' })
         foreach ($pa in $physAdapters) {
             $props = @(Get-NetAdapterAdvancedProperty -Name $pa.Name -ErrorAction SilentlyContinue |
                 Where-Object { $_.DisplayName -like '*Priority*' -or $_.DisplayName -like '*VLAN*' })
@@ -216,6 +266,7 @@ if ($checkPriorityVlan) {
                 }
                 if ($enableVal) {
                     try {
+                        Add-Result ""NIC_PRIO_ORIGINAL:$($pa.Name)|$($prop.DisplayName)|$($prop.DisplayValue)""
                         Set-NetAdapterAdvancedProperty -Name $pa.Name -DisplayName $prop.DisplayName -DisplayValue $enableVal -ErrorAction Stop
                         Add-Result ""NIC_PRIO_ENABLED:$($pa.Name) ($enableVal)""
                     } catch {
@@ -343,6 +394,9 @@ Write-Output ('REMOVED:' + $names.Count)
                 }
                 catch { }
 
+                // Restore route metrics and NIC priority/VLAN properties before dropping policies.
+                SystemRestoreService.RunPending();
+
                 try
                 {
                     _ = RunPowerShellAsync(CleanupScript, 15000);
@@ -376,6 +430,7 @@ Write-Output ('REMOVED:' + $names.Count)
             }
             catch { }
 
+            SystemRestoreService.RunPending();
             _isPriorityEngaged = false;
         }
 

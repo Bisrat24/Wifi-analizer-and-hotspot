@@ -796,6 +796,27 @@ if ($connectionProfile) {{
             });
         }
 
+        private static void StageIcsRestore()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters");
+                if (key == null) return;
+                const string path = @"HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters";
+                var lines = new List<string>();
+                foreach (var name in new[] { "ScopeAddress", "StandaloneDhcpAddress", "ScopeAddressBackup" })
+                {
+                    string value = SystemRestoreService.Escape(key.GetValue(name) as string);
+                    lines.Add($"try {{ Set-ItemProperty -Path '{path}' -Name '{name}' -Value '{value}' -ErrorAction SilentlyContinue }} catch {{}}");
+                }
+                using var svcKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\SharedAccess");
+                if (svcKey?.GetValue("Start") is int startValue)
+                    lines.Add($"try {{ Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess' -Name 'Start' -Value {startValue} -Type DWord -ErrorAction SilentlyContinue }} catch {{}}");
+                SystemRestoreService.Stage("Ics", string.Join(Environment.NewLine, lines));
+            }
+            catch { }
+        }
+
         /// <summary>
         /// Optimizes and repairs Windows Internet Connection Sharing (ICS) DHCP settings for the Mobile Hotspot.
         /// Ensures SharedAccess service is running, sets optimal 192.168.137.1 scope, and clears stale ARP leases.
@@ -804,6 +825,7 @@ if ($connectionProfile) {{
         {
             return await Task.Run(() =>
             {
+                StageIcsRestore();
                 string script = @"
 try {
     # 1. Ensure SharedAccess (ICS / DHCP) service is enabled and started
@@ -863,6 +885,7 @@ try {
         {
             return await Task.Run(() =>
             {
+                StageIcsRestore();
                 if (string.IsNullOrWhiteSpace(ssid))
                     return (false, "SSID cannot be empty.");
 

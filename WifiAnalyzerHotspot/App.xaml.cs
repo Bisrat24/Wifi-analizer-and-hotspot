@@ -124,6 +124,9 @@ namespace WifiAnalyzerHotspot
 
             base.OnStartup(e);
 
+            // 3b. Replay any system settings left changed by a crash or forced exit.
+            Task.Run(() => Services.SystemRestoreService.RunPending());
+
             // 4. Elevate process priority to High (High responsiveness without starving OS input/audio/DWM)
             try
             {

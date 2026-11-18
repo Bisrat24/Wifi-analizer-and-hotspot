@@ -26,6 +26,8 @@ namespace WifiAnalyzerHotspot.Services
 
         public static IReadOnlyDictionary<string, string> GetOriginalTcpBackup() => _originalTcpBackup;
 
+        private static bool IsKnownEcn(string? value) => value is "enabled" or "disabled" or "default";
+
         public static void LoadOriginalTcpBackup(IDictionary<string, string>? backup)
         {
             if (backup == null) return;
@@ -54,11 +56,9 @@ namespace WifiAnalyzerHotspot.Services
                 }
 
                 // 0. Backup original ECN state if not already captured
-                if (!_originalTcpBackup.ContainsKey("__GLOBAL__|ECNCapability"))
-                {
-                    string currentEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
-                    _originalTcpBackup["__GLOBAL__|ECNCapability"] = currentEcn;
-                }
+                string currentEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
+                _originalTcpBackup["__GLOBAL__|ECNCapability"] = currentEcn;
+                bool ecnKnown = IsKnownEcn(currentEcn);
 
                 int modifiedCount = 0;
                 foreach (string guid in targetGuids)
@@ -83,33 +83,43 @@ namespace WifiAnalyzerHotspot.Services
                     }
                 }
 
-                // Enable ECN capability via netsh
-                try
+                // Enable ECN capability via netsh only when the original value is known,
+                // otherwise a failed query would leave a machine-wide setting permanently changed.
+                if (ecnKnown)
                 {
-                    var psi = new ProcessStartInfo
+                    if (currentEcn != "enabled")
+                        SystemRestoreService.Stage("Ecn", $"netsh int tcp set global ecncapability={currentEcn}");
+                    try
                     {
-                        FileName = "netsh.exe",
-                        Arguments = "int tcp set global ecncapability=enabled",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true
-                    };
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "netsh.exe",
+                            Arguments = "int tcp set global ecncapability=enabled",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true
+                        };
+                        using var proc = Process.Start(psi);
+                        if (proc != null)
+                        {
+                            await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                        }
+                        string verifiedEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
+                        if (verifiedEcn == "enabled")
+                        {
+                            onLog?.Invoke("[TCP-Tuning] ECN (Explicit Congestion Notification) set to Enabled (verified).");
+                        }
+                        else
+                        {
+                            onLog?.Invoke($"[TCP-Tuning] Notice: ECN set returned status: {verifiedEcn}");
+                        }
                     }
-                    string verifiedEcn = await QueryCurrentEcnCapabilityAsync(token).ConfigureAwait(false);
-                    if (verifiedEcn == "enabled")
-                    {
-                        onLog?.Invoke("[TCP-Tuning] ECN (Explicit Congestion Notification) set to Enabled (verified).");
-                    }
-                    else
-                    {
-                        onLog?.Invoke($"[TCP-Tuning] Notice: ECN set returned status: {verifiedEcn}");
-                    }
+                    catch { }
                 }
-                catch { }
+                else
+                {
+                    onLog?.Invoke("[TCP-Tuning] ECN state could not be read; leaving it unchanged.");
+                }
 
                 onLog?.Invoke($"[TCP-Tuning] ✓ Zero-Jitter Engine engaged ({modifiedCount} properties optimized across {targetGuids.Count} interface(s)).");
                 return (true, $"Zero-Jitter Engine engaged ({modifiedCount} parameters tuned)");
@@ -174,8 +184,9 @@ namespace WifiAnalyzerHotspot.Services
                 }
 
                 // Restore ECN capability only if a known original state was backed up
-                if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) &&
-                    !string.IsNullOrEmpty(savedEcn) && savedEcn != "__MISSING__" && savedEcn != "__UNKNOWN__")
+                // Whitelist the persisted value: settings.json is user-writable and must never
+                // be interpolated into netsh arguments unchecked.
+                if (_originalTcpBackup.TryGetValue("__GLOBAL__|ECNCapability", out var savedEcn) && IsKnownEcn(savedEcn))
                 {
                     try
                     {
