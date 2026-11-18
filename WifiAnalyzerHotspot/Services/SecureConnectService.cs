@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Security;
 using System.Text;
@@ -17,9 +18,8 @@ namespace WifiAnalyzerHotspot.Services
         private static readonly object _lock = new();
 
         /// <summary>
-        /// Engages or disengages the keep-alive micro-pulse that keeps the Wi-Fi radio awake.
-        /// Global power-scheme and TCP settings are deliberately not modified: they are machine-wide
-        /// and cannot be reliably restored when this feature is switched off.
+        /// Engages or disengages Secure Connect power features. Only per-adapter Wi-Fi
+        /// power-saving properties are changed, and every change is staged for restore.
         /// </summary>
         public static void SetFullPowerMode(bool enable)
         {
@@ -29,21 +29,76 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     if (enable)
                     {
-                        // Only the keep-alive pulse is owned by this feature. Changing the global
-                        // Windows power scheme or TCP autotuning cannot be safely restored, so it is
-                        // deliberately left untouched.
+                        if (IsWifiConnected()) ApplySafeAdapterPowerMode();
                         StartMicroPulse();
                     }
                     else
                     {
                         StopMicroPulse();
+                        SystemRestoreService.Release("SecureConnectPower");
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Graceful fallback if powercfg or elevation is restricted
+                    Debug.WriteLine($"[SecureConnect] power mode error: {ex.Message}");
                 }
             }
+        }
+
+        private static bool IsWifiConnected()
+        {
+            try
+            {
+                string ssid = new WifiScannerService().GetConnectedInterfaceInfo().Ssid ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(ssid) &&
+                       !ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        private const string QueryWifiPowerScript = @"
+$ErrorActionPreference = 'SilentlyContinue'
+$wifi = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -match 'Wireless|Wi-Fi|802\.11') }
+foreach ($a in $wifi) {
+    $props = Get-NetAdapterAdvancedProperty -Name $a.Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'Power Saving|Power Save' }
+    foreach ($p in $props) {
+        Write-Output ('PWR_ORIGINAL:' + $a.Name + '|' + $p.DisplayName + '|' + $p.DisplayValue)
+    }
+}
+";
+
+        private const string ApplyWifiPowerScript = @"
+$ErrorActionPreference = 'SilentlyContinue'
+$wifi = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -match 'Wireless|Wi-Fi|802\.11') }
+foreach ($a in $wifi) {
+    $props = Get-NetAdapterAdvancedProperty -Name $a.Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'Power Saving|Power Save' }
+    foreach ($p in $props) {
+        $enableVal = @($p.ValidDisplayValues) | Where-Object { $_ -match 'Off|Disable|Maximum Performance|Best' } | Select-Object -First 1
+        if ($enableVal) {
+            try { Set-NetAdapterAdvancedProperty -Name $a.Name -DisplayName $p.DisplayName -DisplayValue $enableVal -ErrorAction Stop | Out-Null } catch {}
+        }
+    }
+}
+";
+
+        private static void ApplySafeAdapterPowerMode()
+        {
+            var query = ProcessRunner.RunPowerShellAsync(QueryWifiPowerScript, 10000).GetAwaiter().GetResult();
+            if (!query.Completed || string.IsNullOrWhiteSpace(query.Output)) return;
+
+            var restore = new List<string>();
+            foreach (string raw in query.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (!line.StartsWith("PWR_ORIGINAL:", StringComparison.Ordinal)) continue;
+                string[] parts = line.Substring("PWR_ORIGINAL:".Length).Split('|');
+                if (parts.Length != 3) continue;
+                restore.Add($"try {{ Set-NetAdapterAdvancedProperty -Name '{SystemRestoreService.Escape(parts[0])}' -DisplayName '{SystemRestoreService.Escape(parts[1])}' -DisplayValue '{SystemRestoreService.Escape(parts[2])}' -ErrorAction SilentlyContinue }} catch {{}}");
+            }
+            if (restore.Count == 0) return;
+
+            SystemRestoreService.Stage("SecureConnectPower", string.Join(Environment.NewLine, restore));
+            ProcessRunner.RunPowerShellAsync(ApplyWifiPowerScript, 10000).GetAwaiter().GetResult();
         }
 
         private static void StartMicroPulse()
@@ -389,6 +444,7 @@ namespace WifiAnalyzerHotspot.Services
         public void Dispose()
         {
             StopMicroPulse();
+            SystemRestoreService.Release("SecureConnectPower");
         }
     }
 }
