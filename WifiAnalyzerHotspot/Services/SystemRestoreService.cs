@@ -38,32 +38,60 @@ namespace WifiAnalyzerHotspot.Services
 
         public static void RunPending()
         {
-            State state;
+            var state = Load();
+            if (state.Scripts.Count == 0) return;
+
+            var completed = new List<string>();
+            foreach (var entry in state.Scripts)
+            {
+                if (TryRun(entry.Value, "RunPending")) completed.Add(entry.Key);
+            }
+            if (completed.Count == 0) return;
+
             lock (Lock)
             {
-                state = Load();
-                if (state.Scripts.Count == 0) return;
-                Save(new State());
+                var current = Load();
+                foreach (string key in completed) current.Scripts.Remove(key);
+                Save(current);
             }
+        }
 
-            foreach (var script in state.Scripts.Values)
+        /// <summary>
+        /// Restores and forgets one area after an explicit user opt-out (e.g. Secure Connect OFF).
+        /// </summary>
+        public static void Release(string key)
+        {
+            string? script;
+            lock (Lock)
             {
-                try
+                if (!Load().Scripts.TryGetValue(key, out script) || string.IsNullOrWhiteSpace(script)) return;
+            }
+            if (!TryRun(script, $"Release:{key}")) return;
+
+            lock (Lock)
+            {
+                var state = Load();
+                state.Scripts.Remove(key);
+                Save(state);
+            }
+        }
+
+        private static bool TryRun(string script, string label)
+        {
+            try
+            {
+                var result = ProcessRunner.RunPowerShellAsync(script, 10000).GetAwaiter().GetResult();
+                if (!result.Completed)
                 {
-                    using var p = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command -")
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    });
-                    if (p == null) continue;
-                    p.StandardInput.WriteLine(script);
-                    p.StandardInput.Close();
-                    if (!p.WaitForExit(10000)) p.Kill(true);
+                    Debug.WriteLine($"SystemRestore.{label}: {result.Error}");
+                    return false;
                 }
-                catch (Exception ex) { Debug.WriteLine($"SystemRestore.RunPending: {ex.Message}"); }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SystemRestore.{label}: {ex.Message}");
+                return false;
             }
         }
 
