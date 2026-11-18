@@ -70,6 +70,16 @@ namespace WifiAnalyzerHotspot.Services
             return !string.IsNullOrEmpty(ip) && ip != "-" && System.Net.IPAddress.TryParse(ip, out _);
         }
 
+        // Canonical dotted quad only: shorthand forms such as "1" or "0x1" and any string
+        // containing quotes/spaces must never be interpolated into netsh or PowerShell text.
+        private static bool IsCanonicalIp(string? ip)
+        {
+            if (string.IsNullOrWhiteSpace(ip)) return false;
+            return System.Net.IPAddress.TryParse(ip, out var parsed) &&
+                   parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                   string.Equals(parsed.ToString(), ip.Trim(), StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Attempts to query the live channel of the active Wi-Fi Direct virtual adapter via netsh wlan show interfaces.
         /// Zero PowerShell subprocess, completely safe from EDR blocks. Caches result for 5s to avoid repeated netsh spawning.
@@ -1802,6 +1812,8 @@ if ($connectionProfile) {
             {
                 return (false, "Invalid MAC address format.");
             }
+            if (!IsCanonicalIp(ipAddress)) return (false, "Invalid IP address for this client.");
+            ipAddress = ipAddress.Trim();
 
             var macLock = GetMacLock(cleanMac);
             await macLock.WaitAsync();
@@ -1932,6 +1944,8 @@ try {{
             {
                 return (false, "Invalid MAC address format.");
             }
+            if (!IsCanonicalIp(ipAddress)) return (false, "Invalid IP address for this client.");
+            ipAddress = ipAddress.Trim();
 
             var macLock = GetMacLock(cleanMac);
             await macLock.WaitAsync();
@@ -2244,7 +2258,8 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{normMac}' -Confirm:$false -ErrorAc
         /// </summary>
         public static void EnforceIpBlock(string cleanMac, string ip)
         {
-            if (string.IsNullOrWhiteSpace(ip) || ip == "-" || !IsValidIp(ip)) return;
+            if (!IsCanonicalIp(ip)) return;
+            ip = ip.Trim();
             cleanMac = HotspotModel.NormalizeMac(cleanMac);
             if (!IsValidMac(cleanMac)) return;
 
@@ -2320,6 +2335,10 @@ try {{
                         var swept = await NativeArpHelper.ProbeSubnetForMacAsync(macAddress);
                         if (!string.IsNullOrEmpty(swept)) targetIp = swept;
                     }
+
+                    if (!IsCanonicalIp(targetIp))
+                        return (false, "No valid client IP could be resolved; refusing to build firewall rules.");
+                    targetIp = targetIp.Trim();
 
                     if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
                     {
@@ -2509,7 +2528,7 @@ try {{
                             }
                         }
 
-                        if (!string.IsNullOrEmpty(restoreIp) && restoreIp != "-")
+                        if (IsCanonicalIp(restoreIp))
                         {
                             _ = Task.Run(async () =>
                             {
@@ -2574,7 +2593,11 @@ try {{
                             }
                         }
 
-                        if (!string.IsNullOrEmpty(targetIp) && targetIp != "-" && targetIp.Contains('.'))
+                        if (!IsCanonicalIp(targetIp))
+                            return (false, "No valid client IP could be resolved; refusing to build QoS rules.");
+                        targetIp = targetIp.Trim();
+
+                        if (!string.IsNullOrEmpty(targetIp) && targetIp != "-")
                         {
                             // Invalidate applied QoS limits and priorities cache so Resume will re-assert them cleanly
                             _appliedQosLimits.TryRemove(cleanMac, out _);
@@ -2647,6 +2670,7 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                             var arpMap = NativeArpHelper.GetHotspotArpEntries();
                             if (arpMap.TryGetValue(cleanMac, out var resolvedIp)) restoreIp = resolvedIp;
                         }
+                        if (IsCanonicalIp(restoreIp)) restoreIp = restoreIp.Trim();
 
                         int savedPrio = 5;
                         string savedQos = "Unlimited";
@@ -2659,7 +2683,7 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                             }
                         }
 
-                        if (!string.IsNullOrEmpty(restoreIp) && restoreIp != "-")
+                        if (IsCanonicalIp(restoreIp))
                         {
                             _ = Task.Run(async () =>
                             {

@@ -139,9 +139,9 @@ namespace WifiAnalyzerHotspot.Services
             {
                 try
                 {
-                    var args = new List<string> { "wlan", "connect", $"name=\"{profileName}\"" };
+                    var args = new List<string> { "wlan", "connect", $"name={profileName}" };
                     if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface=\"{adapterName}\"");
+                        args.Add($"interface={adapterName}");
 
                     string outText = RunCmd("netsh", args.ToArray());
                     await Task.Delay(1500);
@@ -151,7 +151,7 @@ namespace WifiAnalyzerHotspot.Services
                     {
                         return (true, $"Fast-connected to '{profileName}'.");
                     }
-                    return (true, $"Connecting to '{profileName}'...");
+                    return (false, $"Could not confirm connection to '{profileName}'.");
                 }
                 catch (Exception ex)
                 {
@@ -263,16 +263,16 @@ namespace WifiAnalyzerHotspot.Services
                         await profileFile.WriteAsync(bytes, 0, bytes.Length);
                         await profileFile.FlushAsync();
 
-                        var addArgs = new List<string> { "wlan", "add", "profile", $"filename=\"{tempProfilePath}\"" };
+                        var addArgs = new List<string> { "wlan", "add", "profile", $"filename={tempProfilePath}" };
                         if (!string.IsNullOrWhiteSpace(adapterName))
-                            addArgs.Add($"interface=\"{adapterName}\"");
+                            addArgs.Add($"interface={adapterName}");
 
                         RunCmd("netsh", addArgs.ToArray());
 
                         // Direct connection
-                        var connArgs = new List<string> { "wlan", "connect", $"name=\"{ssid}\"" };
+                        var connArgs = new List<string> { "wlan", "connect", $"name={ssid}" };
                         if (!string.IsNullOrWhiteSpace(adapterName))
-                            connArgs.Add($"interface=\"{adapterName}\"");
+                            connArgs.Add($"interface={adapterName}");
 
                         string connOut = RunCmd("netsh", connArgs.ToArray());
                         await Task.Delay(1500);
@@ -307,7 +307,7 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     var args = new List<string> { "wlan", "disconnect" };
                     if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface=\"{adapterName}\"");
+                        args.Add($"interface={adapterName}");
 
                     RunCmd("netsh", args.ToArray());
                     return true;
@@ -331,9 +331,9 @@ namespace WifiAnalyzerHotspot.Services
             {
                 try
                 {
-                    var args = new List<string> { "wlan", "delete", "profile", $"name=\"{profileName}\"" };
+                    var args = new List<string> { "wlan", "delete", "profile", $"name={profileName}" };
                     if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface=\"{adapterName}\"");
+                        args.Add($"interface={adapterName}");
 
                     RunCmd("netsh", args.ToArray());
                     return true;
@@ -351,12 +351,14 @@ namespace WifiAnalyzerHotspot.Services
             {
                 var psi = new ProcessStartInfo(exe)
                 {
-                    Arguments = string.Join(" ", args),
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
+                // ArgumentList quotes each value itself, so SSIDs with spaces or quotes
+                // cannot break out into extra netsh arguments.
+                foreach (string arg in args) psi.ArgumentList.Add(arg);
 
                 using var proc = Process.Start(psi);
                 if (proc == null) return string.Empty;
