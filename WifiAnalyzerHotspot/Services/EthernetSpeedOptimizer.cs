@@ -659,6 +659,7 @@ foreach ($ea in $ethAdapters) {
 
         private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 20000, CancellationToken token = default)
         {
+            Process? proc = null;
             try
             {
                 var psi = new ProcessStartInfo
@@ -672,7 +673,7 @@ foreach ($ea in $ethAdapters) {
                     CreateNoWindow = true
                 };
 
-                using var proc = Process.Start(psi);
+                proc = Process.Start(psi);
                 if (proc == null) return string.Empty;
 
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -691,8 +692,11 @@ foreach ($ea in $ethAdapters) {
             }
             catch
             {
+                // A timed-out process must be killed or it keeps writing driver settings after exit.
+                try { if (proc != null && !proc.HasExited) proc.Kill(true); } catch { }
                 return string.Empty;
             }
+            finally { proc?.Dispose(); }
         }
     }
 }

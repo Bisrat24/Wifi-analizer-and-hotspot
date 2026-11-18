@@ -2829,6 +2829,7 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
 
         private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 15000)
         {
+            Process? process = null;
             try
             {
                 var psi = new ProcessStartInfo
@@ -2844,7 +2845,7 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                     StandardErrorEncoding = Encoding.UTF8
                 };
 
-                using var process = Process.Start(psi);
+                process = Process.Start(psi);
                 if (process == null) return string.Empty;
 
                 using var cts = new CancellationTokenSource(timeoutMs);
@@ -2864,6 +2865,7 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
                 catch (OperationCanceledException)
                 {
                     try { process.Kill(true); } catch { }
+                    try { process.WaitForExit(2000); } catch { }
                     Debug.WriteLine($"PowerShell command timed out after {timeoutMs}ms and was terminated.");
                     return string.Empty;
                 }
@@ -2880,9 +2882,12 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
             }
             catch (Exception ex)
             {
+                // A timed-out process must be killed or it keeps mutating hotspot/OS state after exit.
+                try { if (process != null && !process.HasExited) process.Kill(true); } catch { }
                 Debug.WriteLine($"PowerShell exec error: {ex.Message}");
                 return string.Empty;
             }
+            finally { process?.Dispose(); }
         }
 
         private static string RunPowerShell(string script, int timeoutMs = 15000)

@@ -381,6 +381,7 @@ Write-Output ('REMOVED:' + $names.Count)
 
         private static async Task<string> RunPowerShellAsync(string script, int timeoutMs = 10000)
         {
+            Process? proc = null;
             try
             {
                 var psi = new ProcessStartInfo
@@ -394,7 +395,7 @@ Write-Output ('REMOVED:' + $names.Count)
                     CreateNoWindow = true
                 };
 
-                using var proc = Process.Start(psi);
+                proc = Process.Start(psi);
                 if (proc == null) return string.Empty;
 
                 using var cts = new CancellationTokenSource(timeoutMs);
@@ -416,9 +417,12 @@ Write-Output ('REMOVED:' + $names.Count)
             }
             catch (Exception ex)
             {
+                // A timed-out process must be killed or it keeps mutating global QoS state after exit.
+                try { if (proc != null && !proc.HasExited) proc.Kill(true); } catch { }
                 Debug.WriteLine($"HotspotPriorityService RunPowerShell error: {ex.Message}");
                 return string.Empty;
             }
+            finally { proc?.Dispose(); }
         }
     }
 }
