@@ -135,6 +135,7 @@ namespace WifiAnalyzerHotspot.Services
                 if (_isRunning)
                 {
                     RefreshUpstreamServers();
+                    _cache.Clear(); // split-horizon answers from the old upstream are no longer valid
                     OnLog?.Invoke($"[DNS-Cache] Network change detected. Active upstream: {_upstreamDescription}");
                 }
             }
@@ -164,6 +165,12 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     _isRunning = false;
                     LastError = $"Invalid IP address '{bindIp}'";
+                    return false;
+                }
+                if (listenAddress.Equals(IPAddress.Any) || listenAddress.Equals(IPAddress.IPv6Any))
+                {
+                    _isRunning = false;
+                    LastError = "Refusing to bind to IPAddress.Any (open resolver risk)";
                     return false;
                 }
 
@@ -268,6 +275,7 @@ namespace WifiAnalyzerHotspot.Services
             if (!_isRunning) return;
             _isRunning = false;
             IsTcpRelayActive = false;
+            _cache.Clear();
 
             if (_networkEventsSubscribed)
             {
@@ -439,7 +447,7 @@ namespace WifiAnalyzerHotspot.Services
                                                 {
                                                     uint ttl = ExtractTtl(response);
                                                     uint maxTtl = isLocal ? 3600u : 60u;
-                                                    var expiresAt = DateTime.UtcNow.AddSeconds(Math.Clamp(ttl, 15, maxTtl));
+                                                    var expiresAt = DateTime.UtcNow.AddSeconds(Math.Min(ttl, maxTtl));
                                                     _cache[parsed.CacheKey] = (response, expiresAt, isLocal);
                                                 }
                                                 else if (rcode == 3)
@@ -564,7 +572,7 @@ namespace WifiAnalyzerHotspot.Services
                                 uint ttl = ExtractTtl(upstreamResponse);
                                 // If answered by public anycast when local servers are present, cap TTL to 60s
                                 uint maxTtl = isLocal ? 3600u : 60u;
-                                var expiresAt = DateTime.UtcNow.AddSeconds(Math.Clamp(ttl, 15, maxTtl));
+                                var expiresAt = DateTime.UtcNow.AddSeconds(Math.Min(ttl, maxTtl));
                                 _cache[parsed.CacheKey] = (upstreamResponse, expiresAt, isLocal);
                             }
                             else if (rcode == 3) // NXDOMAIN: 30s negative caching
@@ -745,6 +753,10 @@ namespace WifiAnalyzerHotspot.Services
 
                     byte[] result = new byte[res];
                     Array.Copy(receiveBuf, result, res);
+
+                    // An ID-only check is not enough: a wrong-question or malicious local
+                    // response would be cached under the requested name and poison clients.
+                    if (!QuestionMatches(query, result)) return null;
                     return result;
                 }
             }
@@ -753,6 +765,32 @@ namespace WifiAnalyzerHotspot.Services
             catch (ObjectDisposedException) { }
             catch { }
             return null;
+        }
+
+        private static bool QuestionMatches(byte[] query, byte[] response)
+        {
+            try
+            {
+                if (query.Length < 12 || response.Length < 12) return false;
+                int qd = (query[4] << 8) | query[5];
+                int rqd = (response[4] << 8) | response[5];
+                if (qd <= 0 || qd != rqd) return false;
+                if (((query[2] & 0x78) >> 3) != ((response[2] & 0x78) >> 3)) return false; // OPCODE
+
+                int len = GetQuestionSectionLength(query);
+                if (len <= 12 || response.Length < len) return false;
+
+                // DNS names are case-insensitive; compare ASCII letters without case.
+                for (int i = 12; i < len; i++)
+                {
+                    byte q = query[i], r = response[i];
+                    if (q >= (byte)'A' && q <= (byte)'Z') q += 32;
+                    if (r >= (byte)'A' && r <= (byte)'Z') r += 32;
+                    if (q != r) return false;
+                }
+                return true;
+            }
+            catch { return false; }
         }
 
         private static int GetQuestionSectionLength(byte[] query)
@@ -925,28 +963,46 @@ namespace WifiAnalyzerHotspot.Services
         {
             try
             {
-                int pos = 12;
-                while (pos < response.Length && response[pos] != 0)
-                {
-                    if ((response[pos] & 0xC0) == 0xC0) { pos += 2; break; }
-                    pos += response[pos] + 1;
-                }
-                if (pos < response.Length && response[pos] == 0) pos++;
-                pos += 4; // Skip QTYPE and QCLASS
+                int qd = (response[4] << 8) | response[5];
+                int ansCount = (response[6] << 8) | response[7];
+                if (ansCount <= 0) return 300;
 
-                if (pos + 10 <= response.Length)
+                int pos = 12;
+                for (int q = 0; q < qd; q++)
                 {
-                    if ((response[pos] & 0xC0) == 0xC0) pos += 2;
-                    pos += 4; // Skip TYPE & CLASS
-                    if (pos + 4 <= response.Length)
-                    {
-                        uint ttl = (uint)((response[pos] << 24) | (response[pos + 1] << 16) | (response[pos + 2] << 8) | response[pos + 3]);
-                        return ttl;
-                    }
+                    pos = SkipDnsName(response, pos);
+                    if (pos < 0 || pos + 4 > response.Length) return 300;
+                    pos += 4; // QTYPE + QCLASS
                 }
+
+                uint min = uint.MaxValue;
+                for (int a = 0; a < ansCount; a++)
+                {
+                    pos = SkipDnsName(response, pos);
+                    if (pos < 0 || pos + 10 > response.Length) break;
+                    uint ttl = (uint)((response[pos + 4] << 24) | (response[pos + 5] << 16) |
+                                      (response[pos + 6] << 8) | response[pos + 7]);
+                    if (ttl < min) min = ttl;
+                    int rdLength = (response[pos + 8] << 8) | response[pos + 9];
+                    pos += 10 + rdLength;
+                    if (pos > response.Length) break;
+                }
+                return min == uint.MaxValue ? 300 : min; // RFC: use the lowest TTL in the answer set
             }
-            catch { }
-            return 300; // Default 5 minutes
+            catch { return 300; }
+        }
+
+        private static int SkipDnsName(byte[] data, int pos)
+        {
+            int jumps = 0;
+            while (pos < data.Length && jumps++ < 64)
+            {
+                byte len = data[pos];
+                if (len == 0) return pos + 1;
+                if ((len & 0xC0) == 0xC0) return pos + 2; // compression pointer
+                pos += len + 1;
+            }
+            return -1;
         }
 
         public void Dispose()
