@@ -15,6 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.0] - 2026-11-19
+
+### Added
+- Native WLAN API discovery for Secure Connect networks and saved profiles, with verified connection results.
+- Reversible per-adapter Wi-Fi power-saving mode for Secure Connect, restored on OFF, exit, or startup after a crash.
+- Adaptive keep-alive scheduler with jitter, exponential backoff, and a no-network skip path.
+- Dependency-free `--selfcheck` startup flag covering speed parsing, backoff, DNS TTL extraction and PowerShell escaping.
+
+### Changed
+- Hotspot lifecycle operations share one semaphore; reconfiguring an active hotspot now restarts and verifies it.
+- Keep-alive and reconnect probes are fully asynchronous through the shared ProcessRunner.
+- Reconnect re-resolves the active adapter and verifies IP, gateway, DNS and internet reachability before reporting success.
+
+### Fixed
+- Operation statuses for block, unblock, pause, resume, QoS and priority now reflect actual OS results.
+- Dual-speed input `100,20` no longer collapses into `10020` and applies a ~10 Gbps throttle.
+- Comma-thousands input (`1,000/20`) still parses correctly.
+
+---
+
 ## [v1.5.1] - 2026-11-18
 
 ### Fixed

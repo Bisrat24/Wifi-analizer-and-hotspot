@@ -1,6 +1,15 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.5.1)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.0)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🚀 What's New in v1.6.0: Better Hotspot, Secure Connect & Active Keep-Alive
+
+- **Hotspot**: lifecycle operations are serialized; reconfiguring while active now restarts and verifies the hotspot instead of leaving it off. Operation statuses only report success after OS read-back verification, and dual-speed input such as `100,20` parses correctly.
+- **Secure Connect**: native WLAN API discovery replaces localized netsh scraping for networks and saved profiles; connections are verified against the actual SSID. Per-adapter Wi-Fi power saving can be engaged with a staged rollback that is restored on OFF/exit.
+- **Active Keep-Alive**: adaptive scheduling with jitter and failure backoff, skipped pulses when no network is present, non-blocking probes and a re-resolved adapter with full link verification before reporting recovery.
+- **Validation**: dependency-free `--selfcheck` covers parsing, timing, DNS TTL and escaping. See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
