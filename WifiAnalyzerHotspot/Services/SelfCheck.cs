@@ -42,23 +42,47 @@ namespace WifiAnalyzerHotspot.Services
 
             Check("DNS TTL extraction", () =>
             {
-                // Header (qd=1, an=1) + root question + answer with TTL=42.
-                var response = new byte[27];
+                // Header (qd=1, an=1) + root question + answer with TTL=42 and 4-byte RDATA.
+                var response = new byte[33];
                 response[2] = 0x81; response[3] = 0x80;
                 response[5] = 1; response[7] = 1;
                 response[12] = 0; // root name
-                response[16] = 0; response[17] = 1; // QTYPE A
-                response[18] = 0; response[19] = 1; // QCLASS IN
-                response[20] = 0xC0; response[21] = 0x0C; // compressed name
-                response[22] = 0; response[23] = 1; // TYPE A
-                response[24] = 0; response[25] = 1; // CLASS IN
+                response[13] = 0; response[14] = 1; // QTYPE A
+                response[15] = 0; response[16] = 1; // QCLASS IN
+                response[17] = 0xC0; response[18] = 0x0C; // compressed name pointer to byte 12
+                response[19] = 0; response[20] = 1; // TYPE A
+                response[21] = 0; response[22] = 1; // CLASS IN
                 response[26] = 42; // TTL low byte (42)
+                response[27] = 0; response[28] = 4; // RDLENGTH 4
+                response[29] = 1; response[30] = 2; response[31] = 3; response[32] = 4; // 1.2.3.4
                 Expect(HotspotDnsCacheService.ExtractTtl(response) == 42, "ttl mismatch");
             }, failures);
 
             Check("PowerShell escaping", () =>
             {
                 Expect(SystemRestoreService.Escape("O'Brien") == "O''Brien", "quote not doubled");
+            }, failures);
+
+            Check("Wi-Fi QR payload formatting", () =>
+            {
+                string payload = QrCodeService.FormatWifiPayload(@"Net;Work\1", "P@ss:w;ord", "WPA");
+                Expect(payload.Contains(@"S:Net\;Work\\1;"), "SSID not escaped");
+                Expect(payload.Contains(@"P:P@ss\:w\;ord;"), "Password not escaped");
+                string openPayload = QrCodeService.FormatWifiPayload("Guest", "", "Open");
+                Expect(openPayload == "WIFI:T:nopass;S:Guest;;", $"open payload wrong: {openPayload}");
+            }, failures);
+
+            Check("QR matrix and bitmap generation", () =>
+            {
+                string text = "WIFI:T:WPA;S:TestHotspot;P:12345678;;";
+                var matrix = QrCodeService.GenerateMatrix(text);
+                Expect(matrix != null, "matrix was null");
+                int dim = matrix!.GetLength(0);
+                Expect(dim >= 21 && dim <= 45, $"unexpected dimension {dim}");
+                // Verify finder pattern corners at (0,0)
+                Expect(matrix[0, 0] && matrix[0, 6] && matrix[6, 0] && matrix[6, 6], "finder pattern corners must be dark");
+                Expect(!matrix[1, 1] && !matrix[1, 5] && !matrix[5, 1] && !matrix[5, 5], "finder inner ring must be light");
+                Expect(matrix[2, 2] && matrix[3, 3] && matrix[4, 4], "finder center must be dark");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");

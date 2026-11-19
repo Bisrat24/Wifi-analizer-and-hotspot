@@ -14,6 +14,8 @@ namespace WifiAnalyzerHotspot.Models
         private int _signalPercent = 0;
         private bool _isConnected = false;
         private DateTime? _lastConnected;
+        private string? _password;
+        private bool _isPasswordRevealed;
 
         public string Name
         {
@@ -71,6 +73,18 @@ namespace WifiAnalyzerHotspot.Models
         public string LastConnectedText => _lastConnected.HasValue
             ? _lastConnected.Value.ToString("yyyy-MM-dd HH:mm")
             : "Saved";
+
+        public string? Password
+        {
+            get => _password;
+            set { _password = value; OnPropertyChanged(); }
+        }
+
+        public bool IsPasswordRevealed
+        {
+            get => _isPasswordRevealed;
+            set { _isPasswordRevealed = value; OnPropertyChanged(); }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

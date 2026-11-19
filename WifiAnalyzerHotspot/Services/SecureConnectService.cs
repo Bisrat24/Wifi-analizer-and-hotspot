@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Security;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using WifiAnalyzerHotspot.Models;
@@ -182,6 +183,32 @@ foreach ($a in $wifi) {
                 });
             }
             return list;
+        }
+
+        /// <summary>
+        /// Retrieves the cleartext security key/passphrase for a saved Wi-Fi profile using native netsh export.
+        /// Returns null if the network is open, absent, or cannot be queried.
+        /// </summary>
+        public static async Task<string?> GetProfilePasswordAsync(string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return null;
+            try
+            {
+                var res = await ProcessRunner.RunAsync("netsh.exe", new[] { "wlan", "show", "profile", $"name={profileName}", "key=clear" }, timeoutMs: 4000);
+                if (!res.Completed || res.ExitCode != 0 || string.IsNullOrEmpty(res.Output)) return null;
+
+                var match = Regex.Match(res.Output, @"Key Content\s*:\s*(.+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    return match.Groups[1].Value.Trim();
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SecureConnect] GetProfilePassword failed: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>

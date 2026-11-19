@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.2] - 2026-11-19
+
+### Added
+- Dependency-free ISO/IEC 18004 Wi-Fi QR Code generator in Hotspot view with live preview, PNG export, and one-click clipboard copying.
+- Wi-Fi site survey export in Analyzer tab supporting both CSV (RFC 4180 compliant) and indented JSON output formats.
+- Cleartext security key reveal and one-click clipboard copy for saved Wi-Fi profiles in Secure Connect.
+- Real-time client transfer rate computation and dedicated "LIVE RATE" throughput column in the Connected Devices table.
+- Self-check test assertions for Wi-Fi QR escaping, matrix dimensions, and finder pattern verification.
+
+---
+
 ## [v1.6.1] - 2026-11-19
 
 ### Fixed

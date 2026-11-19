@@ -279,6 +279,35 @@ namespace WifiAnalyzerHotspot.ViewModels
             set { _currentTraffic = value; OnPropertyChanged(); }
         }
 
+        private System.Windows.Media.Imaging.BitmapSource? _hotspotQrCodeImage;
+        public System.Windows.Media.Imaging.BitmapSource? HotspotQrCodeImage
+        {
+            get => _hotspotQrCodeImage;
+            set { _hotspotQrCodeImage = value; OnPropertyChanged(); }
+        }
+
+        private bool _isQrCodeCardVisible;
+        public bool IsQrCodeCardVisible
+        {
+            get => _isQrCodeCardVisible;
+            set { _isQrCodeCardVisible = value; OnPropertyChanged(); }
+        }
+
+        public void UpdateHotspotQrCode()
+        {
+            try
+            {
+                string ssid = string.IsNullOrWhiteSpace(HotspotSsidInput) ? (string.IsNullOrWhiteSpace(Hotspot.Ssid) ? "Hotspot" : Hotspot.Ssid) : HotspotSsidInput;
+                string pass = HotspotPasswordInput ?? "";
+                string payload = QrCodeService.FormatWifiPayload(ssid, pass, "WPA");
+                HotspotQrCodeImage = QrCodeService.GenerateBitmap(payload, 240);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[QR] Generation error: {ex.Message}");
+            }
+        }
+
         public string HotspotSsidInput
         {
             get => _hotspotSsidInput;
@@ -291,6 +320,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.HotspotSsid = value;
                     RequestDebouncedSettingsSave();
                 }
+                if (_isQrCodeCardVisible) UpdateHotspotQrCode();
             }
         }
 
@@ -306,6 +336,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.HotspotPassword = value;
                     RequestDebouncedSettingsSave();
                 }
+                if (_isQrCodeCardVisible) UpdateHotspotQrCode();
             }
         }
 
@@ -437,6 +468,13 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand RefreshSecureConnectNetworksCommand { get; }
         public ICommand OpenSecureConnectMiniWindowCommand { get; }
         public ICommand ToggleTopmostMiniWindowCommand { get; }
+        public ICommand ExportNetworksCsvCommand { get; }
+        public ICommand ToggleHotspotQrCodeCommand { get; }
+        public ICommand CopyQrCodeImageCommand { get; }
+        public ICommand SaveQrCodeImageCommand { get; }
+        public ICommand CloseHotspotQrCodeCommand { get; }
+        public ICommand ToggleSavedProfilePasswordCommand { get; }
+        public ICommand CopySavedProfilePasswordCommand { get; }
 
         public MainViewModel()
         {
@@ -987,6 +1025,130 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.StatusMessage = "Client timeline event history cleared.";
             });
 
+            ExportNetworksCsvCommand = new RelayCommand(() =>
+            {
+                try
+                {
+                    var targetList = FilteredNetworks.Count > 0 ? FilteredNetworks.ToList() : Networks.ToList();
+                    if (targetList.Count == 0)
+                    {
+                        ScanStatus = "No scanned networks to export. Wait for a scan cycle.";
+                        return;
+                    }
+
+                    var sfd = new Microsoft.Win32.SaveFileDialog
+                    {
+                        Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|All Files (*.*)|*.*",
+                        FileName = $"WiFi_Survey_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+                        Title = "Export Scanned Wi-Fi Survey"
+                    };
+                    if (sfd.ShowDialog() == true)
+                    {
+                        string ext = System.IO.Path.GetExtension(sfd.FileName).ToLowerInvariant();
+                        if (ext == ".json")
+                        {
+                            var exportData = targetList.Select(n => new
+                            {
+                                n.Ssid,
+                                n.Bssid,
+                                n.SignalPercent,
+                                n.Rssi,
+                                n.Band,
+                                n.Channel,
+                                n.FrequencyMHz,
+                                n.ChannelWidthMHz,
+                                n.RadioType,
+                                n.Authentication,
+                                n.Encryption,
+                                n.IsConnected,
+                                ExportedAt = DateTime.Now.ToString("o")
+                            });
+                            string json = System.Text.Json.JsonSerializer.Serialize(exportData, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                            System.IO.File.WriteAllText(sfd.FileName, json, System.Text.Encoding.UTF8);
+                        }
+                        else
+                        {
+                            var sb = new System.Text.StringBuilder();
+                            sb.AppendLine("SSID,BSSID,SignalPercent,RSSI_dBm,Band,Channel,Frequency_MHz,ChannelWidth_MHz,RadioType,Authentication,Encryption,IsConnected,ExportedAt");
+                            string nowStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                            foreach (var n in targetList)
+                            {
+                                sb.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "\"{0}\",\"{1}\",{2},{3},\"{4}\",{5},{6},{7},\"{8}\",\"{9}\",\"{10}\",{11},\"{12}\"",
+                                    (n.Ssid ?? "").Replace("\"", "\"\""),
+                                    (n.Bssid ?? "").Replace("\"", "\"\""),
+                                    n.SignalPercent,
+                                    n.Rssi,
+                                    (n.Band ?? "").Replace("\"", "\"\""),
+                                    n.Channel,
+                                    n.FrequencyMHz,
+                                    n.ChannelWidthMHz,
+                                    (n.RadioType ?? "").Replace("\"", "\"\""),
+                                    (n.Authentication ?? "").Replace("\"", "\"\""),
+                                    (n.Encryption ?? "").Replace("\"", "\"\""),
+                                    n.IsConnected,
+                                    nowStr));
+                            }
+                            System.IO.File.WriteAllText(sfd.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+                        }
+                        ScanStatus = $"✓ Scanned survey ({targetList.Count} networks) exported to {System.IO.Path.GetFileName(sfd.FileName)}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ScanStatus = $"Export error: {ex.Message}";
+                }
+            });
+
+            ToggleHotspotQrCodeCommand = new RelayCommand(() =>
+            {
+                IsQrCodeCardVisible = !IsQrCodeCardVisible;
+                if (IsQrCodeCardVisible)
+                {
+                    UpdateHotspotQrCode();
+                }
+            });
+
+            CopyQrCodeImageCommand = new RelayCommand(() =>
+            {
+                if (HotspotQrCodeImage != null)
+                {
+                    System.Windows.Clipboard.SetImage(HotspotQrCodeImage);
+                    Hotspot.StatusMessage = "✓ Wi-Fi QR Code image copied to clipboard.";
+                }
+            });
+
+            SaveQrCodeImageCommand = new RelayCommand(() =>
+            {
+                if (HotspotQrCodeImage == null) return;
+                try
+                {
+                    var sfd = new Microsoft.Win32.SaveFileDialog
+                    {
+                        Filter = "PNG Image (*.png)|*.png|All Files (*.*)|*.*",
+                        FileName = $"WiFi_QR_{(string.IsNullOrWhiteSpace(HotspotSsidInput) ? "Hotspot" : HotspotSsidInput)}_{DateTime.Now:yyyyMMdd}.png",
+                        Title = "Save Wi-Fi QR Code Image"
+                    };
+                    if (sfd.ShowDialog() == true)
+                    {
+                        using var fileStream = new System.IO.FileStream(sfd.FileName, System.IO.FileMode.Create);
+                        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(HotspotQrCodeImage));
+                        encoder.Save(fileStream);
+                        Hotspot.StatusMessage = $"✓ QR Code saved to {System.IO.Path.GetFileName(sfd.FileName)}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Hotspot.StatusMessage = $"Save error: {ex.Message}";
+                }
+            });
+
+            CloseHotspotQrCodeCommand = new RelayCommand(() =>
+            {
+                IsQrCodeCardVisible = false;
+            });
+
             ApplyAutoSteerCommand = new RelayCommand(() =>
             {
                 try
@@ -1254,6 +1416,46 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (prof == null) return;
                 await ForgetProfileAsync(prof.Name);
+            });
+
+            ToggleSavedProfilePasswordCommand = new RelayCommand<SavedWifiProfile>(async profile =>
+            {
+                if (profile == null) return;
+                if (profile.IsPasswordRevealed)
+                {
+                    profile.IsPasswordRevealed = false;
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(profile.Password))
+                {
+                    SecureConnect.StatusMessage = $"Retrieving saved key for '{profile.Name}'...";
+                    string? pass = await SecureConnectService.GetProfilePasswordAsync(profile.Name);
+                    profile.Password = pass ?? "[Open Network / No Key]";
+                }
+                profile.IsPasswordRevealed = true;
+                SecureConnect.StatusMessage = $"Password revealed for '{profile.Name}'.";
+            });
+
+            CopySavedProfilePasswordCommand = new RelayCommand<SavedWifiProfile>(async profile =>
+            {
+                if (profile == null) return;
+                string? pass = profile.Password;
+                if (string.IsNullOrEmpty(pass))
+                {
+                    pass = await SecureConnectService.GetProfilePasswordAsync(profile.Name);
+                    profile.Password = pass ?? "[Open Network / No Key]";
+                }
+
+                if (!string.IsNullOrEmpty(pass) && pass != "[Open Network / No Key]")
+                {
+                    System.Windows.Clipboard.SetText(pass);
+                    SecureConnect.StatusMessage = $"✓ Password for '{profile.Name}' copied to clipboard.";
+                }
+                else
+                {
+                    SecureConnect.StatusMessage = $"Profile '{profile.Name}' has no security key.";
+                }
             });
 
             RefreshSecureConnectNetworksCommand = new RelayCommand(async () =>
@@ -2101,6 +2303,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                         existing.TotalBytesSent = fresh.TotalBytesSent;
                         existing.TotalDataFormatted = fresh.TotalDataFormatted;
                         existing.DataBreakdown = fresh.DataBreakdown;
+                        existing.TrafficRate = fresh.TrafficRate;
                         bool wasPaused = existing.IsPaused;
                         if (wasPaused && !fresh.IsPaused)
                         {

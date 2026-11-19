@@ -1427,6 +1427,7 @@ if ($connectionProfile) {
         private static long _lastDirectRxBytes = 0;
         private static long _lastDirectTxBytes = 0;
         private static bool _hasUsageBaseline = false;
+        private static DateTime _lastUsageSampleTime = DateTime.UtcNow;
         private static readonly object _usageBaselineLock = new();
         private static bool _cachedInternetAvailable = true;
         private static DateTime _lastInternetCheck = DateTime.MinValue;
@@ -1605,14 +1606,17 @@ if ($connectionProfile) {
             // Measure the adapter delta once per cycle, then advance the baseline so the
             // next sample counts only new bytes instead of the total since adapter start.
             long cycleRx, cycleTx;
+            double sampleElapsedSec = 1.0;
             lock (_usageBaselineLock)
             {
+                var now = DateTime.UtcNow;
                 if (!_hasUsageBaseline)
                 {
                     // First sample after (re)start: adopt current counters without
                     // crediting bytes that predate this hotspot session.
                     _lastDirectRxBytes = currentDirectRx;
                     _lastDirectTxBytes = currentDirectTx;
+                    _lastUsageSampleTime = now;
                     _hasUsageBaseline = true;
                     cycleRx = 0;
                     cycleTx = 0;
@@ -1621,8 +1625,10 @@ if ($connectionProfile) {
                 {
                     cycleRx = currentDirectRx > _lastDirectRxBytes ? currentDirectRx - _lastDirectRxBytes : 0;
                     cycleTx = currentDirectTx > _lastDirectTxBytes ? currentDirectTx - _lastDirectTxBytes : 0;
+                    sampleElapsedSec = Math.Max(0.5, (now - _lastUsageSampleTime).TotalSeconds);
                     _lastDirectRxBytes = currentDirectRx;
                     _lastDirectTxBytes = currentDirectTx;
+                    _lastUsageSampleTime = now;
                 }
             }
             bool cycleHasTraffic = (cycleRx + cycleTx) > 0;
@@ -1764,13 +1770,16 @@ if ($connectionProfile) {
                             _clientDataUsageMap[normMac] = stats;
                         }
 
+                        int activeCount = Math.Max(1, clientList.Count);
+                        long clientCycleRx = cycleRx / activeCount;
+                        long clientCycleTx = cycleTx / activeCount;
+
                         if (client.IsGettingData)
                         {
                             // Split the cycle's real adapter delta evenly across online devices.
                             // This is an estimated share (Windows exposes no per-client counters).
-                            int activeCount = Math.Max(1, clientList.Count);
-                            stats.BytesDown += cycleRx / activeCount;
-                            stats.BytesUp += cycleTx / activeCount;
+                            stats.BytesDown += clientCycleRx;
+                            stats.BytesUp += clientCycleTx;
                         }
 
                         client.TotalBytesReceived = stats.BytesDown;
@@ -1779,6 +1788,19 @@ if ($connectionProfile) {
                         client.DataBreakdown = $"↓ {FormatBytes(stats.BytesDown)} • ↑ {FormatBytes(stats.BytesUp)}";
                         client.QosLimit = stats.QosLimit;
                         client.Priority = stats.Priority > 0 ? stats.Priority : 5;
+
+                        if (client.Status != "Disconnected" && client.IsGettingData)
+                        {
+                            long rxRateBps = (long)(clientCycleRx / sampleElapsedSec);
+                            long txRateBps = (long)(clientCycleTx / sampleElapsedSec);
+                            client.TrafficRate = (rxRateBps + txRateBps) > 0
+                                ? $"↓ {FormatBytes(rxRateBps)}/s • ↑ {FormatBytes(txRateBps)}/s"
+                                : "0 B/s";
+                        }
+                        else
+                        {
+                            client.TrafficRate = "-";
+                        }
 
                         var pauseExp = GetPauseExpiration(normMac);
                         if (pauseExp.HasValue)

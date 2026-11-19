@@ -1,6 +1,16 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.1)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.2)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 📱 What's New in v1.6.2: Wi-Fi QR Code, Survey Export & Live Throughput
+
+- **📱 Dependency-Free Wi-Fi QR Code Generator**: Generates ISO/IEC 18004 compliant QR codes directly in the Hotspot panel. Phones and tablets can scan with camera or Google Lens to connect instantly. Includes high-resolution preview, 1-click clipboard image copy, and PNG file export.
+- **💾 Wi-Fi Site Survey Export**: Export scanned network inventories directly from the Analyzer tab toolbar to CSV (RFC 4180 compliant) or formatted JSON with timestamps, channel widths, and BSSIDs.
+- **🔑 Saved Wi-Fi Password Extraction**: View and copy cleartext passwords for saved Wi-Fi profiles in Secure Connect with 1-click clipboard integration.
+- **⚡ Live Client Transfer Rates**: Added real-time per-second transfer rate tracking and a dedicated "LIVE RATE" throughput column in the Connected Devices table.
+- **🧪 Extended Self-Checks**: Added automated tests for QR payload escaping, QR matrix dimensions, and finder pattern integrity.
 
 ---
 
