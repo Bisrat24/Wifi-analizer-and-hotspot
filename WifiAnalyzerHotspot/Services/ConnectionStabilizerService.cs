@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -342,6 +343,17 @@ namespace WifiAnalyzerHotspot.Services
             string target = string.IsNullOrWhiteSpace(model.TargetSsid) ? "" : model.TargetSsid.Trim();
             bool isEthLink = isEthernet || target.Contains("Ethernet", StringComparison.OrdinalIgnoreCase);
 
+            // Re-resolve the active adapter now: a Wi-Fi ↔ Ethernet switch can happen
+            // after the watchdog started, and recovering the old adapter would be wrong.
+            var (currentAdapter, currentIsEthernet) = GetActiveLinkAdapterInfo(model.TargetSsid ?? "");
+            if (!string.IsNullOrWhiteSpace(currentAdapter) && !currentAdapter.Equals(adapterName, StringComparison.OrdinalIgnoreCase))
+            {
+                Log(model, $"[RECOVERY] Active adapter changed to '{currentAdapter}'. Retargeting recovery.");
+                adapterName = currentAdapter;
+                isEthernet = currentIsEthernet;
+                isEthLink = currentIsEthernet || target.Contains("Ethernet", StringComparison.OrdinalIgnoreCase);
+            }
+
             Log(model, $"[RECOVERY] Executing {model.ReconnectStrategy} on {(isEthLink ? "Ethernet" : "Wi-Fi")} (Trigger: {reason})...");
 
             // ── Execute Recovery strategies ────────────────
@@ -357,26 +369,26 @@ namespace WifiAnalyzerHotspot.Services
                     if (!string.IsNullOrEmpty(adapterName) && TryReserveAdapterReset(adapterName, model))
                     {
                         Log(model, $"Resetting Ethernet adapter '{adapterName}' (disable → enable)...");
-                        RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
+                        await RunCmdAsync("netsh", "interface", "set", "interface", adapterName, "disabled");
                         try { await Task.Delay(1500, token); }
-                        finally { RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled"); }
+                        finally { await RunCmdAsync("netsh", "interface", "set", "interface", adapterName, "enabled"); }
                         await Task.Delay(4000, token); // Allow 4s for Gigabit/Fast-Ethernet auto-negotiation to complete
                     }
-                    RunCmd("ipconfig", "/renew");
+                    await RunCmdAsync("ipconfig", "/renew");
                 }
                 else if (model.ReconnectStrategy.Contains("DHCP"))
                 {
                     Log(model, "Renewing Ethernet DHCP lease & flushing DNS...");
-                    RunCmd("ipconfig", "/flushdns");
-                    RunCmd("ipconfig", "/release");
+                    await RunCmdAsync("ipconfig", "/flushdns");
+                    await RunCmdAsync("ipconfig", "/release");
                     try { await Task.Delay(800, token); }
-                    finally { RunCmd("ipconfig", "/renew"); }
+                    finally { await RunCmdAsync("ipconfig", "/renew"); }
                 }
                 else // Fast Re-auth / Re-negotiate (default)
                 {
                     Log(model, "Re-negotiating Ethernet link & refreshing ARP cache...");
-                    RunCmd("netsh", "interface", "ip", "delete", "arpcache");
-                    RunCmd("ipconfig", "/renew");
+                    await RunCmdAsync("netsh", "interface", "ip", "delete", "arpcache");
+                    await RunCmdAsync("ipconfig", "/renew");
                 }
             }
             else
@@ -387,33 +399,33 @@ namespace WifiAnalyzerHotspot.Services
                     if (!string.IsNullOrEmpty(adapterName) && TryReserveAdapterReset(adapterName, model))
                     {
                         Log(model, $"Resetting Wi-Fi adapter '{adapterName}' (disable → enable)...");
-                        RunCmd("netsh", "interface", "set", "interface", adapterName, "disabled");
+                        await RunCmdAsync("netsh", "interface", "set", "interface", adapterName, "disabled");
                         try { await Task.Delay(1200, token); }
-                        finally { RunCmd("netsh", "interface", "set", "interface", adapterName, "enabled"); }
+                        finally { await RunCmdAsync("netsh", "interface", "set", "interface", adapterName, "enabled"); }
                         await Task.Delay(2000, token);
                     }
-                    ConnectToWifi(target, adapterName);
+                    await ConnectToWifiAsync(target, adapterName);
                 }
                 else if (model.ReconnectStrategy.Contains("DHCP"))
                 {
                     Log(model, "Reconnecting Wi-Fi and renewing DHCP lease...");
-                    ConnectToWifi(target, adapterName);
+                    await ConnectToWifiAsync(target, adapterName);
                     await Task.Delay(1500, token);
-                    RunCmd("ipconfig", "/release");
+                    await RunCmdAsync("ipconfig", "/release");
                     try { await Task.Delay(500, token); }
-                    finally { RunCmd("ipconfig", "/renew"); }
+                    finally { await RunCmdAsync("ipconfig", "/renew"); }
                 }
                 else if (model.ReconnectStrategy.Contains("Radio"))
                 {
                     Log(model, "Disconnecting then reconnecting Wi-Fi radio...");
-                    RunCmd("netsh", "wlan", "disconnect");
+                    await RunCmdAsync("netsh", "wlan", "disconnect");
                     await Task.Delay(1000, token);
-                    ConnectToWifi(target, adapterName);
+                    await ConnectToWifiAsync(target, adapterName);
                 }
                 else // Fast Wi-Fi Re-auth (default)
                 {
                     Log(model, $"Sending fast re-auth to AP '{target}'...");
-                    ConnectToWifi(target, adapterName);
+                    await ConnectToWifiAsync(target, adapterName);
                 }
             }
 
@@ -434,7 +446,7 @@ namespace WifiAnalyzerHotspot.Services
                     UI(() => model.ReconnectStatusText = $"Waiting for VPN / DHCP ({secLeft}s buffer remaining)...");
                 }
 
-                restored = await IsInternetAliveAsync(ping);
+                restored = await VerifyLinkRestoredAsync(ping, adapterName);
                 if (restored)
                 {
                     await Task.Delay(2000, token);
@@ -465,6 +477,27 @@ namespace WifiAnalyzerHotspot.Services
 
             UpdateActiveLinkSpeed(model);
             return restored;
+        }
+
+        private static async Task<bool> VerifyLinkRestoredAsync(Ping ping, string adapterName)
+        {
+            try
+            {
+                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n =>
+                    n.OperationalStatus == OperationalStatus.Up &&
+                    (string.IsNullOrWhiteSpace(adapterName) || n.Name.Equals(adapterName, StringComparison.OrdinalIgnoreCase)) &&
+                    (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet || n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211));
+                if (nic == null) return false;
+
+                var props = nic.GetIPProperties();
+                bool hasIp = props.UnicastAddresses.Any(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
+                bool hasGateway = props.GatewayAddresses.Any(g => !g.Address.Equals(IPAddress.Any));
+                bool hasDns = props.DnsAddresses.Any(d => d.AddressFamily == AddressFamily.InterNetwork);
+                if (!hasIp || !hasGateway || !hasDns) return false;
+
+                return await IsInternetAliveAsync(ping).ConfigureAwait(false);
+            }
+            catch { return false; }
         }
 
         /// <summary>
@@ -794,42 +827,18 @@ namespace WifiAnalyzerHotspot.Services
             });
         }
 
-        private static void RunCmd(string exe, params string[] args)
+        private static async Task RunCmdAsync(string exe, params string[] args)
         {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exe,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                foreach (var a in args) psi.ArgumentList.Add(a);
-
-                using var p = Process.Start(psi);
-                if (p == null) return;
-
-                // Drain both pipes so a chatty command cannot fill the buffer and hang.
-                var stdout = p.StandardOutput.ReadToEndAsync();
-                var stderr = p.StandardError.ReadToEndAsync();
-                if (!p.WaitForExit(5000))
-                {
-                    try { p.Kill(true); } catch { }
-                }
-                Task.WaitAll(new[] { stdout, stderr }, 1000);
-            }
-            catch { }
+            await ProcessRunner.RunAsync(exe, args, timeoutMs: 8000).ConfigureAwait(false);
         }
 
         /// <summary>Connects by SSID (not saved profile name) so renamed profiles still work.</summary>
-        private static void ConnectToWifi(string ssid, string adapterName)
+        private static async Task ConnectToWifiAsync(string ssid, string adapterName)
         {
             if (string.IsNullOrWhiteSpace(ssid)) return;
             var args = new List<string> { "wlan", "connect", $"ssid={ssid}" };
             if (!string.IsNullOrEmpty(adapterName)) args.Add($"interface={adapterName}");
-            RunCmd("netsh", args.ToArray());
+            await RunCmdAsync("netsh", args.ToArray()).ConfigureAwait(false);
         }
 
         /// <summary>
