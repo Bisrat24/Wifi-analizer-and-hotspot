@@ -54,12 +54,20 @@ namespace WifiAnalyzerHotspot.Services
             Task.Run(async () =>
             {
                 using var ping = new Ping();
+                var scheduler = new KeepAliveScheduler();
                 double totalLatency      = 0;
                 long   totalSamples      = 0;
                 int    pingTargetIndex   = 0;
 
                 while (!token.IsCancellationRequested)
                 {
+                    if (!HasActiveNetwork())
+                    {
+                        UI(() => model.KeepAliveStatusText = "● Active – Skipped: no active network adapter");
+                        await Task.Delay(Math.Max(1000, model.KeepAliveIntervalSeconds * 1000), token);
+                        continue;
+                    }
+
                     string rawTarget = string.IsNullOrWhiteSpace(model.KeepAliveTarget) ? "1.1.1.1" : model.KeepAliveTarget.Trim();
                     // Strip any display suffix like "(Google DNS)" that users might type
                     string target = rawTarget.Split(new[] { ' ', '(', '\t' }, StringSplitOptions.RemoveEmptyEntries)[0];
@@ -158,9 +166,13 @@ namespace WifiAnalyzerHotspot.Services
                     // ── Flash pulse animation ──────────────────────────────
                     UI(() => model.IsPulseGlowing = true);
 
+                    scheduler.Record(success);
+
                     double  cap    = latencyMs;
                     bool    capOk  = success;
                     string  capSt  = $"{status}  [{quality}]";
+                    if (scheduler.FailureCount > 0)
+                        capSt += $"  (backoff x{Math.Min(8, 1 << Math.Min(scheduler.FailureCount, 3))})";
 
                     UI(() =>
                     {
@@ -197,15 +209,29 @@ namespace WifiAnalyzerHotspot.Services
                     await Task.Delay(140, token);
                     UI(() => model.IsPulseGlowing = false);
 
-                    int waitMs = Math.Max(1000, model.KeepAliveIntervalSeconds * 1000);
+                    int waitMs = scheduler.NextDelayMs(model.KeepAliveIntervalSeconds);
                     await Task.Delay(waitMs, token);
                 }
             }, token);
         }
 
+        private static bool HasActiveNetwork()
+        {
+            try
+            {
+                return NetworkInterface.GetAllNetworkInterfaces().Any(ni =>
+                    ni.OperationalStatus == OperationalStatus.Up &&
+                    (ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ||
+                     ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet) &&
+                    ni.GetIPProperties().UnicastAddresses.Any(a => a.Address.AddressFamily == AddressFamily.InterNetwork));
+            }
+            catch { return true; } // if detection fails, do not suppress the pulse
+        }
+
         public void StopKeepAlive()
         {
             _keepAliveCts?.Cancel();
+            _keepAliveCts?.Dispose();
             _keepAliveCts = null;
         }
 
