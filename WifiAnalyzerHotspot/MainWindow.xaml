@@ -47,6 +47,10 @@
                     <Setter Property="Background" Value="#2A324A"/>
                     <Setter Property="BorderBrush" Value="#00E5FF"/>
                 </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="Background" Value="#2A324A"/>
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.5"/>
                 </Trigger>
@@ -109,6 +113,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="ModernPasswordBox" TargetType="PasswordBox">
@@ -131,6 +140,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 
@@ -163,7 +177,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.6.0" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.6.1" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -181,7 +195,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.6.0">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.6.1">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -2832,7 +2846,7 @@
                                         <TextBlock Grid.Column="0" Text="DoH Provider:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
                                         <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.SelectedDnsProvider}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
-                                            <ComboBoxItem Content="Cloudflare (1.1.1.1)" IsSelected="True"/>
+                                            <ComboBoxItem Content="Cloudflare (1.1.1.1)"/>
                                             <ComboBoxItem Content="Google Public DNS (8.8.8.8)"/>
                                             <ComboBoxItem Content="Quad9 Secure DNS (9.9.9.9)"/>
                                             <ComboBoxItem Content="AdGuard DNS (Ad &amp; Malware Block)"/>
@@ -2899,7 +2913,7 @@
                                         <TextBlock Grid.Column="0" Text="Captive Portal Probe URL:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
                                         <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.SelectedCaptivePortalPreset}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
-                                            <ComboBoxItem Content="Microsoft Connect Test" IsSelected="True"/>
+                                            <ComboBoxItem Content="Microsoft Connect Test"/>
                                             <ComboBoxItem Content="Google Connectivity Check"/>
                                             <ComboBoxItem Content="Mozilla Firefox Detect Portal"/>
                                             <ComboBoxItem Content="Cloudflare Captive Portal"/>
@@ -2956,7 +2970,7 @@
                                         <TextBlock Grid.Column="0" Text="Proxy Routing Mode:" VerticalAlignment="Center" Foreground="#A2B1CD" FontSize="12"/>
                                         <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.ProxyType}" SelectedValuePath="Content"
                                                   Background="#1E2333" Foreground="#000000" FontSize="12" Padding="8,5">
-                                            <ComboBoxItem Content="System Proxy" IsSelected="True"/>
+                                            <ComboBoxItem Content="System Proxy"/>
                                             <ComboBoxItem Content="Manual Proxy"/>
                                         </ComboBox>
                                     </Grid>

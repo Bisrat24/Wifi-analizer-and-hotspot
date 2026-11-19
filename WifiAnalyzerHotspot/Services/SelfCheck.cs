@@ -61,12 +61,15 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(SystemRestoreService.Escape("O'Brien") == "O''Brien", "quote not doubled");
             }, failures);
 
+            string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
             if (failures.Count == 0)
             {
+                System.IO.File.WriteAllText(logPath, "[SelfCheck] all checks passed");
                 Debug.WriteLine("[SelfCheck] all checks passed");
                 return true;
             }
             foreach (string failure in failures) Debug.WriteLine($"[SelfCheck] FAILED: {failure}");
+            System.IO.File.WriteAllText(logPath, string.Join(Environment.NewLine, failures));
             return false;
         }
 

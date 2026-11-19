@@ -44,6 +44,10 @@
                     <Setter Property="Background" Value="#2A324A"/>
                     <Setter Property="BorderBrush" Value="#00E5FF"/>
                 </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="Background" Value="#2A324A"/>
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.5"/>
                 </Trigger>
@@ -106,6 +110,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="MiniPasswordBox" TargetType="PasswordBox">
@@ -128,6 +137,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#00E5FF"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 

@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.1] - 2026-11-19
+
+### Fixed
+- Removed hard-coded `IsSelected` values from DoH provider, captive-portal and proxy ComboBoxes so the UI always reflects the persisted setting.
+- Added keyboard-focus highlighting to buttons, text boxes and password boxes in the main and Secure Connect windows.
+- Button tooltips are now exposed as accessibility names for icon-only controls.
+
+---
+
 ## [v1.6.0] - 2026-11-19
 
 ### Added
