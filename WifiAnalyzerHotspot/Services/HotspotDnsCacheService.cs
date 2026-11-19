@@ -959,7 +959,7 @@ namespace WifiAnalyzerHotspot.Services
             }
         }
 
-        private static uint ExtractTtl(byte[] response)
+        internal static uint ExtractTtl(byte[] response)
         {
             try
             {

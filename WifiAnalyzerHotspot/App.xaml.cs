@@ -112,6 +112,20 @@ namespace WifiAnalyzerHotspot
                 }
             }
 
+            // 2b. Headless self-check for pure logic (no UI, no side effects).
+            if (e.Args != null)
+            {
+                foreach (var arg in e.Args)
+                {
+                    if (arg.Equals("--selfcheck", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool passed = Services.SelfCheck.RunAll();
+                        Shutdown(passed ? 0 : 1);
+                        return;
+                    }
+                }
+            }
+
             // 3. Single instance enforcement
             _singleInstanceMutex = new Mutex(true, "WifiAnalyzerHotspot_SingleInstance_Mutex_Bisrat24", out bool isNewInstance);
             if (!isNewInstance)
