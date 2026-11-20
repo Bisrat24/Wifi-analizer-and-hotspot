@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.12] - 2026-11-20
+
+### Fixed
+- Hotspot settings are visible again in a normal left column; the overlay drawer that could not be shown was removed.
+
+---
+
 ## [v1.6.11] - 2026-11-20
 
 ### Fixed

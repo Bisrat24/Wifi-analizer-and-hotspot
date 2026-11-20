@@ -25,16 +25,6 @@ namespace WifiAnalyzerHotspot
         private bool _isExplicitExit = false;
         private bool _hasShownBalloon = false;
 
-        private void HotspotSettingsShow_Click(object sender, RoutedEventArgs e)
-        {
-            if (HotspotDrawerTransform != null) HotspotDrawerTransform.X = 0;
-        }
-
-        private void HotspotSettingsHide_Click(object sender, RoutedEventArgs e)
-        {
-            if (HotspotDrawerTransform != null) HotspotDrawerTransform.X = -360;
-        }
-
         public MainWindow()
         {
             App.LogStartupMilestone("MainWindow ctor enter");
