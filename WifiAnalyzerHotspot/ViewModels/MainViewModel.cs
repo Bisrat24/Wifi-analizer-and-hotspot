@@ -2807,7 +2807,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
         }
 
-        private static List<WifiNetwork> DedupeNetworksByName(IEnumerable<WifiNetwork> networks)
+        internal static List<WifiNetwork> DedupeNetworksByName(IEnumerable<WifiNetwork> networks)
         {
             return networks
                 .Where(n => !string.IsNullOrWhiteSpace(n.Ssid))

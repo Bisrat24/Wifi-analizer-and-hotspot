@@ -63,6 +63,28 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(SystemRestoreService.Escape("O'Brien") == "O''Brien", "quote not doubled");
             }, failures);
 
+            Check("Secure Connect profile XML", () =>
+            {
+                string xml = SecureConnectService.BuildProfileXml("TestNet", "password123", "WPA3-Personal", "AES");
+                Expect(xml.Contains("<authentication>WPA3SAE</authentication>"), "WPA3 profile wrong");
+                Expect(xml.Contains("<connectionMode>manual</connectionMode>"), "profile should not auto-connect in Windows");
+                string open = SecureConnectService.BuildProfileXml("Guest", "", "Open", "None");
+                Expect(open.Contains("<authentication>open</authentication>"), "open profile wrong");
+            }, failures);
+
+            Check("Secure Connect SSID dedupe", () =>
+            {
+                var list = new List<WifiNetwork>
+                {
+                    new WifiNetwork { Ssid = "MeshNet", Bssid = "AA", SignalPercent = 40 },
+                    new WifiNetwork { Ssid = "MeshNet", Bssid = "BB", SignalPercent = 80 },
+                    new WifiNetwork { Ssid = "Other", Bssid = "CC", SignalPercent = 50 }
+                };
+                var deduped = ViewModels.MainViewModel.DedupeNetworksByName(list);
+                Expect(deduped.Count == 2, $"expected 2 networks, got {deduped.Count}");
+                Expect(deduped[0].SignalPercent == 80, "strongest BSSID not kept");
+            }, failures);
+
             Check("Wi-Fi QR payload formatting", () =>
             {
                 string payload = QrCodeService.FormatWifiPayload(@"Net;Work\1", "P@ss:w;ord", "WPA");
@@ -90,7 +112,7 @@ namespace WifiAnalyzerHotspot.Services
                 int v7dim = v7!.GetLength(0);
                 Expect(v7[v7dim - 8, 8], "dark module must be dark");
                 Expect(v7[8, v7dim - 2], "top-right format bit 1 must be dark");
-                Expect(v7[v7dim - 7, 8], "bottom-left format bit 8 must be dark");
+                Expect(!v7[v7dim - 7, 8], "bottom-left format bit 8 must be light (0x5412)");
                 Expect(v7[v7dim - 5, 8], "bottom-left format bit 10 must be dark");
                 Expect(v7[v7dim - 1, 8], "bottom-left format bit 14 must be dark");
                 Expect(v7[0, v7dim - 9], "version 7 info bit 2 must be dark");

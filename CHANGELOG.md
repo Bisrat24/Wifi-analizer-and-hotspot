@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.4] - 2026-11-20
+
+### Added
+- App-owned encrypted Secure Connect profile store (`secure_connect_profiles.json`) with DPAPI-protected passwords; Windows saved networks are never added, modified or deleted.
+- `WlanDisconnect` before every join and native temporary-profile connections so the app does not remain attached to the previous SSID.
+
+### Fixed
+- Secure Connect network list now has a single owner and deduplicates by trimmed SSID, keeping the strongest BSSID; duplicate SSID names are gone.
+- Profile saving now persists to the app store only after a verified successful join; Forget and password reveal use the app store.
+- QR Reed–Solomon error-correction generator indexing and bottom-left format bit order were corrected; self-checks now cover both.
+
+---
+
 ## [v1.6.3] - 2026-11-20
 
 ### Fixed

@@ -1,6 +1,16 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.3)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.4)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🛡️ What's New in v1.6.4: Independent Secure Connect & QR Fix
+
+- **Secure Connect is now independent of Windows saved networks**: joins use temporary WLAN profiles that Windows does not persist, with an app-owned DPAPI-encrypted profile store for Fast Connect, Forget and password reveal. Windows saved networks are left untouched.
+- Switching networks now disconnects the current one first and verifies the new SSID natively, so it no longer stays on the previous Wi-Fi.
+- Fixed duplicate SSID names by giving the Secure Connect list a single owner and deduplicating by SSID (strongest BSSID kept).
+- Fixed QR codes again: corrected Reed–Solomon error correction and bottom-left format bit order; added self-checks for both.
+- See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
