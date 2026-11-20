@@ -909,10 +909,13 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (CurrentTab == "Analyzer" || CurrentTab == "SecureConnect")
                 {
                     if (_scanTimer != null) _scanTimer.Interval = TimeSpan.FromSeconds(5);
-                    _ = PerformScanAsync();
-                    if (CurrentTab == "SecureConnect")
+                    if (CurrentTab == "Analyzer")
                     {
-                        _ = RefreshSecureConnectProfilesAsync();
+                        _ = PerformScanAsync();
+                    }
+                    else
+                    {
+                        _ = RefreshSecureConnectNetworksAsync();
                     }
                 }
                 else
@@ -1467,23 +1470,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
             });
 
-            RefreshSecureConnectNetworksCommand = new RelayCommand(async () =>
-            {
-                var networks = await Task.Run(() => NativeWlanService.GetAvailableNetworks());
-                if (networks.Count > 0)
-                {
-                    Dispatch(() =>
-                    {
-                        _rawSecureConnectNetworks = networks;
-                        FilterSecureConnectNetworks();
-                    });
-                }
-                else
-                {
-                    await PerformScanAsync();
-                }
-                await RefreshSecureConnectProfilesAsync();
-            });
+            RefreshSecureConnectNetworksCommand = new RelayCommand(async () => await RefreshSecureConnectNetworksAsync());
 
             OpenSecureConnectMiniWindowCommand = new RelayCommand(OpenSecureConnectMiniWindow);
 
@@ -2790,22 +2777,43 @@ namespace WifiAnalyzerHotspot.ViewModels
                     SecureConnect.ConnectedIp = connInfo?.Ipv4 ?? "";
                     SecureConnect.ConnectedLinkSpeed = connInfo != null && connInfo.Channel > 0 ? $"{connInfo.Band} (Ch {connInfo.Channel})" : "";
                     SecureConnect.AdapterName = connInfo?.InterfaceName ?? "";
-
-                    var savedNames = new HashSet<string>(SecureConnect.SavedProfiles.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
-
-                    var list = new List<WifiNetwork>();
-                    foreach (var net in scanResults)
-                    {
-                        if (string.IsNullOrWhiteSpace(net.Ssid)) continue;
-                        net.IsSaved = savedNames.Contains(net.Ssid);
-                        list.Add(net);
-                    }
-
-                    _rawSecureConnectNetworks = list;
-                    FilterSecureConnectNetworks();
+                    // Network list is owned by RefreshSecureConnectNetworksAsync only.
                 });
             }
             catch { }
+        }
+
+        public async Task RefreshSecureConnectNetworksAsync()
+        {
+            try
+            {
+                var networks = await Task.Run(() => NativeWlanService.GetAvailableNetworks());
+                var source = networks.Count > 0 ? networks : await Task.Run(() => _scannerService.ScanNetworksAsync());
+                var deduped = DedupeNetworksByName(source);
+
+                var savedNames = new HashSet<string>(SecureConnect.SavedProfiles.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
+                foreach (var net in deduped) net.IsSaved = savedNames.Contains(net.Ssid);
+
+                Dispatch(() =>
+                {
+                    _rawSecureConnectNetworks = deduped;
+                    FilterSecureConnectNetworks();
+                });
+                await RefreshSecureConnectProfilesAsync();
+            }
+            catch (Exception ex)
+            {
+                Dispatch(() => SecureConnect.StatusMessage = $"Scan error: {ex.Message}");
+            }
+        }
+
+        private static List<WifiNetwork> DedupeNetworksByName(IEnumerable<WifiNetwork> networks)
+        {
+            return networks
+                .Where(n => !string.IsNullOrWhiteSpace(n.Ssid))
+                .GroupBy(n => n.Ssid.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(n => n.SignalPercent).First())
+                .ToList();
         }
 
         private void FilterSecureConnectNetworks()
@@ -2837,7 +2845,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                 return;
             }
 
-            bool isSaved = SecureConnect.SavedProfiles.Any(p => p.Name.Equals(net.Ssid, StringComparison.OrdinalIgnoreCase)) || net.IsSaved;
+            // Only app-owned profiles count as saved; Windows saved networks are left alone.
+            bool isSaved = SecureConnect.SavedProfiles.Any(p => p.Name.Equals(net.Ssid, StringComparison.OrdinalIgnoreCase));
 
             if (isSaved)
             {

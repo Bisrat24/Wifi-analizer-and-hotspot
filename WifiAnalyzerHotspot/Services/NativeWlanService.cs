@@ -39,6 +39,9 @@ namespace WifiAnalyzerHotspot.Services
             IntPtr handle, ref Guid guid, int opcode, IntPtr reserved,
             out int dataSize, out IntPtr data, out IntPtr opcodeValueType);
 
+        [DllImport("wlanapi.dll", SetLastError = true)]
+        private static extern uint WlanDisconnect(IntPtr handle, ref Guid guid, IntPtr reserved);
+
         [DllImport("wlanapi.dll")]
         private static extern void WlanFreeMemory(IntPtr memory);
 
@@ -357,6 +360,81 @@ namespace WifiAnalyzerHotspot.Services
             {
                 return (false, $"Connection failed: {ex.Message}");
             }
+            finally { WlanCloseHandle(handle, IntPtr.Zero); }
+        }
+
+        internal static async Task<(bool success, string message)> DisconnectAsync(string? adapterName = null)
+        {
+            if (!TryOpen(out var handle, out var interfaces)) return (false, "Native WLAN API is unavailable.");
+            try
+            {
+                var guid = SelectInterface(interfaces, adapterName, handle);
+                if (guid == Guid.Empty) return (false, "No Wi-Fi adapter found.");
+                uint error = WlanDisconnect(handle, ref guid, IntPtr.Zero);
+                if (error != 0) return (false, new Win32Exception((int)error).Message);
+                for (int i = 0; i < 10; i++)
+                {
+                    await Task.Delay(200).ConfigureAwait(false);
+                    var state = QueryCurrentConnection(handle, guid);
+                    if (!state.connected) return (true, "Disconnected.");
+                }
+                return (true, "Disconnect requested.");
+            }
+            catch (Exception ex) { return (false, ex.Message); }
+            finally { WlanCloseHandle(handle, IntPtr.Zero); }
+        }
+
+        /// <summary>
+        /// Connects with a temporary profile XML. Windows does not save this profile.
+        /// </summary>
+        internal static async Task<(bool success, string message)> ConnectWithTemporaryProfileAsync(
+            string profileXml, string expectedSsid, string? adapterName = null, int timeoutMs = 8000)
+        {
+            if (string.IsNullOrWhiteSpace(profileXml) || string.IsNullOrWhiteSpace(expectedSsid))
+                return (false, "Invalid profile or SSID.");
+            if (!TryOpen(out var handle, out var interfaces))
+                return (false, "Native WLAN API is unavailable.");
+
+            try
+            {
+                var guid = SelectInterface(interfaces, adapterName, handle);
+                if (guid == Guid.Empty) return (false, "No Wi-Fi adapter found.");
+
+                uint disconnectError = WlanDisconnect(handle, ref guid, IntPtr.Zero);
+                if (disconnectError != 0 && disconnectError != 1206 /* ERROR_BAD_PROFILE? still continue */)
+                    Debug.WriteLine($"[NativeWlan] disconnect before connect: {disconnectError}");
+                for (int i = 0; i < 8; i++)
+                {
+                    await Task.Delay(200).ConfigureAwait(false);
+                    var state = QueryCurrentConnection(handle, guid);
+                    if (!state.connected) break;
+                }
+
+                var parameters = new WLAN_CONNECTION_PARAMETERS
+                {
+                    Mode = 1, // wlan_connection_mode_temporary_profile
+                    Profile = profileXml,
+                    BssType = 1,
+                    Flags = 0
+                };
+                uint error = WlanConnect(handle, ref guid, ref parameters, IntPtr.Zero);
+                if (error != 0) return (false, new Win32Exception((int)error).Message);
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                string lastSsid = string.Empty;
+                while (DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(400).ConfigureAwait(false);
+                    var (connected, ssid, _) = QueryCurrentConnection(handle, guid);
+                    lastSsid = ssid;
+                    if (connected && ssid.Equals(expectedSsid, StringComparison.OrdinalIgnoreCase))
+                        return (true, $"Connected to '{expectedSsid}'.");
+                }
+                return (false, string.IsNullOrWhiteSpace(lastSsid)
+                    ? "Connection did not complete."
+                    : $"Connection not confirmed (current network: {lastSsid}).");
+            }
+            catch (Exception ex) { return (false, $"Connection failed: {ex.Message}"); }
             finally { WlanCloseHandle(handle, IntPtr.Zero); }
         }
 

@@ -147,68 +147,83 @@ foreach ($a in $wifi) {
         }
 
         /// <summary>
-        /// Reads all user-saved Wi-Fi profiles configured on the machine.
+        /// Builds the WLAN profile XML used for a temporary, non-persisted connection.
+        /// </summary>
+        internal static string BuildProfileXml(string ssid, string password, string authType, string encType)
+        {
+            bool requestedOpen = authType.Equals("Open", StringComparison.OrdinalIgnoreCase);
+            bool isOpen = requestedOpen || string.IsNullOrWhiteSpace(password);
+            if (!requestedOpen && string.IsNullOrWhiteSpace(password))
+                throw new ArgumentException("A security key is required for this network.");
+
+            string xmlAuth = "WPA2PSK", xmlEnc = "AES";
+            if (authType.Contains("WPA3", StringComparison.OrdinalIgnoreCase))
+            {
+                xmlAuth = "WPA3SAE";
+            }
+            else if (authType.Contains("WPA2", StringComparison.OrdinalIgnoreCase))
+            {
+                xmlEnc = encType.Contains("TKIP", StringComparison.OrdinalIgnoreCase) ? "TKIP" : "AES";
+            }
+            else if (isOpen)
+            {
+                xmlAuth = "open";
+                xmlEnc = "none";
+            }
+
+            string name = SecurityElement.Escape(ssid);
+            if (isOpen)
+            {
+                return $@"<?xml version=""1.0""?>
+<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
+    <name>{name}</name>
+    <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>manual</connectionMode>
+    <MSM><security><authEncryption>
+        <authentication>open</authentication><encryption>none</encryption><useOneX>false</useOneX>
+    </authEncryption></security></MSM>
+</WLANProfile>";
+            }
+
+            return $@"<?xml version=""1.0""?>
+<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
+    <name>{name}</name>
+    <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>manual</connectionMode>
+    <MSM><security>
+        <authEncryption>
+            <authentication>{xmlAuth}</authentication><encryption>{xmlEnc}</encryption><useOneX>false</useOneX>
+        </authEncryption>
+        <sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>{SecurityElement.Escape(password)}</keyMaterial></sharedKey>
+    </security></MSM>
+</WLANProfile>";
+        }
+
+        /// <summary>
+        /// Reads profiles owned by Secure Connect. Windows saved networks are never touched.
         /// </summary>
         public static List<SavedWifiProfile> GetSavedProfiles()
         {
-            var list = new List<SavedWifiProfile>();
-            var names = NativeWlanService.GetProfileNames();
-
-            // Fallback only when the native API is unavailable (unsupported driver / service).
-            if (names.Count == 0)
+            return SecureConnectProfileStore.Load().Select(p => new SavedWifiProfile
             {
-                try
-                {
-                    string output = RunCmd("netsh", "wlan", "show", "profiles");
-                    foreach (var line in output.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        if (line.Contains(':') && (line.Contains("All User Profile") || line.Contains("User Profile")))
-                        {
-                            string name = line.Split(new[] { ':' }, 2)[1].Trim();
-                            if (!string.IsNullOrEmpty(name)) names.Add(name);
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            foreach (string name in names)
-            {
-                list.Add(new SavedWifiProfile
-                {
-                    Name = name,
-                    Ssid = name,
-                    Authentication = "Saved profile",
-                    IsAutoConnect = true
-                });
-            }
-            return list;
+                Name = p.Ssid,
+                Ssid = p.Ssid,
+                Authentication = p.AuthType,
+                IsAutoConnect = true
+            }).ToList();
         }
 
         /// <summary>
         /// Retrieves the cleartext security key/passphrase for a saved Wi-Fi profile using native netsh export.
         /// Returns null if the network is open, absent, or cannot be queried.
         /// </summary>
-        public static async Task<string?> GetProfilePasswordAsync(string profileName)
+        public static Task<string?> GetProfilePasswordAsync(string profileName)
         {
-            if (string.IsNullOrWhiteSpace(profileName)) return null;
-            try
-            {
-                var res = await ProcessRunner.RunAsync("netsh.exe", new[] { "wlan", "show", "profile", $"name={profileName}", "key=clear" }, timeoutMs: 4000);
-                if (!res.Completed || res.ExitCode != 0 || string.IsNullOrEmpty(res.Output)) return null;
-
-                var match = Regex.Match(res.Output, @"Key Content\s*:\s*(.+)", RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    return match.Groups[1].Value.Trim();
-                }
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SecureConnect] GetProfilePassword failed: {ex.Message}");
-                return null;
-            }
+            if (string.IsNullOrWhiteSpace(profileName)) return Task.FromResult<string?>(null);
+            var profile = SecureConnectProfileStore.Find(profileName);
+            return Task.FromResult(profile?.Password);
         }
 
         /// <summary>
@@ -219,30 +234,21 @@ foreach ($a in $wifi) {
             if (string.IsNullOrWhiteSpace(profileName))
                 return (false, "Invalid profile name.");
 
-            return await Task.Run(async () =>
+            var profile = SecureConnectProfileStore.Find(profileName);
+            if (profile == null) return (false, $"'{profileName}' is not a Secure Connect profile.");
+
+            try
             {
-                try
+                string xml = BuildProfileXml(profile.Ssid, profile.Password, profile.AuthType, profile.Encryption);
+                var result = await NativeWlanService.ConnectWithTemporaryProfileAsync(xml, profile.Ssid, adapterName);
+                if (result.success)
                 {
-                    var native = await NativeWlanService.ConnectToProfileAsync(profileName, adapterName);
-                    if (native.success) return native;
-
-                    // Fallback for drivers that reject WlanConnect.
-                    var args = new List<string> { "wlan", "connect", $"name={profileName}" };
-                    if (!string.IsNullOrWhiteSpace(adapterName)) args.Add($"interface={adapterName}");
-                    RunCmd("netsh", args.ToArray());
-                    await Task.Delay(1000);
-
-                    var (connected, currentSsid) = await Task.Run(() => NativeWlanService.GetCurrentConnection(adapterName));
-                    if (connected && (currentSsid.Equals(profileName, StringComparison.OrdinalIgnoreCase)))
-                        return (true, $"Fast-connected to '{profileName}'.");
-
-                    return (false, $"Could not confirm connection to '{profileName}'. {native.message}");
+                    profile.LastConnected = DateTime.Now;
+                    SecureConnectProfileStore.Upsert(profile);
                 }
-                catch (Exception ex)
-                {
-                    return (false, $"Connection failed: {ex.Message}");
-                }
-            });
+                return result;
+            }
+            catch (Exception ex) { return (false, $"Connection failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -259,184 +265,42 @@ foreach ($a in $wifi) {
             if (string.IsNullOrWhiteSpace(ssid))
                 return (false, "SSID cannot be empty.");
 
-            return await Task.Run(async () =>
+            try
             {
-                string tempProfilePath = Path.Combine(Path.GetTempPath(), $"sec_wifi_{Guid.NewGuid():N}.xml");
-                try
+                string xml = BuildProfileXml(ssid, password, authType, encType);
+                var result = await NativeWlanService.ConnectWithTemporaryProfileAsync(xml, ssid, adapterName);
+                if (!result.success) return result;
+
+                SecureConnectProfileStore.Upsert(new Models.SecureConnectProfile
                 {
-                    bool requestedOpen = authType.Equals("Open", StringComparison.OrdinalIgnoreCase);
-                    bool isOpen = requestedOpen || string.IsNullOrWhiteSpace(password);
-                    if (!requestedOpen && string.IsNullOrWhiteSpace(password))
-                        return (false, "A security key is required for this network.");
-
-                    string xmlAuth = "WPA2PSK";
-                    string xmlEnc = "AES";
-
-                    if (authType.Contains("WPA3", StringComparison.OrdinalIgnoreCase))
-                    {
-                        xmlAuth = "WPA3SAE";
-                        xmlEnc = "AES";
-                    }
-                    else if (authType.Contains("WPA2", StringComparison.OrdinalIgnoreCase))
-                    {
-                        xmlAuth = "WPA2PSK";
-                        xmlEnc = encType.Contains("TKIP", StringComparison.OrdinalIgnoreCase) ? "TKIP" : "AES";
-                    }
-                    else if (isOpen)
-                    {
-                        xmlAuth = "open";
-                        xmlEnc = "none";
-                    }
-
-                    string xml;
-                    if (isOpen)
-                    {
-                        xml = $@"<?xml version=""1.0""?>
-<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
-    <name>{SecurityElement.Escape(ssid)}</name>
-    <SSIDConfig>
-        <SSID>
-            <name>{SecurityElement.Escape(ssid)}</name>
-        </SSID>
-    </SSIDConfig>
-    <connectionType>ESS</connectionType>
-    <connectionMode>auto</connectionMode>
-    <MSM>
-        <security>
-            <authEncryption>
-                <authentication>open</authentication>
-                <encryption>none</encryption>
-                <useOneX>false</useOneX>
-            </authEncryption>
-        </security>
-    </MSM>
-</WLANProfile>";
-                    }
-                    else
-                    {
-                        xml = $@"<?xml version=""1.0""?>
-<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
-    <name>{SecurityElement.Escape(ssid)}</name>
-    <SSIDConfig>
-        <SSID>
-            <name>{SecurityElement.Escape(ssid)}</name>
-        </SSID>
-    </SSIDConfig>
-    <connectionType>ESS</connectionType>
-    <connectionMode>auto</connectionMode>
-    <MSM>
-        <security>
-            <authEncryption>
-                <authentication>{xmlAuth}</authentication>
-                <encryption>{xmlEnc}</encryption>
-                <useOneX>false</useOneX>
-            </authEncryption>
-            <sharedKey>
-                <keyType>passPhrase</keyType>
-                <protected>false</protected>
-                <keyMaterial>{SecurityElement.Escape(password)}</keyMaterial>
-            </sharedKey>
-        </security>
-    </MSM>
-</WLANProfile>";
-                    }
-
-                    // Keep the file handle open with DeleteOnClose so the plaintext key never
-                    // lingers on disk after the netsh call, even if the process is killed.
-                    using (var profileFile = new FileStream(tempProfilePath, FileMode.Create, FileAccess.Write,
-                               FileShare.Read, 4096, FileOptions.DeleteOnClose))
-                    {
-                        byte[] bytes = Encoding.UTF8.GetBytes(xml);
-                        await profileFile.WriteAsync(bytes, 0, bytes.Length);
-                        await profileFile.FlushAsync();
-
-                        var addArgs = new List<string> { "wlan", "add", "profile", $"filename={tempProfilePath}" };
-                        if (!string.IsNullOrWhiteSpace(adapterName))
-                            addArgs.Add($"interface={adapterName}");
-
-                        RunCmd("netsh", addArgs.ToArray());
-
-                        // Native connect with netsh fallback, then verify the actual SSID.
-                        var native = await NativeWlanService.ConnectToProfileAsync(ssid, adapterName);
-                        if (!native.success)
-                        {
-                            var connArgs = new List<string> { "wlan", "connect", $"name={ssid}" };
-                            if (!string.IsNullOrWhiteSpace(adapterName))
-                                connArgs.Add($"interface={adapterName}");
-                            RunCmd("netsh", connArgs.ToArray());
-                            await Task.Delay(1000);
-                        }
-
-                        var (connected, currentSsid) = await Task.Run(() => NativeWlanService.GetCurrentConnection(adapterName));
-                        if (!connected || !currentSsid.Equals(ssid, StringComparison.OrdinalIgnoreCase))
-                            return (false, $"Profile saved for '{ssid}' but connection could not be confirmed. {native.message}");
-
-                        return (true, $"Saved profile and connected to '{ssid}'.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    return (false, $"Failed to connect to '{ssid}': {ex.Message}");
-                }
-                finally
-                {
-                    try
-                    {
-                        if (File.Exists(tempProfilePath))
-                            File.Delete(tempProfilePath);
-                    }
-                    catch { }
-                }
-            });
+                    Ssid = ssid,
+                    AuthType = authType,
+                    Encryption = encType,
+                    Password = password,
+                    IsHidden = false,
+                    LastConnected = DateTime.Now
+                });
+                return (true, $"Connected to '{ssid}' and saved it to Secure Connect.");
+            }
+            catch (Exception ex) { return (false, $"Failed to connect to '{ssid}': {ex.Message}"); }
         }
 
         /// <summary>
         /// Disconnects the active Wi-Fi connection.
         /// </summary>
-        public static async Task<bool> DisconnectAsync(string? adapterName = null)
+        public static Task<bool> DisconnectAsync(string? adapterName = null)
         {
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    var args = new List<string> { "wlan", "disconnect" };
-                    if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface={adapterName}");
-
-                    RunCmd("netsh", args.ToArray());
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
-            });
+            return Task.Run(async () => (await NativeWlanService.DisconnectAsync(adapterName)).success);
         }
 
         /// <summary>
-        /// Deletes/forgets a saved Wi-Fi profile from Windows.
+        /// Forgets a profile from the Secure Connect store only. Windows saved networks are untouched.
         /// </summary>
-        public static async Task<bool> ForgetProfileAsync(string profileName, string? adapterName = null)
+        public static Task<bool> ForgetProfileAsync(string profileName, string? adapterName = null)
         {
-            if (string.IsNullOrWhiteSpace(profileName))
-                return false;
-
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    var args = new List<string> { "wlan", "delete", "profile", $"name={profileName}" };
-                    if (!string.IsNullOrWhiteSpace(adapterName))
-                        args.Add($"interface={adapterName}");
-
-                    RunCmd("netsh", args.ToArray());
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
-            });
+            if (string.IsNullOrWhiteSpace(profileName)) return Task.FromResult(false);
+            SecureConnectProfileStore.Remove(profileName);
+            return Task.FromResult(true);
         }
 
         private static string RunCmd(string exe, params string[] args)
