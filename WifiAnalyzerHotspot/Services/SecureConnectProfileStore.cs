@@ -16,6 +16,21 @@ namespace WifiAnalyzerHotspot.Services
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "WifiAnalyzerHotspot", "secure_connect_profiles.json");
         private static readonly object Lock = new();
+        private static readonly string ImportedMarker = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "WifiAnalyzerHotspot", "secure_connect_imported.flag");
+
+        internal static bool IsImported => File.Exists(ImportedMarker);
+
+        internal static void MarkImported()
+        {
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(ImportedMarker)!);
+                File.WriteAllText(ImportedMarker, DateTime.UtcNow.ToString("o"));
+            }
+            catch { }
+        }
 
         internal static List<SecureConnectProfile> Load()
         {

@@ -151,6 +151,13 @@ foreach ($a in $wifi) {
         /// </summary>
         internal static string BuildProfileXml(string ssid, string password, string authType, string encType)
         {
+            string result = BuildProfileXmlCore(ssid, password, authType, encType);
+            NativeWlanService.LogProfileXml(result);
+            return result;
+        }
+
+        private static string BuildProfileXmlCore(string ssid, string password, string authType, string encType)
+        {
             bool requestedOpen = authType.Equals("Open", StringComparison.OrdinalIgnoreCase);
             bool isOpen = requestedOpen || string.IsNullOrWhiteSpace(password);
             if (!requestedOpen && string.IsNullOrWhiteSpace(password))
@@ -172,6 +179,9 @@ foreach ($a in $wifi) {
             }
 
             string name = SecurityElement.Escape(ssid);
+            string transition = xmlAuth == "WPA3SAE"
+                ? "<transitionMode xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v4\">true</transitionMode>"
+                : string.Empty;
             if (isOpen)
             {
                 return $@"<?xml version=""1.0""?>
@@ -196,7 +206,7 @@ foreach ($a in $wifi) {
     <autoSwitch>false</autoSwitch>
     <MSM><security>
         <authEncryption>
-            <authentication>{xmlAuth}</authentication><encryption>{xmlEnc}</encryption><useOneX>false</useOneX>
+            <authentication>{xmlAuth}</authentication><encryption>{xmlEnc}</encryption><useOneX>false</useOneX>{transition}
         </authEncryption>
         <sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>{SecurityElement.Escape(password)}</keyMaterial></sharedKey>
     </security></MSM>
@@ -204,10 +214,53 @@ foreach ($a in $wifi) {
         }
 
         /// <summary>
+        /// Copies existing Windows saved networks into the app store once, without modifying Windows.
+        /// </summary>
+        private static void ImportWindowsProfilesOnce()
+        {
+            if (SecureConnectProfileStore.IsImported) return;
+            try
+            {
+                foreach (string name in NativeWlanService.GetProfileNames())
+                {
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    if (SecureConnectProfileStore.Find(name) != null) continue;
+
+                    var result = ProcessRunner.RunAsync("netsh.exe",
+                        new[] { "wlan", "show", "profile", $"name={name}", "key=clear" },
+                        timeoutMs: 5000).GetAwaiter().GetResult();
+                    if (!result.Completed || result.ExitCode != 0) continue;
+
+                    string auth = "WPA2-Personal";
+                    string cipher = "AES";
+                    string password = string.Empty;
+
+                    var authMatch = Regex.Match(result.Output, @"Authentication\s*:\s*(.+)", RegexOptions.IgnoreCase);
+                    if (authMatch.Success) auth = authMatch.Groups[1].Value.Trim();
+                    var cipherMatch = Regex.Match(result.Output, @"Cipher\s*:\s*(.+)", RegexOptions.IgnoreCase);
+                    if (cipherMatch.Success) cipher = cipherMatch.Groups[1].Value.Trim();
+                    var keyMatch = Regex.Match(result.Output, @"Key Content\s*:\s*(.+)", RegexOptions.IgnoreCase);
+                    if (keyMatch.Success) password = keyMatch.Groups[1].Value.Trim();
+
+                    SecureConnectProfileStore.Upsert(new Models.SecureConnectProfile
+                    {
+                        Ssid = name,
+                        AuthType = auth,
+                        Encryption = cipher,
+                        Password = password
+                    });
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine($"[SecureConnect] import failed: {ex.Message}"); }
+            finally { SecureConnectProfileStore.MarkImported(); }
+        }
+
+        /// <summary>
         /// Reads profiles owned by Secure Connect. Windows saved networks are never touched.
         /// </summary>
         public static List<SavedWifiProfile> GetSavedProfiles()
         {
+            ImportWindowsProfilesOnce();
             return SecureConnectProfileStore.Load().Select(p => new SavedWifiProfile
             {
                 Name = p.Ssid,

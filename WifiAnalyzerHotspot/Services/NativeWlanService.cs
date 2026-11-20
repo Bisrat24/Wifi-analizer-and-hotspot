@@ -42,10 +42,19 @@ namespace WifiAnalyzerHotspot.Services
         [DllImport("wlanapi.dll", SetLastError = true)]
         private static extern uint WlanDisconnect(IntPtr handle, ref Guid guid, IntPtr reserved);
 
+        [DllImport("wlanapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern uint WlanSetProfile(
+            IntPtr handle, ref Guid guid, uint flags, string profileXml,
+            IntPtr allUserSecurity, [MarshalAs(UnmanagedType.Bool)] bool overwrite,
+            IntPtr reserved, out uint reasonCode);
+
+        [DllImport("wlanapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern uint WlanDeleteProfile(IntPtr handle, ref Guid guid, string profileName, IntPtr reserved);
+
         [DllImport("wlanapi.dll")]
         private static extern void WlanFreeMemory(IntPtr memory);
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_INTERFACE_INFO
         {
             public Guid InterfaceGuid;
@@ -53,7 +62,7 @@ namespace WifiAnalyzerHotspot.Services
             public int State;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_INTERFACE_INFO_LIST
         {
             public uint Count;
@@ -80,12 +89,12 @@ namespace WifiAnalyzerHotspot.Services
             public uint CipherAlgorithm;
             public uint Flags;
             public byte PreferredChannel;
-            public uint RadioType;
+            public byte RadioType;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public uint[] Reserved;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string ProfileName;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_AVAILABLE_NETWORK_LIST
         {
             public uint Count;
@@ -100,7 +109,7 @@ namespace WifiAnalyzerHotspot.Services
             public uint Flags;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_PROFILE_INFO_LIST
         {
             public uint Count;
@@ -129,16 +138,40 @@ namespace WifiAnalyzerHotspot.Services
             public DOT11_SSID Ssid;
         }
 
+        private static readonly string LogPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WifiAnalyzerHotspot", "wlan_debug.log");
+
+        private static void Log(string message)
+        {
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(LogPath)!;
+                System.IO.Directory.CreateDirectory(dir);
+                var file = new System.IO.FileInfo(LogPath);
+                if (file.Exists && file.Length > 256 * 1024) System.IO.File.Delete(LogPath);
+                System.IO.File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        private static string Describe(uint code) => code == 0 ? "OK" : new Win32Exception((int)code).Message;
+
         private static bool TryOpen(out IntPtr handle, out List<Guid> interfaces)
         {
             handle = IntPtr.Zero;
             interfaces = new List<Guid>();
             try
             {
-                if (WlanOpenHandle(2, IntPtr.Zero, out _, out handle) != 0 || handle == IntPtr.Zero) return false;
+                uint openResult = WlanOpenHandle(2, IntPtr.Zero, out _, out handle);
+                Log($"WlanOpenHandle={Describe(openResult)}");
+                if (openResult != 0 || handle == IntPtr.Zero) return false;
                 IntPtr listPtr = IntPtr.Zero;
-                if (WlanEnumInterfaces(handle, IntPtr.Zero, out listPtr) != 0 || listPtr == IntPtr.Zero) return false;
+                uint enumResult = WlanEnumInterfaces(handle, IntPtr.Zero, out listPtr);
+                Log($"WlanEnumInterfaces={Describe(enumResult)}");
+                if (enumResult != 0 || listPtr == IntPtr.Zero) return false;
                 var list = Marshal.PtrToStructure<WLAN_INTERFACE_INFO_LIST>(listPtr);
+                Log($"interfaces={list.Count}, structSize={Marshal.SizeOf<WLAN_INTERFACE_INFO>()}");
                 IntPtr item = new IntPtr(listPtr.ToInt64() + 8);
                 int size = Marshal.SizeOf<WLAN_INTERFACE_INFO>();
                 for (int i = 0; i < list.Count; i++)
@@ -156,6 +189,11 @@ namespace WifiAnalyzerHotspot.Services
             }
         }
 
+        internal static void LogProfileXml(string xml)
+        {
+            Log("PROFILE_XML: " + xml.Replace(Environment.NewLine, " "));
+        }
+
         internal static List<WifiNetwork> GetAvailableNetworks()
         {
             var result = new List<WifiNetwork>();
@@ -167,10 +205,13 @@ namespace WifiAnalyzerHotspot.Services
                 {
                     var ifaceGuid = guid;
                     IntPtr listPtr = IntPtr.Zero;
-                    if (WlanGetAvailableNetworkList(handle, ref ifaceGuid, 0, IntPtr.Zero, out listPtr) != 0 || listPtr == IntPtr.Zero) continue;
+                    uint scanResult = WlanGetAvailableNetworkList(handle, ref ifaceGuid, 0, IntPtr.Zero, out listPtr);
+                    Log($"WlanGetAvailableNetworkList={Describe(scanResult)}");
+                    if (scanResult != 0 || listPtr == IntPtr.Zero) continue;
                     try
                     {
                         var list = Marshal.PtrToStructure<WLAN_AVAILABLE_NETWORK_LIST>(listPtr);
+                        Log($"availableNetworks={list.Count}, structSize={Marshal.SizeOf<WLAN_AVAILABLE_NETWORK>()}");
                         IntPtr item = new IntPtr(listPtr.ToInt64() + 8);
                         int size = Marshal.SizeOf<WLAN_AVAILABLE_NETWORK>();
                         for (int i = 0; i < list.Count; i++)
@@ -284,6 +325,7 @@ namespace WifiAnalyzerHotspot.Services
                 IntPtr data = IntPtr.Zero;
                 uint rc = WlanQueryInterface(handle, ref guid, 7 /* current_connection */, IntPtr.Zero,
                     out _, out data, out _);
+                if (rc != 0) Log($"WlanQueryInterface={Describe(rc)}");
                 if (rc != 0 || data == IntPtr.Zero)
                     return (false, string.Empty, new Win32Exception((int)rc).Message);
 
@@ -418,7 +460,9 @@ namespace WifiAnalyzerHotspot.Services
                     Flags = 0
                 };
                 uint error = WlanConnect(handle, ref guid, ref parameters, IntPtr.Zero);
-                if (error != 0) return (false, new Win32Exception((int)error).Message);
+                Log($"WlanConnect(temporary)={Describe(error)}");
+                if (error != 0)
+                    return await ConnectViaEphemeralProfileAsync(handle, guid, profileXml, expectedSsid, timeoutMs).ConfigureAwait(false);
 
                 var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
                 string lastSsid = string.Empty;
@@ -436,6 +480,58 @@ namespace WifiAnalyzerHotspot.Services
             }
             catch (Exception ex) { return (false, $"Connection failed: {ex.Message}"); }
             finally { WlanCloseHandle(handle, IntPtr.Zero); }
+        }
+
+        /// <summary>
+        /// Fallback: create a per-user Windows profile, connect, then delete it. No profile remains saved.
+        /// </summary>
+        private static async Task<(bool success, string message)> ConnectViaEphemeralProfileAsync(
+            IntPtr handle, Guid guid, string profileXml, string profileName, int timeoutMs)
+        {
+            bool created = false;
+            try
+            {
+                uint setResult = WlanSetProfile(handle, ref guid, 2 /* WLAN_PROFILE_USER */, profileXml,
+                    IntPtr.Zero, true, IntPtr.Zero, out uint reason);
+                Log($"WlanSetProfile(user)={Describe(setResult)}, reason={reason}");
+                if (setResult != 0)
+                    return (false, $"Profile rejected: {Describe(setResult)} (reason {reason}).");
+                created = true;
+
+                var parameters = new WLAN_CONNECTION_PARAMETERS
+                {
+                    Mode = 0,
+                    Profile = profileName,
+                    BssType = 1,
+                    Flags = 0
+                };
+                uint connectResult = WlanConnect(handle, ref guid, ref parameters, IntPtr.Zero);
+                Log($"WlanConnect(profile)={Describe(connectResult)}");
+                if (connectResult != 0)
+                    return (false, $"WlanConnect failed: {Describe(connectResult)}");
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                string lastSsid = string.Empty;
+                while (DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(400).ConfigureAwait(false);
+                    var (connected, ssid, _) = QueryCurrentConnection(handle, guid);
+                    lastSsid = ssid;
+                    if (connected && ssid.Equals(profileName, StringComparison.OrdinalIgnoreCase))
+                        return (true, $"Connected to '{profileName}'.");
+                }
+                return (false, string.IsNullOrWhiteSpace(lastSsid)
+                    ? "Connection did not complete."
+                    : $"Connection not confirmed (current network: {lastSsid}).");
+            }
+            finally
+            {
+                if (created)
+                {
+                    uint deleteResult = WlanDeleteProfile(handle, ref guid, profileName, IntPtr.Zero);
+                    Log($"WlanDeleteProfile={Describe(deleteResult)}");
+                }
+            }
         }
 
         private static string MapAuth(uint algorithm, bool secured)
