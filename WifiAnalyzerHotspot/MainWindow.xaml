@@ -1192,40 +1192,10 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Highest PC Priority Mode Card -->
-                            <Border Background="#10192A" BorderBrush="#00E5FF" BorderThickness="1.2" CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="14" Foreground="#FFD600" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                            <TextBlock Text="HIGHEST PC PRIORITY MODE (REALTIME)" FontSize="11" FontWeight="Bold" Foreground="#00E5FF" VerticalAlignment="Center"/>
-                                            <Border Background="#133824" CornerRadius="3" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                                <TextBlock Text="ENABLED" FontSize="9" FontWeight="Bold" Foreground="#00E676"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="Hotspot is created with top OS scheduling priority:" FontSize="10" Foreground="#A0AEC0" Margin="0,3,0,1"/>
-                                        <TextBlock Text="&#x2022; RealTime CPU Priority for Hotspot Creator process, ICS NAT (SharedAccess) &amp; WLAN engine&#x0a;&#x2022; Maximum Wi-Fi Radio Transmit Power (Level 5) &amp; Throughput Booster&#x0a;&#x2022; Zero Sleep/Power Throttling (Win32 Away Mode engaged)&#x0a;&#x2022; Zero Multimedia Network Throttling (SystemResponsiveness = 0)"
-                                                   FontSize="9" Foreground="#64748B" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <Button Command="{Binding ApplyHotspotPriorityCommand}" Style="{StaticResource ModernBtn}"
-                                                Height="30" Padding="10,4" FontSize="11" BorderBrush="#00E5FF" Foreground="#00E5FF"
-                                                ToolTip="Re-apply and enforce Highest PC Priority immediately">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
-                                                <TextBlock Text="Re-Apply" FontWeight="Bold"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-
-                            <!-- Settings: SSID, Password, Channel & Band -->
-                            <TextBlock Text="HOTSPOT CONFIGURATION" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                            <!-- Setup (manual Show/Hide) -->
+                            <Expander Header="Setup (SSID / Password / Channel)" IsExpanded="True" Foreground="#E2E8F0" Background="#10192A"
+                                      BorderBrush="#1C2E4A" BorderThickness="1" Margin="0,0,0,10">
+                                <StackPanel Margin="8">
 
                             <!-- Network Name (SSID) -->
                             <TextBlock Text="Network Name (SSID)" FontSize="12" Foreground="#8FA0C2" Margin="0,0,0,4"/>
@@ -1292,35 +1262,82 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Hardware Radio Architecture Explanation -->
-                            <Border Background="#131B2A" BorderBrush="#25354F" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                        <TextBlock Text="&#x2139;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Hardware Radio Concurrency" FontWeight="Bold" FontSize="11" Foreground="#00E5FF"/>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding SccExplanationText}"
-                                               FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Channel & Band Selection -->
+                            <!-- Channel & Band Selection (explanations moved into tooltip) -->
                             <TextBlock Text="Hotspot Band / Channel Selection" FontSize="12" Foreground="#8FA0C2" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding AvailableHotspotChannels}"
                                       SelectedItem="{Binding HotspotChannelChoice}"
-                                      Background="#181C2B" Foreground="#000000" FontSize="12" Padding="8,6" Margin="0,0,0,10"/>
+                                      Background="#181C2B" Foreground="#000000" FontSize="12" Padding="8,6" Margin="0,0,0,10">
+                                <ComboBox.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="300">
+                                            <TextBlock Text="{Binding SccExplanationText}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding SccChannelNoticeText}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ComboBox.ToolTip>
+                            </ComboBox>
 
-                            <!-- Channel Availability Notice -->
-                            <Border Background="#151C2C" BorderBrush="#25354F" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,16">
-                                <StackPanel>
-                                    <TextBlock Text="&#x1F4A1; Channel Availability &amp; Cable Network Mode:" FontWeight="Bold" FontSize="11" Foreground="#00E5FF" Margin="0,0,0,3"/>
-                                    <TextBlock Text="{Binding SccChannelNoticeText}"
-                                               FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap" Margin="0,0,0,2"/>
-                                    <TextBlock Text="&#x2022; On Ethernet / Cable: The Wi-Fi adapter is not sharing an incoming Wi-Fi connection, allowing full custom channel selection across all 2.4 GHz and 5 GHz bands."
-                                               FontSize="10" Foreground="#00E676" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
+                            <!-- Config actions moved to the top setup panel -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Style="{StaticResource PrimaryCyanBtn}" Command="{Binding SaveHotspotConfigCommand}"
+                                        IsEnabled="{Binding Hotspot.IsBusy, Converter={StaticResource InverseBoolConv}}"
+                                        Height="38" Margin="0,0,4,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#x1F4BE;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Save Settings"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Grid.Column="1" Style="{StaticResource ModernBtn}" Command="{Binding CopyHotspotDetailsCommand}"
+                                        Height="38" Margin="4,0,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#x1F4CB;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Copy Details"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                            <Button Style="{StaticResource ModernBtn}" Command="{Binding RefreshHotspotCommand}"
+                                    Height="34" Content="Refresh Hotspot Status" Margin="0,0,0,4"/>
+                        </StackPanel>
+                    </Expander>
 
+                            <!-- Priority Mode (collapsed) -->
+                            <Expander Header="Priority Mode" IsExpanded="False" Foreground="#E2E8F0" Background="#10192A"
+                                      BorderBrush="#1C2E4A" BorderThickness="1" Margin="0,0,0,10">
+                                <Border Background="#10192A" BorderBrush="#00E5FF" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="14" Foreground="#FFD600" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <TextBlock Text="HIGHEST PC PRIORITY" FontSize="11" FontWeight="Bold" Foreground="#00E5FF" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Re-applies hotspot transit QoS, adapter metrics and process priority." FontSize="10" Foreground="#A0AEC0" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <Button Command="{Binding ApplyHotspotPriorityCommand}" Style="{StaticResource ModernBtn}"
+                                                    Height="30" Padding="10,4" FontSize="11" BorderBrush="#00E5FF" Foreground="#00E5FF"
+                                                    ToolTip="Re-apply and enforce Highest PC Priority immediately">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
+                                                    <TextBlock Text="Re-Apply" FontWeight="Bold"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Expander>
+
+                            <!-- Watchdog & Recovery (collapsed) -->
+                            <Expander Header="Watchdog &amp; Recovery" IsExpanded="False" Foreground="#E2E8F0" Background="#10192A"
+                                      BorderBrush="#1C2E4A" BorderThickness="1" Margin="0,0,0,10">
+                                <StackPanel Margin="8">
                             <!-- Health Watchdog Checkbox & Check Frequency -->
                             <Border Background="#131B2A" BorderBrush="#1F2A3F" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
                                 <StackPanel>
@@ -1384,8 +1401,13 @@
                                 </CheckBox>
                             </Border>
 
-                            <!-- 🚀 HIGH-PERFORMANCE LOW-LATENCY GAMING & TRAFFIC OPTIMIZATION -->
-                            <TextBlock Text="LOW-LATENCY &amp; GAMING TUNING" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,4,0,8"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <!-- Low-Latency & Networking (collapsed) -->
+                            <Expander Header="Low-Latency &amp; Networking" IsExpanded="False" Foreground="#E2E8F0" Background="#10192A"
+                                      BorderBrush="#1C2E4A" BorderThickness="1" Margin="0,0,0,10">
+                                <StackPanel Margin="8">
 
                             <!-- Zero-Jitter TCP Stack Tuning Card -->
                             <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
@@ -1483,30 +1505,8 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Save & Copy Details Buttons -->
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Style="{StaticResource PrimaryCyanBtn}" Command="{Binding SaveHotspotConfigCommand}"
-                                        IsEnabled="{Binding Hotspot.IsBusy, Converter={StaticResource InverseBoolConv}}"
-                                        Height="38" Margin="0,0,4,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#x1F4BE;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Save Settings"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Grid.Column="1" Style="{StaticResource ModernBtn}" Command="{Binding CopyHotspotDetailsCommand}"
-                                        Height="38" Margin="4,0,0,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#x1F4CB;" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Copy Details"/>
-                                    </StackPanel>
-                                </Button>
-                            </Grid>
-                            <Button Style="{StaticResource ModernBtn}" Command="{Binding RefreshHotspotCommand}"
-                                    Height="34" Content="Refresh Hotspot Status"/>
+                                </StackPanel>
+                            </Expander>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
