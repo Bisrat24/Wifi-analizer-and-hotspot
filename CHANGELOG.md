@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.9] - 2026-11-20
+
+### Changed
+- Hotspot Start/Stop control moved to the center top of the page.
+- Hotspot settings converted into a hover-activated auto-hiding side drawer with a persistent slim tab.
+- Active Clients and management cards now occupy the full page width.
+
+---
+
 ## [v1.6.8] - 2026-11-20
 
 ### Changed
