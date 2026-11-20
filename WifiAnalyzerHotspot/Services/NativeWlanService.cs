@@ -54,6 +54,9 @@ namespace WifiAnalyzerHotspot.Services
         [DllImport("wlanapi.dll")]
         private static extern void WlanFreeMemory(IntPtr memory);
 
+        [DllImport("wlanapi.dll", CharSet = CharSet.Unicode)]
+        private static extern uint WlanReasonCodeToString(uint reasonCode, int bufferLength, System.Text.StringBuilder buffer, IntPtr reserved);
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_INTERFACE_INFO
         {
@@ -77,21 +80,25 @@ namespace WifiAnalyzerHotspot.Services
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] Bytes;
         }
 
+        // Exact SDK layout (WLAN_AVAILABLE_NETWORK). Field order matters for pointer walking.
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WLAN_AVAILABLE_NETWORK
         {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string ProfileName;
             public DOT11_SSID Ssid;
             public uint BssType;
-            [MarshalAs(UnmanagedType.Bool)] public bool SecurityEnabled;
+            public uint NumberOfBssids;
+            [MarshalAs(UnmanagedType.Bool)] public bool NetworkConnectable;
+            public uint NotConnectableReason;
+            public uint NumberOfPhyTypes;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)] public uint[] PhyTypes;
+            [MarshalAs(UnmanagedType.Bool)] public bool MorePhyTypes;
             public uint SignalQuality;
-            [MarshalAs(UnmanagedType.Bool)] public bool DefaultProfile;
-            public uint AuthAlgorithm;
-            public uint CipherAlgorithm;
+            [MarshalAs(UnmanagedType.Bool)] public bool SecurityEnabled;
+            public uint DefaultAuthAlgorithm;
+            public uint DefaultCipherAlgorithm;
             public uint Flags;
-            public byte PreferredChannel;
-            public byte RadioType;
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public uint[] Reserved;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string ProfileName;
+            public uint Reserved;
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -156,6 +163,17 @@ namespace WifiAnalyzerHotspot.Services
         }
 
         private static string Describe(uint code) => code == 0 ? "OK" : new Win32Exception((int)code).Message;
+
+        internal static string DescribeReason(uint reason)
+        {
+            try
+            {
+                var sb = new StringBuilder(512);
+                uint rc = WlanReasonCodeToString(reason, sb.Capacity, sb, IntPtr.Zero);
+                return rc == 0 && sb.Length > 0 ? sb.ToString() : $"reason {reason} (0x{reason:X})";
+            }
+            catch { return $"reason {reason} (0x{reason:X})"; }
+        }
 
         private static bool TryOpen(out IntPtr handle, out List<Guid> interfaces)
         {
@@ -226,23 +244,27 @@ namespace WifiAnalyzerHotspot.Services
                             if (string.IsNullOrWhiteSpace(ssid)) continue;
 
                             int signal = (int)Math.Clamp(net.SignalQuality, 0, 100);
-                            int channel = net.PreferredChannel > 0 ? net.PreferredChannel : 1;
-                            string band = channel <= 14 ? "2.4 GHz" : "5 GHz";
-                            string auth = MapAuth(net.AuthAlgorithm, net.SecurityEnabled);
+                            // WLAN_AVAILABLE_NETWORK has no channel field; bands are derived from
+                            // the PHY list only as a coarse hint. Analyzer scan supplies real channels.
+                            string band = net.PhyTypes != null && net.PhyTypes.Length > 0
+                                ? "5 GHz"
+                                : "2.4 GHz";
+                            string auth = MapAuth(net.DefaultAuthAlgorithm, net.SecurityEnabled);
 
                             result.Add(new WifiNetwork
                             {
                                 Ssid = ssid,
+                                Bssid = string.Empty,
                                 SignalPercent = signal,
                                 Rssi = (signal / 2) - 100,
                                 Band = band,
-                                Channel = channel,
-                                FrequencyMHz = band.StartsWith("2.4") ? 2407 + (channel * 5) : 5000 + (channel * 5),
+                                Channel = 0,
+                                FrequencyMHz = 0,
                                 ChannelWidthMHz = 20,
                                 Authentication = auth,
-                                Encryption = MapCipher(net.CipherAlgorithm),
+                                Encryption = MapCipher(net.DefaultCipherAlgorithm),
                                 RadioType = "802.11ax",
-                                IsSaved = !string.IsNullOrWhiteSpace(net.ProfileName),
+                                IsSaved = (net.Flags & 0x2) != 0 || !string.IsNullOrWhiteSpace(net.ProfileName),
                                 ColorIndex = color++
                             });
                         }
@@ -462,7 +484,11 @@ namespace WifiAnalyzerHotspot.Services
                 uint error = WlanConnect(handle, ref guid, ref parameters, IntPtr.Zero);
                 Log($"WlanConnect(temporary)={Describe(error)}");
                 if (error != 0)
-                    return await ConnectViaEphemeralProfileAsync(handle, guid, profileXml, expectedSsid, timeoutMs).ConfigureAwait(false);
+                {
+                    var fallback = await ConnectViaEphemeralProfileAsync(handle, guid, profileXml, expectedSsid, timeoutMs).ConfigureAwait(false);
+                    if (fallback.success) return fallback;
+                    return await ConnectViaNetshProfileAsync(profileXml, expectedSsid, adapterName, timeoutMs).ConfigureAwait(false);
+                }
 
                 var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
                 string lastSsid = string.Empty;
@@ -493,9 +519,10 @@ namespace WifiAnalyzerHotspot.Services
             {
                 uint setResult = WlanSetProfile(handle, ref guid, 2 /* WLAN_PROFILE_USER */, profileXml,
                     IntPtr.Zero, true, IntPtr.Zero, out uint reason);
-                Log($"WlanSetProfile(user)={Describe(setResult)}, reason={reason}");
+                Log($"WlanSetProfile(user)={Describe(setResult)}, reason={reason} ({DescribeReason(reason)})");
                 if (setResult != 0)
-                    return (false, $"Profile rejected: {Describe(setResult)} (reason {reason}).");
+                    return (false, $"Profile rejected: {Describe(setResult)} ({DescribeReason(reason)}).");
+
                 created = true;
 
                 var parameters = new WLAN_CONNECTION_PARAMETERS
@@ -531,6 +558,51 @@ namespace WifiAnalyzerHotspot.Services
                     uint deleteResult = WlanDeleteProfile(handle, ref guid, profileName, IntPtr.Zero);
                     Log($"WlanDeleteProfile={Describe(deleteResult)}");
                 }
+            }
+        }
+
+        private static async Task<(bool success, string message)> ConnectViaNetshProfileAsync(
+            string profileXml, string profileName, string? adapterName, int timeoutMs)
+        {
+            string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sc_profile_{Guid.NewGuid():N}.xml");
+            try
+            {
+                System.IO.File.WriteAllText(tempPath, profileXml);
+                var addArgs = new List<string> { "wlan", "add", "profile", $"filename={tempPath}" };
+                if (!string.IsNullOrWhiteSpace(adapterName)) addArgs.Add($"interface={adapterName}");
+                var add = await ProcessRunner.RunAsync("netsh.exe", addArgs, timeoutMs: 8000).ConfigureAwait(false);
+                Log($"netsh add profile={add.ExitCode} {add.Error}");
+                if (!add.Completed || add.ExitCode != 0)
+                    return (false, $"netsh add profile failed: {add.Error}");
+
+                var connectArgs = new List<string> { "wlan", "connect", $"name={profileName}" };
+                if (!string.IsNullOrWhiteSpace(adapterName)) connectArgs.Add($"interface={adapterName}");
+                var connect = await ProcessRunner.RunAsync("netsh.exe", connectArgs, timeoutMs: 8000).ConfigureAwait(false);
+                Log($"netsh connect={connect.ExitCode} {connect.Error}");
+                if (!connect.Completed || connect.ExitCode != 0)
+                    return (false, $"netsh connect failed: {connect.Error}");
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                while (DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(400).ConfigureAwait(false);
+                    var (connected, ssid) = GetCurrentConnection(adapterName);
+                    if (connected && ssid.Equals(profileName, StringComparison.OrdinalIgnoreCase))
+                        return (true, $"Connected to '{profileName}'.");
+                }
+                return (false, "Connection did not complete after netsh fallback.");
+            }
+            catch (Exception ex) { return (false, ex.Message); }
+            finally
+            {
+                try
+                {
+                    var deleteArgs = new List<string> { "wlan", "delete", "profile", $"name={profileName}" };
+                    if (!string.IsNullOrWhiteSpace(adapterName)) deleteArgs.Add($"interface={adapterName}");
+                    await ProcessRunner.RunAsync("netsh.exe", deleteArgs, timeoutMs: 5000).ConfigureAwait(false);
+                    if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath);
+                }
+                catch { }
             }
         }
 

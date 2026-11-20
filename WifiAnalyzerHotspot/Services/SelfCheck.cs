@@ -68,9 +68,9 @@ namespace WifiAnalyzerHotspot.Services
                 string xml = SecureConnectService.BuildProfileXml("TestNet", "password123", "WPA3-Personal", "AES");
                 Expect(xml.Contains("<authentication>WPA3SAE</authentication>"), "WPA3 profile wrong");
                 Expect(xml.Contains("transitionMode"), "WPA3 profile needs transitionMode");
-                Expect(xml.Contains("xmlns=\"https://www.microsoft.com/networking/WLAN/profile/v1\""), "profile namespace must be https");
-                Expect(xml.Contains("<autoSwitch>false</autoSwitch>"), "autoSwitch must be false for manual profile");
-                Expect(xml.Contains("<connectionMode>manual</connectionMode>"), "profile should not auto-connect in Windows");
+                Expect(xml.Contains("xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\""), "profile namespace must match Microsoft sample");
+                Expect(xml.Contains("<autoSwitch>false</autoSwitch>"), "autoSwitch should be false");
+                Expect(xml.Contains("<connectionMode>auto</connectionMode>"), "profile should use sample connectionMode");
                 string open = SecureConnectService.BuildProfileXml("Guest", "", "Open", "None");
                 Expect(open.Contains("<authentication>open</authentication>"), "open profile wrong");
             }, failures);

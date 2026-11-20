@@ -185,11 +185,11 @@ foreach ($a in $wifi) {
             if (isOpen)
             {
                 return $@"<?xml version=""1.0""?>
-<WLANProfile xmlns=""https://www.microsoft.com/networking/WLAN/profile/v1"">
+<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
     <name>{name}</name>
     <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
     <connectionType>ESS</connectionType>
-    <connectionMode>manual</connectionMode>
+    <connectionMode>auto</connectionMode>
     <autoSwitch>false</autoSwitch>
     <MSM><security><authEncryption>
         <authentication>open</authentication><encryption>none</encryption><useOneX>false</useOneX>
@@ -198,11 +198,11 @@ foreach ($a in $wifi) {
             }
 
             return $@"<?xml version=""1.0""?>
-<WLANProfile xmlns=""https://www.microsoft.com/networking/WLAN/profile/v1"">
+<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
     <name>{name}</name>
     <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
     <connectionType>ESS</connectionType>
-    <connectionMode>manual</connectionMode>
+    <connectionMode>auto</connectionMode>
     <autoSwitch>false</autoSwitch>
     <MSM><security>
         <authEncryption>
