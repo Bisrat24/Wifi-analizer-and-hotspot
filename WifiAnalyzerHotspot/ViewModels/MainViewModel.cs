@@ -300,7 +300,16 @@ namespace WifiAnalyzerHotspot.ViewModels
                 string ssid = string.IsNullOrWhiteSpace(HotspotSsidInput) ? (string.IsNullOrWhiteSpace(Hotspot.Ssid) ? "Hotspot" : Hotspot.Ssid) : HotspotSsidInput;
                 string pass = HotspotPasswordInput ?? "";
                 string payload = QrCodeService.FormatWifiPayload(ssid, pass, "WPA");
-                HotspotQrCodeImage = QrCodeService.GenerateBitmap(payload, 240);
+                var bitmap = QrCodeService.GenerateBitmap(payload, 240);
+                if (bitmap == null)
+                {
+                    HotspotQrCodeImage = null;
+                    Hotspot.StatusMessage = "QR unavailable — shorten the SSID or password and try again.";
+                }
+                else
+                {
+                    HotspotQrCodeImage = bitmap;
+                }
             }
             catch (Exception ex)
             {

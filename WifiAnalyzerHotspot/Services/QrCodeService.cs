@@ -294,6 +294,18 @@ namespace WifiAnalyzerHotspot.Services
                 reserved[dim - 1 - i, 8] = true;
             }
 
+            // 3f. Version 7+ needs two 6x3 version-information blocks.
+            if (vs.Version >= 7)
+            {
+                for (int i = 0; i < 18; i++)
+                {
+                    int a = dim - 11 + (i % 3);
+                    int b = i / 3;
+                    reserved[b, a] = true;
+                    reserved[a, b] = true;
+                }
+            }
+
             // 4. Place data bits in 2-column strips with Mask 0 ((row + col) % 2 == 0)
             int bitIdx = 0;
             int totalBits = finalCodewords.Length * 8;
@@ -417,16 +429,33 @@ namespace WifiAnalyzerHotspot.Services
             matrix[1, 8] = bits[13] == 1;
             matrix[0, 8] = bits[14] == 1;
 
-            // Bottom-left: bits 0..6 placed at (dim-1 down to dim-7, 8)
+            // Bottom-left: bits 8..14 at rows dim-1 down to dim-7 (dark module sits at dim-8)
             for (int i = 0; i < 7; i++)
             {
-                matrix[dim - 1 - i, 8] = bits[i] == 1;
+                matrix[dim - 1 - i, 8] = bits[8 + i] == 1;
             }
 
-            // Top-right: bits 7..14 placed at (8, dim-8 to dim-1)
+            // Top-right: bits 0..7 at columns dim-1 down to dim-8
             for (int i = 0; i < 8; i++)
             {
-                matrix[8, dim - 8 + i] = bits[7 + i] == 1;
+                matrix[8, dim - 1 - i] = bits[i] == 1;
+            }
+
+            // The module at (dim-8, 8) is always dark and must survive format writing.
+            matrix[dim - 8, 8] = true;
+
+            // Version 7+ version information (0x07C94 for version 7, mask independent).
+            if (dim >= 45)
+            {
+                const int versionInfo = 0x07C94;
+                for (int i = 0; i < 18; i++)
+                {
+                    bool bit = ((versionInfo >> i) & 1) == 1;
+                    int a = dim - 11 + (i % 3);
+                    int b = i / 3;
+                    matrix[b, a] = bit;
+                    matrix[a, b] = bit;
+                }
             }
         }
 

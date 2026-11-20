@@ -83,6 +83,15 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(matrix[0, 0] && matrix[0, 6] && matrix[6, 0] && matrix[6, 6], "finder pattern corners must be dark");
                 Expect(!matrix[1, 1] && !matrix[1, 5] && !matrix[5, 1] && !matrix[5, 5], "finder inner ring must be light");
                 Expect(matrix[2, 2] && matrix[3, 3] && matrix[4, 4], "finder center must be dark");
+
+                // Version 7: verify format copies, dark module and version information.
+                var v7 = QrCodeService.GenerateMatrix(new string('A', 110));
+                Expect(v7 != null && v7.GetLength(0) == 45, "version 7 matrix expected");
+                int v7dim = v7!.GetLength(0);
+                Expect(v7[v7dim - 8, 8], "dark module must be dark");
+                Expect(v7[8, v7dim - 2], "top-right format bit 1 must be dark");
+                Expect(v7[v7dim - 3, 8], "bottom-left format bit 10 must be dark");
+                Expect(v7[0, v7dim - 9], "version 7 info bit 2 must be dark");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
