@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.5] - 2026-11-20
+
+### Fixed
+- Temporary WLAN profile XML now uses the current `https://www.microsoft.com/networking/WLAN/profile/v1` schema namespace and `<autoSwitch>false</autoSwitch>`, preventing Windows from rejecting joins with "The network connection profile is corrupted".
+
+---
+
 ## [v1.6.4] - 2026-11-20
 
 ### Added
