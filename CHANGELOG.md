@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.7] - 2026-11-20
+
+### Fixed
+- `WLAN_AVAILABLE_NETWORK` now uses the exact SDK field order, so available networks display correct SSIDs instead of garbled names.
+- WLAN reason codes are decoded with `WlanReasonCodeToString` in `wlan_debug.log`.
+- Profile XML follows Microsoft's sample namespace and connection mode; a netsh add/delete fallback connects when native profile APIs reject it, leaving no saved profile behind.
+
+---
+
 ## [v1.6.6] - 2026-11-20
 
 ### Added

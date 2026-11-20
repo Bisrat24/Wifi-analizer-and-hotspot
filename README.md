@@ -1,6 +1,14 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.6)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.7)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🔧 What's New in v1.6.7: Native Struct & Profile Fix
+
+- Corrected `WLAN_AVAILABLE_NETWORK` to the exact SDK layout so available SSIDs display proper names.
+- Decoded WLAN reason codes (e.g. `524290` = profile missing) in the diagnostics log.
+- Restored the Microsoft sample profile XML namespace and added a netsh add/delete fallback that leaves no saved Windows profile.
 
 ---
 
