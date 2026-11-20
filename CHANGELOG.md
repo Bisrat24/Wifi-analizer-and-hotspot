@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.11] - 2026-11-20
+
+### Fixed
+- Hotspot settings drawer opens by default and Show/Hide now uses direct code-behind handlers instead of XAML storyboards that did not fire.
+
+---
+
 ## [v1.6.10] - 2026-11-20
 
 ### Fixed

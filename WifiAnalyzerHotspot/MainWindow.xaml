@@ -177,7 +177,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.6.10" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.6.11" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -195,7 +195,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.6.10">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.6.11">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1073,23 +1073,13 @@
                 <Grid Grid.Column="0" Width="392" HorizontalAlignment="Left" Panel.ZIndex="20">
                     <Button Content="⚙" Width="32" Height="64" HorizontalAlignment="Left" VerticalAlignment="Top"
                             Margin="0,16,0,0" Style="{StaticResource ModernBtn}" FontSize="16"
-                            ToolTip="Click to open Hotspot settings" Panel.ZIndex="1">
-                        <Button.Triggers>
-                            <EventTrigger RoutedEvent="Button.Click">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="HotspotDrawerTransform"
-                                                         Storyboard.TargetProperty="X" To="0" Duration="0:0:0.18"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Button.Triggers>
-                    </Button>
+                            ToolTip="Click to open Hotspot settings" Panel.ZIndex="1"
+                            Click="HotspotSettingsShow_Click"/>
 
                     <Border x:Name="HotspotDrawerPanel" Width="360" HorizontalAlignment="Left" Margin="32,0,0,0"
                             Style="{StaticResource CardBorder}">
                         <Border.RenderTransform>
-                            <TranslateTransform x:Name="HotspotDrawerTransform" X="-360"/>
+                            <TranslateTransform x:Name="HotspotDrawerTransform" X="0"/>
                         </Border.RenderTransform>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -1097,18 +1087,8 @@
                                 <TextBlock DockPanel.Dock="Left" Text="HOTSPOT SETTINGS" FontSize="11" FontWeight="Bold"
                                            Foreground="#00E5FF" VerticalAlignment="Center"/>
                                 <Button DockPanel.Dock="Right" Content="✕ Hide" Style="{StaticResource ModernBtn}"
-                                        Height="26" Padding="8,2" FontSize="10" ToolTip="Hide settings panel">
-                                    <Button.Triggers>
-                                        <EventTrigger RoutedEvent="Button.Click">
-                                            <BeginStoryboard>
-                                                <Storyboard>
-                                                    <DoubleAnimation Storyboard.TargetName="HotspotDrawerTransform"
-                                                                     Storyboard.TargetProperty="X" To="-360" Duration="0:0:0.18"/>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </EventTrigger>
-                                    </Button.Triggers>
-                                </Button>
+                                        Height="26" Padding="8,2" FontSize="10" ToolTip="Hide settings panel"
+                                        Click="HotspotSettingsHide_Click"/>
                             </DockPanel>
 
                             <!-- Hotspot Stuck Auto-Reset 30s Countdown Alert Banner -->
@@ -1536,18 +1516,8 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,18,0,0"
                             Orientation="Horizontal" Panel.ZIndex="15">
                     <Button Content="⚙ Hotspot Settings" Style="{StaticResource ModernBtn}" Height="52"
-                            Padding="14,4" Margin="0,0,10,0" ToolTip="Show Hotspot settings panel">
-                        <Button.Triggers>
-                            <EventTrigger RoutedEvent="Button.Click">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="HotspotDrawerTransform"
-                                                         Storyboard.TargetProperty="X" To="0" Duration="0:0:0.18"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Button.Triggers>
-                    </Button>
+                            Padding="14,4" Margin="0,0,10,0" ToolTip="Show Hotspot settings panel"
+                            Click="HotspotSettingsShow_Click"/>
                     <Button Command="{Binding ToggleHotspotCommand}"
                             IsEnabled="{Binding Hotspot.IsBusy, Converter={StaticResource InverseBoolConv}}"
                             Background="{Binding Hotspot.State, Converter={StaticResource HotspotBrushConv}}"
