@@ -15,36 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.6.12] - 2026-11-20
-
-### Fixed
-- Hotspot settings are visible again in a normal left column; the overlay drawer that could not be shown was removed.
-
----
-
-## [v1.6.11] - 2026-11-20
-
-### Fixed
-- Hotspot settings drawer opens by default and Show/Hide now uses direct code-behind handlers instead of XAML storyboards that did not fire.
-
----
-
-## [v1.6.10] - 2026-11-20
-
-### Fixed
-- Hotspot settings drawer no longer relies on hover: a labeled **Hotspot Settings** button and the ⚙ tab open it, and a **Hide** button closes it.
-
----
-
-## [v1.6.9] - 2026-11-20
-
-### Changed
-- Hotspot Start/Stop control moved to the center top of the page.
-- Hotspot settings converted into a hover-activated auto-hiding side drawer with a persistent slim tab.
-- Active Clients and management cards now occupy the full page width.
-
----
-
 ## [v1.6.8] - 2026-11-20
 
 ### Changed

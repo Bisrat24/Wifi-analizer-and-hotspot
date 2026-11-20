@@ -1,35 +1,6 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.12)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.8)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
-
----
-
-## 🔧 What's New in v1.6.12: Visible Hotspot Settings
-
-- Restored the Hotspot settings column as a normal always-visible panel; the auto-hiding overlay drawer was unreliable.
-- Centered Hotspot Start/Stop control remains.
-
----
-
-## 🔧 What's New in v1.6.11: Settings Drawer Fix
-
-- Hotspot settings now open by default and require no hover or storyboard.
-- Show and Hide actions are wired directly in code-behind, so the settings panel is always reachable.
-
----
-
-## 🔧 What's New in v1.6.10: Hotspot Settings Access Fix
-
-- Replaced hover-only drawer behavior with explicit **Hotspot Settings** and **Hide** buttons, so settings are always reachable.
-- The compact ⚙ tab also opens the drawer with a click.
-
----
-
-## 🎨 What's New in v1.6.9: Centered Control & Side Drawer
-
-- Hotspot Start/Stop is now a large centered control at the top of the page.
-- All Hotspot settings moved into a slim auto-hiding side drawer: hover the ⚙ tab to open, move away to close.
-- The client table now uses the full page width when the drawer is closed.
 
 ---
 
