@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.6] - 2026-11-20
+
+### Added
+- WLAN diagnostics log (`wlan_debug.log`) with API return codes and generated profile XML.
+- One-time import of existing Windows saved Wi-Fi profiles into the app's DPAPI-encrypted store.
+- WPA3SAE profiles now include `transitionMode`.
+
+### Fixed
+- Native WLAN struct widths (`WLAN_INTERFACE_INFO`, `WLAN_AVAILABLE_NETWORK`) were wrong, causing available networks to appear empty.
+- Temporary-profile rejection now falls back to a per-user Windows profile that is deleted immediately after connecting, leaving no saved network behind.
+
+---
+
 ## [v1.6.5] - 2026-11-20
 
 ### Fixed
