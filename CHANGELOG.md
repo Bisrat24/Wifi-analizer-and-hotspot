@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.8] - 2026-11-20
+
+### Changed
+- Hotspot page reorganized: core setup is a top manual Show/Hide panel; Priority, Watchdog, DHCP and low-latency settings are collapsed by default.
+- Removed stale priority claims and moved long channel explanations into tooltips.
+
+---
+
 ## [v1.6.7] - 2026-11-20
 
 ### Fixed
