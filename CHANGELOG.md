@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.3] - 2026-11-20
+
+### Fixed
+- QR codes are now scannable: corrected the second format-information copy, wrote the required dark module and version-7 information, and added an explicit error when the SSID/password payload exceeds capacity.
+- Secure Connect connection joins now use native WLAN state for verification instead of localized netsh text, select the requested Wi-Fi adapter, report Win32 error details, and map WPA/WPA2/WPA3 algorithm values correctly.
+- A secured network can no longer be joined with an empty password by creating an open profile.
+- The window version label now shows the shipped version instead of v1.6.1.
+
+---
+
 ## [v1.6.2] - 2026-11-19
 
 ### Added
