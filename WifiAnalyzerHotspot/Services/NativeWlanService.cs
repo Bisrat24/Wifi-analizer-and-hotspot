@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using WifiAnalyzerHotspot.Models;
 
 namespace WifiAnalyzerHotspot.Services
@@ -31,6 +33,11 @@ namespace WifiAnalyzerHotspot.Services
 
         [DllImport("wlanapi.dll", SetLastError = true)]
         private static extern uint WlanConnect(IntPtr handle, ref Guid guid, ref WLAN_CONNECTION_PARAMETERS parameters, IntPtr reserved);
+
+        [DllImport("wlanapi.dll", SetLastError = true)]
+        private static extern uint WlanQueryInterface(
+            IntPtr handle, ref Guid guid, int opcode, IntPtr reserved,
+            out int dataSize, out IntPtr data, out IntPtr opcodeValueType);
 
         [DllImport("wlanapi.dll")]
         private static extern void WlanFreeMemory(IntPtr memory);
@@ -107,6 +114,16 @@ namespace WifiAnalyzerHotspot.Services
             public IntPtr BssidList;
             public uint BssType;
             public uint Flags;
+        }
+
+        // Only the leading fields are needed; reading a prefix of the native struct is safe.
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct WLAN_CONNECTION_ATTRIBUTES_MIN
+        {
+            public int State; // 1 = connected
+            public int ConnectionMode;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string Profile;
+            public DOT11_SSID Ssid;
         }
 
         private static bool TryOpen(out IntPtr handle, out List<Guid> interfaces)
@@ -229,12 +246,87 @@ namespace WifiAnalyzerHotspot.Services
             return names;
         }
 
-        internal static uint ConnectToProfile(string profileName)
+        private static Guid SelectInterface(List<Guid> interfaces, string? adapterName, IntPtr handle)
         {
-            if (string.IsNullOrWhiteSpace(profileName)) return 1;
-            if (!TryOpen(out var handle, out var interfaces)) return 1;
+            if (!string.IsNullOrWhiteSpace(adapterName))
+            {
+                foreach (var guid in interfaces)
+                {
+                    IntPtr listPtr = IntPtr.Zero;
+                    if (WlanEnumInterfaces(handle, IntPtr.Zero, out listPtr) != 0 || listPtr == IntPtr.Zero) break;
+                    try
+                    {
+                        var list = Marshal.PtrToStructure<WLAN_INTERFACE_INFO_LIST>(listPtr);
+                        IntPtr item = new IntPtr(listPtr.ToInt64() + 8);
+                        int size = Marshal.SizeOf<WLAN_INTERFACE_INFO>();
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            var info = Marshal.PtrToStructure<WLAN_INTERFACE_INFO>(item);
+                            item = new IntPtr(item.ToInt64() + size);
+                            if (info.InterfaceGuid == guid &&
+                                info.Description.IndexOf(adapterName, StringComparison.OrdinalIgnoreCase) >= 0)
+                                return guid;
+                        }
+                    }
+                    finally { WlanFreeMemory(listPtr); }
+                }
+            }
+            return interfaces.Count > 0 ? interfaces[0] : Guid.Empty;
+        }
+
+        private static (bool connected, string ssid, string profile) QueryCurrentConnection(IntPtr handle, Guid guid)
+        {
             try
             {
+                IntPtr data = IntPtr.Zero;
+                uint rc = WlanQueryInterface(handle, ref guid, 7 /* current_connection */, IntPtr.Zero,
+                    out _, out data, out _);
+                if (rc != 0 || data == IntPtr.Zero)
+                    return (false, string.Empty, new Win32Exception((int)rc).Message);
+
+                try
+                {
+                    var attr = Marshal.PtrToStructure<WLAN_CONNECTION_ATTRIBUTES_MIN>(data);
+                    int length = (int)Math.Min(attr.Ssid.Length, 32);
+                    string ssid = length > 0 && attr.Ssid.Bytes != null
+                        ? Encoding.UTF8.GetString(attr.Ssid.Bytes, 0, length)
+                        : string.Empty;
+                    return (attr.State == 1, ssid, attr.Profile ?? string.Empty);
+                }
+                finally { WlanFreeMemory(data); }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NativeWlan] query current connection failed: {ex.Message}");
+                return (false, string.Empty, string.Empty);
+            }
+        }
+
+        internal static (bool connected, string ssid) GetCurrentConnection(string? adapterName = null)
+        {
+            if (!TryOpen(out var handle, out var interfaces)) return (false, string.Empty);
+            try
+            {
+                var guid = SelectInterface(interfaces, adapterName, handle);
+                if (guid == Guid.Empty) return (false, string.Empty);
+                var (connected, ssid, _) = QueryCurrentConnection(handle, guid);
+                return (connected, ssid);
+            }
+            finally { WlanCloseHandle(handle, IntPtr.Zero); }
+        }
+
+        internal static async Task<(bool success, string message)> ConnectToProfileAsync(
+            string profileName, string? adapterName = null, int timeoutMs = 6000)
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return (false, "Invalid profile name.");
+            if (!TryOpen(out var handle, out var interfaces))
+                return (false, "Native WLAN API is unavailable; using netsh fallback.");
+
+            try
+            {
+                var guid = SelectInterface(interfaces, adapterName, handle);
+                if (guid == Guid.Empty) return (false, "No Wi-Fi adapter found.");
+
                 var parameters = new WLAN_CONNECTION_PARAMETERS
                 {
                     Mode = 0,
@@ -242,25 +334,43 @@ namespace WifiAnalyzerHotspot.Services
                     BssType = 1, // infrastructure
                     Flags = 0
                 };
-                var ifaceGuid = interfaces[0];
-                return WlanConnect(handle, ref ifaceGuid, ref parameters, IntPtr.Zero);
+                uint error = WlanConnect(handle, ref guid, ref parameters, IntPtr.Zero);
+                if (error != 0)
+                    return (false, new Win32Exception((int)error).Message);
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                string lastSsid = string.Empty;
+                while (DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(400).ConfigureAwait(false);
+                    var (connected, ssid, profile) = QueryCurrentConnection(handle, guid);
+                    lastSsid = ssid;
+                    if (connected && (ssid.Equals(profileName, StringComparison.OrdinalIgnoreCase) ||
+                                      profile.Equals(profileName, StringComparison.OrdinalIgnoreCase)))
+                        return (true, $"Connected to '{profileName}'.");
+                }
+                return (false, string.IsNullOrWhiteSpace(lastSsid)
+                    ? "Connection did not complete."
+                    : $"Connection not confirmed (current network: {lastSsid}).");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[NativeWlan] connect failed: {ex.Message}");
-                return 1;
+                return (false, $"Connection failed: {ex.Message}");
             }
             finally { WlanCloseHandle(handle, IntPtr.Zero); }
         }
 
         private static string MapAuth(uint algorithm, bool secured)
         {
+            // DOT11_AUTH_ALGORITHM values used by the WLAN API.
             return algorithm switch
             {
-                1 => "Open",
-                5 => "WPA-Personal",
-                7 => "WPA2-Personal",
-                9 or 11 => "WPA3-Personal",
+                1 or 2 => "Open",
+                3 or 4 => "WPA-Personal",
+                5 => "WPA2-Enterprise",
+                6 => "WPA2-Personal",
+                7 => "WPA3-Enterprise",
+                8 or 9 => "WPA3-Personal",
                 _ => secured ? "WPA2-Personal" : "Open"
             };
         }

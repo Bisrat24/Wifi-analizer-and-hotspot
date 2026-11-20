@@ -223,21 +223,20 @@ foreach ($a in $wifi) {
             {
                 try
                 {
-                    uint error = NativeWlanService.ConnectToProfile(profileName);
-                    if (error != 0)
-                    {
-                        // Fallback for drivers that reject WlanConnect.
-                        var args = new List<string> { "wlan", "connect", $"name={profileName}" };
-                        if (!string.IsNullOrWhiteSpace(adapterName)) args.Add($"interface={adapterName}");
-                        RunCmd("netsh", args.ToArray());
-                    }
-                    await Task.Delay(1500);
+                    var native = await NativeWlanService.ConnectToProfileAsync(profileName, adapterName);
+                    if (native.success) return native;
 
-                    string connected = new WifiScannerService().GetConnectedInterfaceInfo().Ssid ?? string.Empty;
-                    if (connected.Equals(profileName, StringComparison.OrdinalIgnoreCase))
+                    // Fallback for drivers that reject WlanConnect.
+                    var args = new List<string> { "wlan", "connect", $"name={profileName}" };
+                    if (!string.IsNullOrWhiteSpace(adapterName)) args.Add($"interface={adapterName}");
+                    RunCmd("netsh", args.ToArray());
+                    await Task.Delay(1000);
+
+                    var (connected, currentSsid) = await Task.Run(() => NativeWlanService.GetCurrentConnection(adapterName));
+                    if (connected && (currentSsid.Equals(profileName, StringComparison.OrdinalIgnoreCase)))
                         return (true, $"Fast-connected to '{profileName}'.");
 
-                    return (false, $"Could not confirm connection to '{profileName}' (current: {connected}).");
+                    return (false, $"Could not confirm connection to '{profileName}'. {native.message}");
                 }
                 catch (Exception ex)
                 {
@@ -265,8 +264,10 @@ foreach ($a in $wifi) {
                 string tempProfilePath = Path.Combine(Path.GetTempPath(), $"sec_wifi_{Guid.NewGuid():N}.xml");
                 try
                 {
-                    bool isOpen = string.IsNullOrWhiteSpace(password) ||
-                                  authType.Equals("Open", StringComparison.OrdinalIgnoreCase);
+                    bool requestedOpen = authType.Equals("Open", StringComparison.OrdinalIgnoreCase);
+                    bool isOpen = requestedOpen || string.IsNullOrWhiteSpace(password);
+                    if (!requestedOpen && string.IsNullOrWhiteSpace(password))
+                        return (false, "A security key is required for this network.");
 
                     string xmlAuth = "WPA2PSK";
                     string xmlEnc = "AES";
@@ -356,19 +357,19 @@ foreach ($a in $wifi) {
                         RunCmd("netsh", addArgs.ToArray());
 
                         // Native connect with netsh fallback, then verify the actual SSID.
-                        uint error = NativeWlanService.ConnectToProfile(ssid);
-                        if (error != 0)
+                        var native = await NativeWlanService.ConnectToProfileAsync(ssid, adapterName);
+                        if (!native.success)
                         {
                             var connArgs = new List<string> { "wlan", "connect", $"name={ssid}" };
                             if (!string.IsNullOrWhiteSpace(adapterName))
                                 connArgs.Add($"interface={adapterName}");
                             RunCmd("netsh", connArgs.ToArray());
+                            await Task.Delay(1000);
                         }
-                        await Task.Delay(1500);
 
-                        string connected = new WifiScannerService().GetConnectedInterfaceInfo().Ssid ?? string.Empty;
-                        if (!connected.Equals(ssid, StringComparison.OrdinalIgnoreCase))
-                            return (false, $"Profile saved for '{ssid}' but connection could not be confirmed (current: {connected}).");
+                        var (connected, currentSsid) = await Task.Run(() => NativeWlanService.GetCurrentConnection(adapterName));
+                        if (!connected || !currentSsid.Equals(ssid, StringComparison.OrdinalIgnoreCase))
+                            return (false, $"Profile saved for '{ssid}' but connection could not be confirmed. {native.message}");
 
                         return (true, $"Saved profile and connected to '{ssid}'.");
                     }
