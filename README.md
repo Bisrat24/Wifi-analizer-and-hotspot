@@ -1,6 +1,13 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.9)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.10)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🔧 What's New in v1.6.10: Hotspot Settings Access Fix
+
+- Replaced hover-only drawer behavior with explicit **Hotspot Settings** and **Hide** buttons, so settings are always reachable.
+- The compact ⚙ tab also opens the drawer with a click.
 
 ---
 
