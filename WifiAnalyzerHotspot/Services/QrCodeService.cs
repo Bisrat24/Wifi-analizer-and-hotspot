@@ -125,7 +125,7 @@ namespace WifiAnalyzerHotspot.Services
             return poly;
         }
 
-        private static byte[] CalculateReedSolomon(byte[] data, int ecCount)
+        internal static byte[] CalculateReedSolomon(byte[] data, int ecCount)
         {
             byte[] gen = GenerateRsPolynomial(ecCount);
             byte[] rem = new byte[ecCount];
@@ -135,9 +135,9 @@ namespace WifiAnalyzerHotspot.Services
                 byte lead = (byte)(b ^ rem[0]);
                 for (int j = 0; j < ecCount - 1; j++)
                 {
-                    rem[j] = (byte)(rem[j + 1] ^ GfMultiply(gen[ecCount - 1 - j], lead));
+                    rem[j] = (byte)(rem[j + 1] ^ GfMultiply(gen[j + 1], lead));
                 }
-                rem[ecCount - 1] = GfMultiply(gen[0], lead);
+                rem[ecCount - 1] = GfMultiply(gen[ecCount], lead);
             }
             return rem;
         }
@@ -429,10 +429,10 @@ namespace WifiAnalyzerHotspot.Services
             matrix[1, 8] = bits[13] == 1;
             matrix[0, 8] = bits[14] == 1;
 
-            // Bottom-left: bits 8..14 at rows dim-1 down to dim-7 (dark module sits at dim-8)
+            // Bottom-left: bit 8 at row dim-7, bit 14 at row dim-1 (dark module sits at dim-8)
             for (int i = 0; i < 7; i++)
             {
-                matrix[dim - 1 - i, 8] = bits[8 + i] == 1;
+                matrix[dim - 7 + i, 8] = bits[8 + i] == 1;
             }
 
             // Top-right: bits 0..7 at columns dim-1 down to dim-8

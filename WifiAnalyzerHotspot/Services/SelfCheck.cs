@@ -90,8 +90,29 @@ namespace WifiAnalyzerHotspot.Services
                 int v7dim = v7!.GetLength(0);
                 Expect(v7[v7dim - 8, 8], "dark module must be dark");
                 Expect(v7[8, v7dim - 2], "top-right format bit 1 must be dark");
-                Expect(v7[v7dim - 3, 8], "bottom-left format bit 10 must be dark");
+                Expect(v7[v7dim - 7, 8], "bottom-left format bit 8 must be dark");
+                Expect(v7[v7dim - 5, 8], "bottom-left format bit 10 must be dark");
+                Expect(v7[v7dim - 1, 8], "bottom-left format bit 14 must be dark");
                 Expect(v7[0, v7dim - 9], "version 7 info bit 2 must be dark");
+            }, failures);
+
+            Check("Reed-Solomon syndrome is zero", () =>
+            {
+                byte[] data = System.Text.Encoding.ASCII.GetBytes("0123456789ABCDEF");
+                byte[] ec = QrCodeService.CalculateReedSolomon(data, 10);
+                Expect(ec.Length == 10, "ec length");
+                var code = new byte[data.Length + ec.Length];
+                Array.Copy(data, code, data.Length);
+                Array.Copy(ec, 0, code, data.Length, ec.Length);
+
+                int alpha = 1;
+                for (int i = 0; i < 10; i++)
+                {
+                    int sum = 0;
+                    foreach (byte c in code) sum = GfMul(sum, alpha) ^ c;
+                    Expect(sum == 0, $"syndrome {i} = {sum}");
+                    alpha = GfMul(alpha, 2);
+                }
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
@@ -104,6 +125,20 @@ namespace WifiAnalyzerHotspot.Services
             foreach (string failure in failures) Debug.WriteLine($"[SelfCheck] FAILED: {failure}");
             System.IO.File.WriteAllText(logPath, string.Join(Environment.NewLine, failures));
             return false;
+        }
+
+        private static int GfMul(int a, int b)
+        {
+            int result = 0;
+            while (b != 0)
+            {
+                if ((b & 1) != 0) result ^= a;
+                bool high = (a & 0x80) != 0;
+                a = (a << 1) & 0xFF;
+                if (high) a ^= 0x1D;
+                b >>= 1;
+            }
+            return result;
         }
 
         private static void Check(string name, Action body, List<string> failures)
