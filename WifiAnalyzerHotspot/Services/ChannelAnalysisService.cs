@@ -10,6 +10,8 @@ namespace WifiAnalyzerHotspot.Services
     {
         private static readonly int[] Standard24GChannels = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
         private static readonly int[] Standard5GChannels = new[] { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 };
+        public static readonly int[] Standard6GChannels = new[] { 1, 5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229, 233 };
+        public static readonly HashSet<int> PreferredScanningChannels6G = new() { 5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229 };
 
         /// <summary>
         /// Analyzes 2.4 GHz channels and calculates congestion, co-channel & adjacent interference, and ratings.
@@ -126,6 +128,73 @@ namespace WifiAnalyzerHotspot.Services
                 best5G.IsRecommended = true;
                 best5G.StatusText = "Best 5 GHz Choice (Cleanest)";
                 best5G.BadgeBrush = Brushes.LimeGreen;
+            }
+
+            return ratings;
+        }
+
+        /// <summary>
+        /// Analyzes 6 GHz (Wi-Fi 6E / Wi-Fi 7) channels and calculates ratings with Preferred Scanning Channel (PSC) prioritization.
+        /// </summary>
+        public List<ChannelRating> Analyze6GChannels(IEnumerable<WifiNetwork> networks)
+        {
+            var netList = networks.Where(n => (n.Band != null && n.Band.Contains("6")) || n.FrequencyMHz >= 5925).ToList();
+            var ratings = new List<ChannelRating>();
+
+            foreach (var ch in Standard6GChannels)
+            {
+                int coChannel = 0;
+                int overlap = 0;
+                double penalty = 0;
+                bool isPsc = PreferredScanningChannels6G.Contains(ch);
+
+                foreach (var net in netList)
+                {
+                    int diff = Math.Abs(net.Channel - ch);
+                    double weight = Math.Max(0.1, (net.SignalPercent / 100.0));
+
+                    if (diff == 0)
+                    {
+                        coChannel++;
+                        penalty += 20 * weight;
+                    }
+                    else if (diff <= 16 && (net.ChannelWidthMHz >= 80 || net.ChannelWidthMHz == 0))
+                    {
+                        overlap++;
+                        penalty += 8 * weight;
+                    }
+                }
+
+                int score = Math.Max(0, (int)Math.Round(100 - penalty));
+                var rating = new ChannelRating
+                {
+                    Channel = ch,
+                    Band = "6 GHz",
+                    Score = score,
+                    CoChannelCount = coChannel,
+                    OverlapCount = overlap
+                };
+
+                FormatRating(rating, isPrimary24G: false);
+                if (isPsc && rating.Score >= 60)
+                {
+                    rating.StatusText = rating.Score >= 85 ? "Clear (PSC Fast Beacon)" : "PSC (Low Congestion)";
+                }
+                ratings.Add(rating);
+            }
+
+            // Prioritize Preferred Scanning Channels (PSC) for recommended recommendation
+            var best6G = ratings
+                .Where(r => PreferredScanningChannels6G.Contains(r.Channel))
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => r.CoChannelCount)
+                .FirstOrDefault() ?? ratings.OrderByDescending(r => r.Score).FirstOrDefault();
+
+            if (best6G != null)
+            {
+                best6G.IsRecommended = true;
+                best6G.StatusText = "Best 6 GHz Choice (Cleanest PSC)";
+                best6G.BadgeBrush = Brushes.LimeGreen;
             }
 
             return ratings;

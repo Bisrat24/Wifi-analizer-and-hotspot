@@ -152,19 +152,23 @@ namespace WifiAnalyzerHotspot.Controls
                 dc.DrawText(label, new Point(leftMargin - label.Width - 8, y - (label.Height / 2)));
             }
 
-            bool is24G = !(SelectedBand ?? "").Contains("5");
+            bool is6G = (SelectedBand ?? "").Contains("6");
+            bool is5G = (SelectedBand ?? "").Contains("5") && !is6G;
+            bool is24G = !is6G && !is5G;
 
             // Setup X-Axis Channels
-            // Extra margin on minCh/maxCh ensures edge channels (CH 1, CH 14, CH 36, CH 165)
-            // have enough room so their ±2 channel skirts don't extend off-canvas.
-            List<int> channelList = is24G
-                ? new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }
-                : new List<int> { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 };
+            // 2.4 GHz: channels 1-14
+            // 5 GHz: standard UNII-1/2/3 channels 36-165
+            // 6 GHz: channels 1-233 (focusing on the 15 Preferred Scanning Channels (PSC) spaced every 16 channels, plus boundaries)
+            List<int> channelList = is6G
+                ? new List<int> { 1, 5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229, 233 }
+                : is24G
+                    ? new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }
+                    : new List<int> { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 };
 
-            // Extend virtual channel range by 2.5 ch units on each side so that the skirt of
-            // CH 1 (leftmost) and CH 14/165 (rightmost) always fits inside the drawn graph area.
-            double minCh = is24G ? -1.5 : 29.5;
-            double maxCh = is24G ? 16.5 : 172.0;
+            // Extend virtual channel range by margin units on each side so that edge channel skirts fit inside the graph
+            double minCh = is6G ? -6.0 : is24G ? -1.5 : 29.5;
+            double maxCh = is6G ? 240.0 : is24G ? 16.5 : 172.0;
 
             // Helper: raw channel position (may be outside graph for edge channels — see clamp below)
             Func<double, double> channelToX = ch =>
@@ -178,18 +182,22 @@ namespace WifiAnalyzerHotspot.Controls
             foreach (var ch in channelList)
             {
                 double x = channelToX(ch);
-                bool isPrimary = is24G && (ch == 1 || ch == 6 || ch == 11);
+                bool isPrimary = (is24G && (ch == 1 || ch == 6 || ch == 11)) || (is6G && (ch % 16 == 5));
 
                 dc.DrawLine(isPrimary ? PrimaryPen : GridPen, new Point(x, topMargin), new Point(x, topMargin + graphH));
 
                 var chBrush = isPrimary ? PrimaryChBrush : TextBrush;
 
+                string labelStr = is6G
+                    ? (ch % 16 == 5 ? $"{ch}★" : $"{ch}")
+                    : is24G ? $"CH {ch}" : $"{ch}";
+
                 var chText = new FormattedText(
-                    is24G ? $"CH {ch}" : $"{ch}",
+                    labelStr,
                     CultureInfo.CurrentCulture,
                     FlowDirection.LeftToRight,
                     isPrimary ? FontBold : FontNormal,
-                    is24G ? 11 : 10,
+                    is24G ? 11 : 9,
                     chBrush,
                     1.25);
 
@@ -201,8 +209,9 @@ namespace WifiAnalyzerHotspot.Controls
 
             // Filter visible networks (matching band or channel number)
             var visibleNetworks = (Networks ?? Enumerable.Empty<WifiNetwork>())
-                .Where(n => is24G ? (n.Band.Contains("2.4") || (n.Channel >= 1 && n.Channel <= 14))
-                                  : (n.Band.Contains("5") || n.Channel > 14))
+                .Where(n => is6G ? (n.Band.Contains("6") || n.FrequencyMHz >= 5925 || (n.Channel >= 1 && n.Channel <= 233 && n.Band.Contains("6")))
+                          : is24G ? ((n.Band.Contains("2.4") || (n.Channel >= 1 && n.Channel <= 14)) && !n.Band.Contains("6"))
+                          : ((n.Band.Contains("5") || (n.Channel > 14 && n.Channel <= 177)) && !n.Band.Contains("6")))
                 .OrderBy(n => n.Rssi) // Draw weaker networks first, so stronger appear in front
                 .ToList();
 
@@ -220,7 +229,9 @@ namespace WifiAnalyzerHotspot.Controls
                 // Channel width span in channel units
                 double chWidthSpan = is24G
                     ? (net.ChannelWidthMHz >= 40 ? 8.0 : 4.0)
-                    : (net.ChannelWidthMHz >= 160 ? 32.0 : net.ChannelWidthMHz >= 80 ? 16.0 : net.ChannelWidthMHz >= 40 ? 8.0 : 4.0);
+                    : is6G
+                        ? (net.ChannelWidthMHz >= 320 ? 64.0 : net.ChannelWidthMHz >= 160 ? 32.0 : net.ChannelWidthMHz >= 80 ? 16.0 : net.ChannelWidthMHz >= 40 ? 8.0 : 4.0)
+                        : (net.ChannelWidthMHz >= 160 ? 32.0 : net.ChannelWidthMHz >= 80 ? 16.0 : net.ChannelWidthMHz >= 40 ? 8.0 : 4.0);
 
                 // Raw (unclamped) curve extents
                 double rawLeftX  = channelToX(net.Channel - (chWidthSpan / 2.0));
@@ -428,7 +439,9 @@ namespace WifiAnalyzerHotspot.Controls
             }
 
             // Legend / Top Band Title & Count
-            string bandTitle = is24G ? "2.4 GHz Band (Channels 1 - 14)" : "5 GHz Band (Channels 36 - 165)";
+            string bandTitle = is6G
+                ? "6 GHz Band — Wi-Fi 6E / Wi-Fi 7 (Channels 1 - 233, ★ = PSC)"
+                : is24G ? "2.4 GHz Band (Channels 1 - 14)" : "5 GHz Band (Channels 36 - 165)";
             var titleText = new FormattedText(
                 bandTitle,
                 CultureInfo.CurrentCulture,

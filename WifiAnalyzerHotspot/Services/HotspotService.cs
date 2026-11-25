@@ -2925,6 +2925,42 @@ Remove-NetQosPolicy -Name 'Hotspot_Pause_Out_{cleanMac}' -Confirm:$false -ErrorA
             });
         }
 
+        /// <summary>
+        /// Enables or disables station-to-station guest isolation for the Mobile Hotspot.
+        /// Blocks peer-to-peer traffic between client stations (192.168.137.2-192.168.137.254)
+        /// while permitting unrestricted communication with the host gateway/DNS/DHCP (192.168.137.1) and WAN.
+        /// </summary>
+        public static async Task SetGuestIsolationAsync(bool enable)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    // Clean up any existing guest isolation rules
+                    RunCommand("netsh", "advfirewall firewall delete rule name=\"Hotspot_Guest_Isolation_In\"");
+                    RunCommand("netsh", "advfirewall firewall delete rule name=\"Hotspot_Guest_Isolation_Out\"");
+
+                    if (enable)
+                    {
+                        // Add rules blocking station-to-station traffic within ICS client range
+                        RunCommand("netsh", "advfirewall firewall add rule name=\"Hotspot_Guest_Isolation_In\" dir=in action=block localip=192.168.137.2-192.168.137.254 remoteip=192.168.137.2-192.168.137.254");
+                        RunCommand("netsh", "advfirewall firewall add rule name=\"Hotspot_Guest_Isolation_Out\" dir=out action=block localip=192.168.137.2-192.168.137.254 remoteip=192.168.137.2-192.168.137.254");
+
+                        SystemRestoreService.Stage("hotspot_guest_isolation",
+                            "netsh advfirewall firewall delete rule name='Hotspot_Guest_Isolation_In'; netsh advfirewall firewall delete rule name='Hotspot_Guest_Isolation_Out'");
+                    }
+                    else
+                    {
+                        SystemRestoreService.Release("hotspot_guest_isolation");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"SetGuestIsolationAsync error: {ex.Message}");
+                }
+            });
+        }
+
         private static string RunCommand(string exe, string args)
         {
             try

@@ -140,6 +140,41 @@ namespace WifiAnalyzerHotspot.Services
                 }
             }, failures);
 
+            Check("6 GHz frequency calculation", () =>
+            {
+                Expect(WifiScannerService.ChannelToFrequency(1, "6 GHz") == 5955, "CH 1 must be 5955 MHz");
+                Expect(WifiScannerService.ChannelToFrequency(5, "6 GHz") == 5975, "CH 5 (PSC) must be 5975 MHz");
+                Expect(WifiScannerService.ChannelToFrequency(233, "6 GHz") == 7115, "CH 233 must be 7115 MHz");
+            }, failures);
+
+            Check("6 GHz channel analysis and PSC", () =>
+            {
+                var service = new ChannelAnalysisService();
+                var mockNet = new WifiNetwork
+                {
+                    Ssid = "Test6G",
+                    Band = "6 GHz",
+                    Channel = 5,
+                    SignalPercent = 90,
+                    ChannelWidthMHz = 160,
+                    FrequencyMHz = 5975
+                };
+                var ratings = service.Analyze6GChannels(new[] { mockNet });
+                Expect(ratings.Count == ChannelAnalysisService.Standard6GChannels.Length, "rating count mismatch");
+                var ch5 = ratings.Find(r => r.Channel == 5);
+                Expect(ch5 != null && ch5.CoChannelCount == 1, "CH 5 co-channel count mismatch");
+                Expect(ChannelAnalysisService.PreferredScanningChannels6G.Contains(5), "CH 5 must be in PSC set");
+                Expect(ChannelAnalysisService.PreferredScanningChannels6G.Contains(229), "CH 229 must be in PSC set");
+            }, failures);
+
+            Check("Hotspot Guest Isolation property and defaults", () =>
+            {
+                var model = new HotspotModel();
+                Expect(!model.IsGuestIsolationEnabled, "Guest isolation must default to false");
+                model.IsGuestIsolationEnabled = true;
+                Expect(model.IsGuestIsolationEnabled, "Guest isolation state change failed");
+            }, failures);
+
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
             if (failures.Count == 0)
             {

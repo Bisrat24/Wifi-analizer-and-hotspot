@@ -333,6 +333,13 @@ namespace WifiAnalyzerHotspot.Models
             set { _keepHotspotAlive = value; OnPropertyChanged(); }
         }
 
+        private bool _isGuestIsolationEnabled = false;
+        public bool IsGuestIsolationEnabled
+        {
+            get => _isGuestIsolationEnabled;
+            set { _isGuestIsolationEnabled = value; OnPropertyChanged(); }
+        }
+
         public string UptimeText
         {
             get => _uptimeText;

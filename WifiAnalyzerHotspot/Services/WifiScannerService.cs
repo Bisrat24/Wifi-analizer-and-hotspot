@@ -361,7 +361,14 @@ namespace WifiAnalyzerHotspot.Services
                 // Ensure Band is ALWAYS populated for every network!
                 if (string.IsNullOrEmpty(net.Band))
                 {
-                    net.Band = net.Channel > 14 ? "5 GHz" : "2.4 GHz";
+                    if (net.FrequencyMHz >= 5925 || (net.Channel >= 1 && net.Channel <= 233 && (net.RadioType.Contains("Wi-Fi 7") || net.RadioType.Contains("Wi-Fi 6E"))))
+                    {
+                        net.Band = "6 GHz";
+                    }
+                    else
+                    {
+                        net.Band = net.Channel > 14 ? "5 GHz" : "2.4 GHz";
+                    }
                 }
             }
 
@@ -372,8 +379,8 @@ namespace WifiAnalyzerHotspot.Services
         private static string FormatRadioType(string rawRadio)
         {
             rawRadio = rawRadio.Trim();
-            if (rawRadio.Contains("802.11ax", StringComparison.OrdinalIgnoreCase)) return "802.11ax (Wi-Fi 6)";
             if (rawRadio.Contains("802.11be", StringComparison.OrdinalIgnoreCase)) return "802.11be (Wi-Fi 7)";
+            if (rawRadio.Contains("802.11ax", StringComparison.OrdinalIgnoreCase)) return "802.11ax (Wi-Fi 6/6E)";
             if (rawRadio.Contains("802.11ac", StringComparison.OrdinalIgnoreCase)) return "802.11ac (Wi-Fi 5)";
             if (rawRadio.Contains("802.11n", StringComparison.OrdinalIgnoreCase)) return "802.11n (Wi-Fi 4)";
             if (rawRadio.Contains("802.11g", StringComparison.OrdinalIgnoreCase)) return "802.11g";
@@ -382,9 +389,13 @@ namespace WifiAnalyzerHotspot.Services
             return rawRadio;
         }
 
-        public static int ChannelToFrequency(int channel, string band)
+        public static int ChannelToFrequency(int channel, string band = "")
         {
-            if (channel >= 1 && channel <= 14)
+            if ((band != null && band.Contains("6")) || channel > 177)
+            {
+                return 5950 + (channel * 5); // 6 GHz band: ch 1 = 5955 MHz, ch 5 = 5975 MHz, etc.
+            }
+            if (channel >= 1 && channel <= 14 && (band == null || !band.Contains("6")))
             {
                 return channel == 14 ? 2484 : 2407 + (channel * 5);
             }
@@ -397,6 +408,12 @@ namespace WifiAnalyzerHotspot.Services
 
         public static int EstimateChannelWidth(string radioType, string band, int channel)
         {
+            // On 6 GHz, wide channels (80/160/320 MHz) are standard
+            if (band.Contains("6"))
+            {
+                if (radioType.Contains("Wi-Fi 7") || radioType.Contains("802.11be")) return 160;
+                return 80;
+            }
             // On 2.4 GHz, 20 MHz is standard (40 MHz in 2.4 GHz is rarely deployed due to severe interference)
             if (band.Contains("2.4") || (channel >= 1 && channel <= 14))
             {

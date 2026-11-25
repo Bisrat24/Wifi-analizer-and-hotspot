@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.0] - 2026-11-25
+
+### Added
+- Wi-Fi 6E & Wi-Fi 7 (6 GHz Band) Spectrum Visualization: full channel grid (channels 1–233, 5.925–7.125 GHz) on `SpectrumCanvas`, up to 320 MHz channel width curve spans, Preferred Scanning Channels (PSC: 5, 21, ..., 229 with `★`), and Analyzer tab `6 GHz (6E/7)` filter button.
+- 6 GHz RF Channel Analysis & Star Ratings: dedicated 6 GHz rating grid evaluating co-channel and wide channel overlap penalties, with automatic PSC cleanest channel recommendations.
+- Station-to-Station Guest Isolation for Mobile Hotspot: client-to-client firewall isolation blocking peer-to-peer traffic across the `192.168.137.2-192.168.137.254` ICS range via Windows Defender Firewall (`Hotspot_Guest_Isolation_In` / `Hotspot_Guest_Isolation_Out`), while preserving gateway (`192.168.137.1`), DNS, DHCP, and WAN access.
+- UI control for Guest Isolation in Hotspot Settings overlay with persistent configuration in `AppSettingsModel` and atomic cleanup staging via `SystemRestoreService`.
+- Self-check test cases covering 6 GHz channel-to-frequency mappings, PSC recognition, and Hotspot Guest Isolation state machine defaults.
+
+---
+
 ## [v1.6.13] - 2026-11-20
 
 ### Fixed

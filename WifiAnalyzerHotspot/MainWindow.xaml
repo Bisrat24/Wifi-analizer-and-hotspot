@@ -603,6 +603,13 @@
                             <TextBlock Text="5 GHz" FontWeight="Bold"/>
                         </Button>
 
+                        <Button Command="{Binding SetBandCommand}" CommandParameter="6 GHz"
+                                Background="{Binding SelectedBand, Converter={StaticResource BandBrushConv}, ConverterParameter=6 GHz}"
+                                Foreground="{Binding SelectedBand, Converter={StaticResource BandFgConv}, ConverterParameter=6 GHz}"
+                                Style="{StaticResource ModernBtn}" Height="30" Padding="12,4" Margin="0,0,6,0">
+                            <TextBlock Text="6 GHz (6E/7)" FontWeight="Bold"/>
+                        </Button>
+
                         <Button Command="{Binding SetBandCommand}" CommandParameter="All"
                                 Background="{Binding SelectedBand, Converter={StaticResource BandBrushConv}, ConverterParameter=All}"
                                 Foreground="{Binding SelectedBand, Converter={StaticResource BandFgConv}, ConverterParameter=All}"
@@ -828,6 +835,60 @@
                         <TextBlock Text="5 GHz Channels (High-Speed Bands)" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20" Padding="0">
                             <DataGrid ItemsSource="{Binding Ratings5G}" AutoGenerateColumns="False"
+                                      IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                                      Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
+                                      GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1E2436"
+                                      RowBackground="#141724" AlternatingRowBackground="#111420"
+                                      Foreground="#E2E8F0" FontSize="12">
+
+                                <DataGrid.ColumnHeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader">
+                                        <Setter Property="Background" Value="#171C2B"/>
+                                        <Setter Property="Foreground" Value="#8F9EBC"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                        <Setter Property="Padding" Value="10,8"/>
+                                        <Setter Property="BorderBrush" Value="#252D45"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    </Style>
+                                </DataGrid.ColumnHeaderStyle>
+
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="CHANNEL" Binding="{Binding Channel, StringFormat='Channel {0}'}" FontWeight="Bold" Width="95"/>
+                                    <DataGridTextColumn Header="STARS" Binding="{Binding Stars}" Foreground="#FFEA00" Width="95"/>
+                                    
+                                    <DataGridTemplateColumn Header="SCORE" Width="150">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Grid VerticalAlignment="Center" Margin="4,0">
+                                                    <ProgressBar Height="8" Maximum="100" Value="{Binding Score}"
+                                                                 Foreground="{Binding BadgeBrush}" Background="#252C42" BorderThickness="0"/>
+                                                    <TextBlock Text="{Binding Score, StringFormat='{}{0}/100'}"
+                                                               FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                                                               HorizontalAlignment="Right" Margin="0,-18,0,0"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+
+                                    <DataGridTextColumn Header="SAME CHANNEL APs" Binding="{Binding CoChannelCount}" Width="135"/>
+                                    <DataGridTextColumn Header="OVERLAPPING APs" Binding="{Binding OverlapCount}" Width="135"/>
+                                    
+                                    <DataGridTemplateColumn Header="STATUS / RECOMMENDATION" Width="*">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#1A2133" CornerRadius="4" Padding="8,3" HorizontalAlignment="Left">
+                                                    <TextBlock Text="{Binding StatusText}" Foreground="{Binding BadgeBrush}" FontWeight="SemiBold"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Border>
+
+                        <TextBlock Text="6 GHz Channels — Wi-Fi 6E &amp; 7 (PSC &amp; Ultra-Wide Spectrum)" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20" Padding="0">
+                            <DataGrid ItemsSource="{Binding Ratings6G}" AutoGenerateColumns="False"
                                       IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
                                       Background="Transparent" BorderThickness="0" HeadersVisibility="Column"
                                       GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1E2436"
@@ -1956,6 +2017,21 @@
                                             </Button>
                                         </Grid>
                                     </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Station-to-Station Guest Isolation Card -->
+                            <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding Hotspot.IsGuestIsolationEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x1F6E1;&#xFE0F;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E5FF"/>
+                                                <TextBlock Text="Station / Guest Isolation (Client-to-Client Blocking)" FontWeight="SemiBold" FontSize="12" Foreground="#00E5FF"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Blocks peer-to-peer traffic between connected hotspot devices while allowing full access to the Internet and host gateway." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
                                 </StackPanel>
                             </Border>
 

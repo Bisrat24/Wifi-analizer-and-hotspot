@@ -1,6 +1,15 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.13)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.7.0)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## ⚡ What's New in v1.7.0: Wi-Fi 6E / Wi-Fi 7 Spectrum & Hotspot Guest Isolation
+
+- **Wi-Fi 6E & Wi-Fi 7 (6 GHz Band) Spectrum Canvas:** Channel grid for channels 1–233 (5.925–7.125 GHz), 80/160/320 MHz channel width support, Preferred Scanning Channels (PSC: 5, 21, ..., 229 with `★`), and dedicated `6 GHz (6E/7)` toolbar filter button.
+- **6 GHz Channel Congestion & Ratings:** RF rating engine analyzing 6 GHz spectrum with co-channel and wide-channel overlap penalties and PSC prioritization.
+- **Station-to-Station Guest Isolation:** Mobile Hotspot client-to-client isolation blocking peer-to-peer snooping across `192.168.137.2-192.168.137.254` while preserving gateway (`192.168.137.1`), DNS, DHCP, and internet forwarding. Toggleable in Hotspot Settings overlay with persistent state and `SystemRestoreService` crash recovery.
+- **Self-Check Test Expansion:** Integrated automated validation for 6 GHz frequency calculations, PSC discovery, and isolation state defaults.
 
 ---
 

@@ -579,6 +579,14 @@ namespace WifiAnalyzerHotspot.Models
             set { _reconnectLogLimit = value; OnPropertyChanged(); }
         }
 
+        // ==================== GUEST STATION ISOLATION ====================
+        private bool _isHotspotGuestIsolationEnabled = false;
+        public bool IsHotspotGuestIsolationEnabled
+        {
+            get => _isHotspotGuestIsolationEnabled;
+            set { _isHotspotGuestIsolationEnabled = value; OnPropertyChanged(); }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? prop = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));

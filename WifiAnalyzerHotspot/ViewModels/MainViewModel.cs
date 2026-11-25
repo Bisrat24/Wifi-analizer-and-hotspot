@@ -83,6 +83,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ObservableCollection<WifiNetwork> FilteredNetworks { get; } = new();
         public ObservableCollection<ChannelRating> Ratings24G { get; } = new();
         public ObservableCollection<ChannelRating> Ratings5G { get; } = new();
+        public ObservableCollection<ChannelRating> Ratings6G { get; } = new();
         public ObservableCollection<string> AvailableHotspotChannels { get; } = new();
         public ObservableCollection<RssiHistoryPoint> RssiHistory { get; } = new();
         public List<string> QosLimitOptions { get; } = new() { "Unlimited", "30 KB/s", "100 KB/s", "300 KB/s", "1 Mbps", "2 Mbps", "5 Mbps", "10 Mbps", "20 Mbps" };
@@ -516,6 +517,15 @@ namespace WifiAnalyzerHotspot.ViewModels
             HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
             Hotspot.IsZeroLatencyDnsEnabled = _settings.EnableZeroLatencyDns;
             Hotspot.IsAutoSteerEnabled = _settings.EnableAutoSteer;
+            Hotspot.IsGuestIsolationEnabled = _settings.IsHotspotGuestIsolationEnabled;
+            if (Hotspot.IsGuestIsolationEnabled)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(4000);
+                    await HotspotService.SetGuestIsolationAsync(true);
+                });
+            }
 
             // Load and restore paused clients
             if (_settings.PausedClients != null)
@@ -709,6 +719,21 @@ namespace WifiAnalyzerHotspot.ViewModels
                         var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
                         Hotspot.AutoSteerRecommendation = rec.Advice;
                     }
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsGuestIsolationEnabled))
+                {
+                    _settings.IsHotspotGuestIsolationEnabled = Hotspot.IsGuestIsolationEnabled;
+                    _settingsService.SaveSettings(_settings);
+                    _ = Task.Run(async () =>
+                    {
+                        await HotspotService.SetGuestIsolationAsync(Hotspot.IsGuestIsolationEnabled);
+                        Dispatch(() =>
+                        {
+                            Hotspot.StatusMessage = Hotspot.IsGuestIsolationEnabled
+                                ? "🛡️ Client Station Isolation active (Peer-to-peer traffic blocked on Hotspot subnet)"
+                                : "Station Isolation disabled (Standard local LAN forwarding enabled)";
+                        });
+                    });
                 }
             };
 
@@ -1927,6 +1952,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 var scanResults = await _scannerService.ScanNetworksAsync();
                 var ratings24 = await Task.Run(() => _analysisService.Analyze24GChannels(scanResults));
                 var ratings5 = await Task.Run(() => _analysisService.Analyze5GChannels(scanResults));
+                var ratings6 = await Task.Run(() => _analysisService.Analyze6GChannels(scanResults));
 
                 // If disconnected from Wi-Fi, check if an Ethernet cable connection is active
                 if (string.IsNullOrWhiteSpace(connInfo.Ssid) || connInfo.Ssid.Equals("Disconnected", StringComparison.OrdinalIgnoreCase))
@@ -1970,12 +1996,21 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Ratings5G.Clear();
                 foreach (var r in ratings5) Ratings5G.Add(r);
 
+                Ratings6G.Clear();
+                foreach (var r in ratings6) Ratings6G.Add(r);
+
                 var best24 = ratings24.FirstOrDefault(r => r.IsRecommended);
                 var best5 = ratings5.FirstOrDefault(r => r.IsRecommended);
+                var best6 = ratings6.FirstOrDefault(r => r.IsRecommended);
 
                 if (best24 != null && best5 != null)
                 {
-                    BestChannelAdvice = $"Optimal for 2.4 GHz Hotspot: Channel {best24.Channel} ({best24.StatusText}). Cleanest 5 GHz: Channel {best5.Channel}.";
+                    string advice = $"Optimal for 2.4 GHz Hotspot: Channel {best24.Channel} ({best24.StatusText}). Cleanest 5 GHz: Channel {best5.Channel}.";
+                    if (best6 != null && scanResults.Any(n => (n.Band != null && n.Band.Contains("6")) || n.FrequencyMHz >= 5925))
+                    {
+                        advice += $" Optimal 6 GHz: Channel {best6.Channel} ({best6.StatusText}).";
+                    }
+                    BestChannelAdvice = advice;
                 }
 
                 if (Hotspot.IsAutoSteerEnabled && Networks.Count > 0)
@@ -2126,7 +2161,11 @@ namespace WifiAnalyzerHotspot.ViewModels
             }
             else if (SelectedBand == "5 GHz")
             {
-                query = query.Where(n => n.Band.Contains("5") || n.Channel > 14);
+                query = query.Where(n => (n.Band.Contains("5") || n.Channel > 14) && !(n.Band.Contains("6") || n.FrequencyMHz >= 5925));
+            }
+            else if (SelectedBand == "6 GHz")
+            {
+                query = query.Where(n => n.Band.Contains("6") || n.FrequencyMHz >= 5925);
             }
 
             if (!string.IsNullOrWhiteSpace(SearchFilter))
