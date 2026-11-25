@@ -1,6 +1,45 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.6.8)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.6.13)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## 🔧 What's New in v1.6.13: Secure Connect Band & Speed
+
+- Correct band labels: native PHY values are decoded properly, and analyzer channel data overrides them, so 2.4 GHz networks are no longer shown as 5 GHz.
+- Secure Connect loads instantly from the analyzer's cached scan; opening the mini window refreshes in the background. Manual Refresh still forces a fresh native scan.
+- No connection or speed behavior changed — these are display/data fixes only.
+
+---
+
+## 🔧 What's New in v1.6.12: Secure Connect "Already Connected" Fix
+
+- Available networks now show the connected badge and hide the Connect button when they match the system's active Wi-Fi SSID.
+- Fixes the misleading "Already connected" message appearing on networks that did not indicate a connected state.
+
+---
+
+## 🎨 What's New in v1.6.11: Slimmer Control Banner
+
+- Control banner is shorter: one compact row of state / uptime / power / ⚙ plus a small status line.
+- Broadcast channel/frequency and spectrum advice moved into the ⚙ settings overlay; the main scroll column now holds only clients, blocked devices and the reset log.
+- Overlay stays focused on setup: SSID, password, band/channel, broadcast info, spectrum advice, QR and Save/Copy.
+
+---
+
+## 🎨 What's New in v1.6.10: All-In-One Banner & Gear Settings
+
+- Broadcast channel/frequency and spectrum advice became part of the centered control banner.
+- Priority, Watchdog/Recovery and Low-Latency/Networking moved into the ⚙ settings overlay, keeping the main page to control + client data only.
+- Scrollbars are now slim, rounded and cyan-on-hover throughout the app; the page has one vertical scroll with no horizontal drift.
+
+---
+
+## 🎨 What's New in v1.6.9: Centered Hotspot Banner & Settings Overlay
+
+- Hotspot control is a centered banner with the power button, live state, uptime and status message.
+- SSID, password, band/channel, QR code and Save/Copy live in a settings overlay opened by a single ⚙ button.
+- Hotspot page is one vertical column (clients, blocked devices, reset log) so it fits small laptop screens at the 720×480 minimum.
 
 ---
 

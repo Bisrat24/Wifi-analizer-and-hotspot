@@ -194,6 +194,20 @@ namespace WifiAnalyzerHotspot
             Application.Current.Shutdown();
         }
 
+        private void CloseHotspotSetup_Click(object sender, RoutedEventArgs e)
+        {
+            HotspotSetupToggle.IsChecked = false;
+        }
+
+        private void HotspotSetupBackdrop_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Only a click on the dimmed backdrop closes; clicks inside the settings card bubble up but change nothing
+            if (ReferenceEquals(e.OriginalSource, sender))
+            {
+                HotspotSetupToggle.IsChecked = false;
+            }
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             if (DataContext is IDisposable disposable)

@@ -1470,7 +1470,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
             });
 
-            RefreshSecureConnectNetworksCommand = new RelayCommand(async () => await RefreshSecureConnectNetworksAsync());
+            RefreshSecureConnectNetworksCommand = new RelayCommand(async () => await RefreshSecureConnectNetworksAsync(forceNative: true));
 
             OpenSecureConnectMiniWindowCommand = new RelayCommand(OpenSecureConnectMiniWindow);
 
@@ -2724,6 +2724,9 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _miniWindow.Show();
                 _miniWindow.Activate();
             });
+
+            // Populate the list from the already-scanned analyzer cache without blocking the window.
+            _ = RefreshSecureConnectNetworksAsync();
         }
 
         public async Task RefreshSecureConnectProfilesAsync()
@@ -2783,12 +2786,17 @@ namespace WifiAnalyzerHotspot.ViewModels
             catch { }
         }
 
-        public async Task RefreshSecureConnectNetworksAsync()
+        public async Task RefreshSecureConnectNetworksAsync(bool forceNative = false)
         {
             try
             {
-                var networks = await Task.Run(() => NativeWlanService.GetAvailableNetworks());
-                var source = networks.Count > 0 ? networks : await Task.Run(() => _scannerService.ScanNetworksAsync());
+                // The analyzer already scans every 5s; reuse it so the panel populates instantly.
+                List<WifiNetwork> source = !forceNative && Networks.Count > 0
+                    ? Networks.ToList()
+                    : await Task.Run(() => NativeWlanService.GetAvailableNetworks());
+                if (source.Count == 0)
+                    source = await Task.Run(() => _scannerService.ScanNetworksAsync());
+
                 var deduped = DedupeNetworksByName(source);
 
                 var savedNames = new HashSet<string>(SecureConnect.SavedProfiles.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
@@ -2797,6 +2805,26 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Dispatch(() =>
                 {
                     _rawSecureConnectNetworks = deduped;
+                    foreach (var n in deduped)
+                    {
+                        // Analyzer channel data is authoritative for band (PHY values alone are ambiguous).
+                        var scanned = Networks.FirstOrDefault(s => s.Ssid.Equals(n.Ssid, StringComparison.OrdinalIgnoreCase) && s.Channel > 0);
+                        if (scanned != null)
+                        {
+                            n.Channel = scanned.Channel;
+                            n.FrequencyMHz = scanned.FrequencyMHz;
+                            n.Band = n.Channel > 14 ? "5 GHz" : "2.4 GHz";
+                        }
+
+                        // Native scan results have empty BSSIDs, so mark the connected one by SSID.
+                        if (ConnectedInterface != null &&
+                            !string.IsNullOrWhiteSpace(ConnectedInterface.Ssid) &&
+                            n.Ssid.Equals(ConnectedInterface.Ssid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            n.IsConnected = true;
+                            n.SignalPercent = ConnectedInterface.Signal > 0 ? ConnectedInterface.Signal : n.SignalPercent;
+                        }
+                    }
                     FilterSecureConnectNetworks();
                 });
                 await RefreshSecureConnectProfilesAsync();

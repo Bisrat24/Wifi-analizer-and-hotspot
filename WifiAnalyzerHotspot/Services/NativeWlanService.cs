@@ -244,11 +244,14 @@ namespace WifiAnalyzerHotspot.Services
                             if (string.IsNullOrWhiteSpace(ssid)) continue;
 
                             int signal = (int)Math.Clamp(net.SignalQuality, 0, 100);
-                            // WLAN_AVAILABLE_NETWORK has no channel field; bands are derived from
-                            // the PHY list only as a coarse hint. Analyzer scan supplies real channels.
-                            string band = net.PhyTypes != null && net.PhyTypes.Length > 0
-                                ? "5 GHz"
-                                : "2.4 GHz";
+                            // WLAN_AVAILABLE_NETWORK has no channel field; decode the actual PHY values.
+                            // OFDM/VHT/DMG are 5 GHz; FHSS/DSSS/HRDSSS/ERP/HT/HE default to 2.4 GHz
+                            // because HT/HE can be either band and WLAN_AVAILABLE_NETWORK has no channel.
+                            var phys = net.PhyTypes == null
+                                ? Enumerable.Empty<uint>()
+                                : net.PhyTypes.Take((int)Math.Min(net.NumberOfPhyTypes, (uint)net.PhyTypes.Length));
+                            bool is5G = phys.Any(p => p == 5 || p == 9 || p == 10);
+                            string band = is5G ? "5 GHz" : "2.4 GHz";
                             string auth = MapAuth(net.DefaultAuthAlgorithm, net.SecurityEnabled);
 
                             result.Add(new WifiNetwork

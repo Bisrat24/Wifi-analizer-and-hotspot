@@ -15,6 +15,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.6.13] - 2026-11-20
+
+### Fixed
+- Secure Connect band labels: decode native PHY values instead of assuming 5 GHz from a non-empty PHY list, then override with real analyzer channel data (channel <= 14 = 2.4 GHz) when available.
+- Secure Connect populates its network list instantly from the analyzer's cached scan and refreshes in the background on window open; the manual Refresh button still forces a native rescan.
+
+### Changed
+- No connection, throughput or QoS behavior changed; band/channel are display data only.
+
+---
+
+## [v1.6.12] - 2026-11-20
+
+### Fixed
+- Secure Connect available networks now show the connected badge and hide the Connect button for the SSID the system is already connected to; removes the misleading "Already connected" prompt on an unmarked row.
+
+---
+
+## [v1.6.11] - 2026-11-20
+
+### Changed
+- Hotspot control banner slimmed down: smaller fonts, padding and buttons; only state, uptime, power, gear and a compact status line remain.
+- Broadcast channel/frequency and spectrum advice moved out of the banner into the ⚙ settings overlay, leaving the main column with clients, blocked devices and reset log only.
+
+---
+
+## [v1.6.10] - 2026-11-20
+
+### Changed
+- Hotspot tab: broadcast channel/frequency and spectrum advice moved into the centered control banner.
+- Hotspot tab: Priority, Watchdog/Recovery and Low-Latency/Networking moved into the ⚙ settings overlay; the main page now shows only control and client data.
+- Scrollbars app-wide restyled: slim 9 px track, rounded thumb, cyan on hover/drag.
+
+---
+
+## [v1.6.9] - 2026-11-20
+
+### Changed
+- Hotspot tab is now a single centered column: control banner (state, uptime, power, settings gear) on top, then clients, blocked devices and reset log, with advanced sections collapsed below.
+- SSID / password / band-channel / QR / Save moved into a settings overlay opened by the banner's gear button; closes with ✕, backdrop click or the gear.
+- Tables use fixed heights so the page scrolls once instead of squeezing a 360 px side column on small screens.
+
+---
+
 ## [v1.6.8] - 2026-11-20
 
 ### Changed

@@ -22,10 +22,57 @@
                 <Setter Property="FontFamily" Value="Segoe UI, Segoe UI Variable, sans-serif"/>
             </Style>
 
-            <!-- ScrollBar Styling -->
+            <!-- Slim, rounded scrollbars: visible thumb, quiet track -->
             <Style TargetType="ScrollBar">
-                <Setter Property="Background" Value="#131622"/>
-                <Setter Property="Foreground" Value="#2D344B"/>
+                <Setter Property="Background" Value="#10131E"/>
+                <Setter Property="Width" Value="9"/>
+                <Setter Property="MinWidth" Value="9"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="Transparent">
+                                <Track x:Name="PART_Track">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton x:Name="DecPage" Command="{x:Static ScrollBar.PageUpCommand}" Focusable="False" Opacity="0"/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Focusable="False">
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border x:Name="ThumbBorder" Background="#3F4A63" CornerRadius="4" Margin="2"/>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="ThumbBorder" Property="Background" Value="#00B0FF"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsDragging" Value="True">
+                                                            <Setter TargetName="ThumbBorder" Property="Background" Value="#00E5FF"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton x:Name="IncPage" Command="{x:Static ScrollBar.PageDownCommand}" Focusable="False" Opacity="0"/>
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Orientation" Value="Vertical">
+                                    <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="True"/>
+                                </Trigger>
+                                <Trigger Property="Orientation" Value="Horizontal">
+                                    <Setter TargetName="DecPage" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}"/>
+                                    <Setter TargetName="IncPage" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}"/>
+                                    <Setter Property="Height" Value="9"/>
+                                    <Setter Property="MinHeight" Value="9"/>
+                                    <Setter Property="Width" Value="NaN"/>
+                                    <Setter Property="MinWidth" Value="0"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
         </ResourceDictionary>
     </Application.Resources>
