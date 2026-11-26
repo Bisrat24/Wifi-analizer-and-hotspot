@@ -69,6 +69,8 @@ namespace WifiAnalyzerHotspot.ViewModels
         private LiveTrafficPoint _currentTraffic = new();
         private ConnectionStabilizerModel _stabilizer = new();
         private string _resetTriggerReason = "Watchdog Auto-Reset";
+        private string? _previousConnectedBssid;
+        private string? _previousConnectedSsid;
 
         private NetworkAddressChangedEventHandler? _networkAddressChangedHandler;
         private NetworkAvailabilityChangedEventHandler? _networkAvailabilityChangedHandler;
@@ -1969,6 +1971,28 @@ namespace WifiAnalyzerHotspot.ViewModels
                 ConnectedInterface = connInfo;
                 if (!string.IsNullOrWhiteSpace(connInfo.Ssid))
                 {
+                    // Detect seamless mesh BSSID transition / roaming handover
+                    if (!connInfo.Ssid.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrEmpty(_previousConnectedBssid) &&
+                            !string.IsNullOrEmpty(connInfo.Bssid) &&
+                            connInfo.Bssid != "-" &&
+                            !string.Equals(_previousConnectedBssid, connInfo.Bssid, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(_previousConnectedSsid, connInfo.Ssid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            string roamMsg = $"🔄 Mesh Roaming Transition: Handover from [{_previousConnectedBssid}] to [{connInfo.Bssid}] on Channel {connInfo.Channel} ({connInfo.Band}, {connInfo.Signal}%)";
+                            _timelineService.RecordEvent("Mesh Roam", connInfo.Ssid, connInfo.Bssid, connInfo.Ipv4 ?? "-", $"Roamed to AP [{connInfo.Bssid}] on CH {connInfo.Channel} ({connInfo.Band}, {connInfo.Signal}%)");
+                            Hotspot.StatusMessage = roamMsg;
+                        }
+                        _previousConnectedBssid = connInfo.Bssid;
+                        _previousConnectedSsid = connInfo.Ssid;
+                    }
+                    else
+                    {
+                        _previousConnectedBssid = null;
+                        _previousConnectedSsid = null;
+                    }
+
                     if (connInfo.Ssid.StartsWith("Disconnected (Ethernet"))
                     {
                         if (string.IsNullOrWhiteSpace(Stabilizer.TargetSsid) || Stabilizer.TargetSsid == "Africa")

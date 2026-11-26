@@ -175,6 +175,40 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(model.IsGuestIsolationEnabled, "Guest isolation state change failed");
             }, failures);
 
+            Check("DNS EDNS0 vs plain query key differentiation", () =>
+            {
+                // Plain query for example.com (qd=1, ar=0)
+                // QNAME = \x07example\x03com\x00, QTYPE=A (1), QCLASS=IN (1)
+                byte[] plainQuery = new byte[]
+                {
+                    0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x07, (byte)'e', (byte)'x', (byte)'a', (byte)'m', (byte)'p', (byte)'l', (byte)'e',
+                    0x03, (byte)'c', (byte)'o', (byte)'m', 0x00,
+                    0x00, 0x01, 0x00, 0x01
+                };
+                var parsedPlain = HotspotDnsCacheService.ParseDnsQuery(plainQuery);
+                Expect(parsedPlain.CacheKey.Contains(":edns=0:do=0"), "plain query key must specify edns=0:do=0");
+
+                // EDNS query for example.com with empty OPT RR (ar=1, root name 0, type 41, payload 4096, DO=1)
+                byte[] ednsQuery = new byte[]
+                {
+                    0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+                    0x07, (byte)'e', (byte)'x', (byte)'a', (byte)'m', (byte)'p', (byte)'l', (byte)'e',
+                    0x03, (byte)'c', (byte)'o', (byte)'m', 0x00,
+                    0x00, 0x01, 0x00, 0x01,
+                    0x00, // root
+                    0x00, 0x29, // TYPE 41 (OPT)
+                    0x10, 0x00, // UDP payload 4096
+                    0x00, // extended RCODE
+                    0x00, // version 0
+                    0x80, 0x00, // DO=1, Z=0
+                    0x00, 0x00  // RDLENGTH 0
+                };
+                var parsedEdns = HotspotDnsCacheService.ParseDnsQuery(ednsQuery);
+                Expect(parsedEdns.CacheKey.Contains(":edns=1&v=0:do=1"), "edns query key must specify edns=1&v=0:do=1");
+                Expect(parsedPlain.CacheKey != parsedEdns.CacheKey, "plain and edns keys must never collide");
+            }, failures);
+
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
             if (failures.Count == 0)
             {

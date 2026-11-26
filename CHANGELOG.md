@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.1] - 2026-11-26
+
+### Fixed
+- Zero-latency DNS cache hit telemetry precision: clamped hits so `CacheHits <= TotalQueries` is strictly enforced under high-concurrency client bursts.
+- Exported and asserted distinct DNS cache key generation between plain queries and EDNS0 queries with empty OPT records, eliminating key collision and cache cross-contamination.
+
+### Added
+- Seamless Mesh Roaming Transition Telemetry: automatically detects when a connected client roams between BSSID access points on the same mesh SSID, logging the handover with previous/new BSSID, channel, band, and signal strength to the event timeline and live Hotspot status ribbon.
+- Self-Check regression test suite asserting EDNS0 vs plain query key differentiation (`:edns=0:do=0` vs `:edns=1&v=0:do=1`).
+
+---
+
 ## [v1.7.0] - 2026-11-25
 
 ### Added

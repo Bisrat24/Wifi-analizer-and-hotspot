@@ -61,7 +61,7 @@ namespace WifiAnalyzerHotspot.Services
                 return "DNS: Stopped (Starts with Hotspot)";
             }
             long queries = TotalQueries;
-            long hits = CacheHits;
+            long hits = Math.Min(queries, CacheHits);
             double hitRate = queries > 0 ? (hits * 100.0 / queries) : 0;
             string relayType = IsTcpRelayActive ? "UDP+TCP" : "UDP";
             return $"⚡ DNS Cache: {hits} hits / {queries} queries ({hitRate:F0}%, {_cache.Count} cached, {relayType}) • {_upstreamDescription}";
@@ -856,7 +856,7 @@ namespace WifiAnalyzerHotspot.Services
             return resp;
         }
 
-        private readonly record struct ParsedDnsQuery(
+        internal readonly record struct ParsedDnsQuery(
             ushort QueryId,
             string CacheKey,
             int QuestionLength,
@@ -866,7 +866,7 @@ namespace WifiAnalyzerHotspot.Services
             byte[]? OptRecordBytes
         );
 
-        private static ParsedDnsQuery ParseDnsQuery(byte[] query)
+        internal static ParsedDnsQuery ParseDnsQuery(byte[] query)
         {
             if (query.Length <= 12) return new ParsedDnsQuery(0, string.Empty, 0, false, false, 512, null);
             try
