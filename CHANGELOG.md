@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.2] - 2026-11-26
+
+### Added
+- Window header version code: surfaced `(v1.7.2)` prominently in the OS Window Title bar across both the primary dashboard (`MainWindow`) and the companion mini-window (`SecureConnectWindow`).
+- App branding version badge: updated sidebar top header and collapsed icon tooltips to explicitly display `v1.7.2` on window open.
+- Exposed `AppVersionString`, `AppVersion`, and dynamic `WindowTitle` on `MainViewModel` with an automated self-check consistency assertion.
+
+---
+
 ## [v1.7.1] - 2026-11-26
 
 ### Fixed

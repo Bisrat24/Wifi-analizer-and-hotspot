@@ -81,6 +81,10 @@ namespace WifiAnalyzerHotspot.ViewModels
         private string _hotspotChannelChoice = "Auto (Recommended)";
         private string _bestChannelAdvice = "Channel 1 is recommended for Hotspot.";
 
+        public const string AppVersionString = "v1.7.2";
+        public string AppVersion => AppVersionString;
+        public string WindowTitle => $"WiFi Analyzer & Hotspot Pro ({AppVersionString})";
+
         public ObservableCollection<WifiNetwork> Networks { get; } = new();
         public ObservableCollection<WifiNetwork> FilteredNetworks { get; } = new();
         public ObservableCollection<ChannelRating> Ratings24G { get; } = new();

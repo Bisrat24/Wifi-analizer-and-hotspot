@@ -209,6 +209,11 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(parsedPlain.CacheKey != parsedEdns.CacheKey, "plain and edns keys must never collide");
             }, failures);
 
+            Check("App version code consistency", () =>
+            {
+                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.2", $"Version string must be v1.7.2 but was {ViewModels.MainViewModel.AppVersionString}");
+            }, failures);
+
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
             if (failures.Count == 0)
             {
