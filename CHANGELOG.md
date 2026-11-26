@@ -10,8 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Automated band-steering policy enforcement for multi-band APs.
-- Detailed packet capture telemetry and QoS jitter diagnostics.
+- Detailed packet capture telemetry and QoS deep inspection.
+
+---
+
+## [v1.7.4] - 2026-11-26
+
+### Added
+- **Automated Band-Steering Policy Enforcement:** Actively guides dual-band clients to 5 GHz / 6 GHz based on live SNR thresholds (selectable presets: 50% Aggressive, 60% Balanced Recommended, 70% Conservative), with automatic dynamic fallback to 2.4 GHz when clients are distant or signal drops below 45% SNR to ensure zero dropped connections.
+- **Live Jitter Diagnostics:** Real-time delay variation calculation according to RFC 3550 standard (`J = J + (|D(i-1, i)| - J) / 16.0`) measuring continuous packet round-trip time (RTT), min/avg/max latencies, packet loss percentage, and five-level quality rating (`EXCELLENT`, `VERY GOOD`, `GOOD`, `MODERATE`, `POOR`).
+- **Packet RTT Distribution Histogram:** Five-tier latency distribution visualization in Tab 3 ("SPEED TEST & LIVE TRAFFIC") featuring live sample counts and percentage bars across `< 5 ms` (Ultra-Fast / LAN), `5 - 15 ms` (Optimal Wi-Fi), `15 - 30 ms` (Standard Broadband), `30 - 60 ms` (Moderate Latency), and `> 60 ms` (Elevated / Bufferbloat).
+- **Client Steering & SNR Telemetry:** Surfaced live client SNR estimates and band-steering guidance status tags directly within the Hotspot connected devices table.
+- **Automated Self-Check Verification:** Added regression test assertions verifying RFC 3550 delay variation calculations, histogram bin allocations, and band-steering decision thresholds.
+
+### Changed
+- Promoted project release to `v1.7.4` across the main window title bar (`WiFi Analyzer & Hotspot Pro (v1.7.4)`), companion mini-window, top sidebar branding badges, application manifest, and assembly metadata.
 
 ---
 

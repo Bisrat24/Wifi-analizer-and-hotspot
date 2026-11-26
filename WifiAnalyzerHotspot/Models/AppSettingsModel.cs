@@ -522,6 +522,20 @@ namespace WifiAnalyzerHotspot.Models
             set { _enableAutoSteer = value; OnPropertyChanged(); }
         }
 
+        private bool _isBandSteeringPolicyEnforced = true;
+        public bool IsBandSteeringPolicyEnforced
+        {
+            get => _isBandSteeringPolicyEnforced;
+            set { _isBandSteeringPolicyEnforced = value; OnPropertyChanged(); }
+        }
+
+        private int _bandSteeringSnrThreshold = 60;
+        public int BandSteeringSnrThreshold
+        {
+            get => _bandSteeringSnrThreshold;
+            set { _bandSteeringSnrThreshold = Math.Clamp(value, 30, 90); OnPropertyChanged(); }
+        }
+
         private System.Collections.Generic.Dictionary<string, DateTime> _pausedClients = new(StringComparer.OrdinalIgnoreCase);
         public System.Collections.Generic.Dictionary<string, DateTime> PausedClients
         {

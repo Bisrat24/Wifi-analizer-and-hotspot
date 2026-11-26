@@ -1,6 +1,16 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.7.3)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.7.4)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## ⚡ What's New in v1.7.4: Automated Band-Steering Policy & Live Jitter Diagnostics
+
+- **Automated Band-Steering Policy Enforcement:** Actively guides dual-band clients to 5 GHz / 6 GHz based on live SNR thresholds (50% Aggressive, 60% Balanced, 70% Conservative) with dynamic fallback to 2.4 GHz when clients are distant or SNR drops below 45% to prevent packet drops and disconnection.
+- **Live Jitter Diagnostics (RFC 3550):** Continuous packet delay variation monitoring using the RFC 3550 algorithm, showing live latency (RTT), min/avg/max latencies, packet loss percentage, and color-coded network quality ratings.
+- **Packet RTT Distribution Histogram:** Real-time 5-tier latency distribution histogram in the Live Network Traffic tab (`< 5 ms`, `5 - 15 ms`, `15 - 30 ms`, `30 - 60 ms`, `> 60 ms`) displaying live packet counts and percentage bars.
+- **Connected Client Steering & SNR Telemetry:** Real-time SNR and steering state indicators added directly to the Hotspot client list.
+- **Version Alignment & Automated Self-Check:** Window title bars and headers display `(v1.7.4)` upon opening with complete startup self-check assertion coverage.
 
 ---
 

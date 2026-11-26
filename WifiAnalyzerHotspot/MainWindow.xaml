@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:WifiAnalyzerHotspot.ViewModels"
         xmlns:controls="clr-namespace:WifiAnalyzerHotspot.Controls"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle, FallbackValue='WiFi Analyzer &amp; Hotspot Pro (v1.7.3)'}"
+        Title="{Binding WindowTitle, FallbackValue='WiFi Analyzer &amp; Hotspot Pro (v1.7.4)'}"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
         Height="720" Width="1180"
         MinHeight="480" MinWidth="720"
@@ -177,7 +177,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.7.3" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.7.4" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -195,7 +195,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.7.3">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.7.4">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1076,7 +1076,8 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
@@ -1114,8 +1115,106 @@
                                 </Border>
                             </Grid>
 
+                            <!-- Live Jitter Diagnostics & Packet RTT Histogram -->
+                            <Border Grid.Row="2" Background="#111726" BorderBrush="#1F2C44" BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <!-- Jitter Header -->
+                                    <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" FontSize="13" Foreground="#00E5FF" Margin="0,0,6,0"/>
+                                            <StackPanel>
+                                                <TextBlock Text="LIVE JITTER &amp; PACKET RTT HISTOGRAM" FontSize="11" FontWeight="Bold" Foreground="#00E5FF"/>
+                                                <TextBlock Text="{Binding LiveJitter.StatusDetail}" FontSize="9" Foreground="#7C88A8" Margin="0,1,0,0"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <Border DockPanel.Dock="Right" Background="#182438" CornerRadius="4" Padding="8,3" BorderBrush="{Binding LiveJitter.QualityBrush}" BorderThickness="1">
+                                            <TextBlock Text="{Binding LiveJitter.QualityRating}" FontSize="9" FontWeight="Bold" Foreground="{Binding LiveJitter.QualityBrush}"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <!-- Quick Jitter Metrics Tiles -->
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Tile 1: Current RTT -->
+                                        <Border Grid.Column="0" Background="#161E30" CornerRadius="6" Padding="8,6" Margin="0,0,4,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="LATENCY (RTT)" FontSize="9" FontWeight="Bold" Foreground="#7C88A8" HorizontalAlignment="Center"/>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0">
+                                                    <TextBlock Text="{Binding LiveJitter.CurrentRttMs, StringFormat='{}{0:F1}'}" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                                    <TextBlock Text=" ms" FontSize="9" Foreground="#7C88A8" VerticalAlignment="Bottom" Margin="1,0,0,2"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Tile 2: RFC 3550 Jitter -->
+                                        <Border Grid.Column="1" Background="#161E30" CornerRadius="6" Padding="8,6" Margin="4,0,4,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="JITTER (RFC 3550)" FontSize="9" FontWeight="Bold" Foreground="#7C88A8" HorizontalAlignment="Center"/>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0">
+                                                    <TextBlock Text="{Binding LiveJitter.JitterMs, StringFormat='{}{0:F2}'}" FontSize="15" FontWeight="Bold" Foreground="#00E5FF"/>
+                                                    <TextBlock Text=" ms" FontSize="9" Foreground="#7C88A8" VerticalAlignment="Bottom" Margin="1,0,0,2"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Tile 3: Min / Max RTT -->
+                                        <Border Grid.Column="2" Background="#161E30" CornerRadius="6" Padding="8,6" Margin="4,0,4,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="MIN / MAX" FontSize="9" FontWeight="Bold" Foreground="#7C88A8" HorizontalAlignment="Center"/>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0">
+                                                    <TextBlock Text="{Binding LiveJitter.MinRttMs, StringFormat='{}{0:F0}'}" FontSize="13" FontWeight="Bold" Foreground="#00E676"/>
+                                                    <TextBlock Text="/" FontSize="11" Foreground="#5E6B87" Margin="2,0"/>
+                                                    <TextBlock Text="{Binding LiveJitter.MaxRttMs, StringFormat='{}{0:F0}'}" FontSize="13" FontWeight="Bold" Foreground="#FFD54F"/>
+                                                    <TextBlock Text=" ms" FontSize="9" Foreground="#7C88A8" VerticalAlignment="Bottom" Margin="1,0,0,2"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Tile 4: Packet Loss & Gateway -->
+                                        <Border Grid.Column="3" Background="#161E30" CornerRadius="6" Padding="8,6" Margin="4,0,0,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="LOSS / TARGET" FontSize="9" FontWeight="Bold" Foreground="#7C88A8" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding LiveJitter.PacketLossPercent, StringFormat='{}{0:F1}% Loss'}" FontSize="13" FontWeight="Bold" Foreground="#00E676" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- Bucketed Latency Distribution Histogram (5 Tiers) -->
+                                    <TextBlock Text="PACKET ROUND-TRIP TIME (RTT) DISTRIBUTION HISTOGRAM" FontSize="9" FontWeight="Bold" Foreground="#8FA0C2" Margin="0,0,0,6"/>
+                                    <ItemsControl ItemsSource="{Binding RttHistogramBins}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="65"/>
+                                                        <ColumnDefinition Width="130"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                        <ColumnDefinition Width="40"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding RangeText}" FontSize="9" Foreground="#7C88A8" VerticalAlignment="Center"/>
+                                                    <!-- Visual Horizontal Percentage Bar -->
+                                                    <Border Grid.Column="2" Background="#182033" CornerRadius="3" Height="8" Margin="4,0,8,0" VerticalAlignment="Center">
+                                                        <ProgressBar Value="{Binding Percentage}" Maximum="100" Height="8" BorderThickness="0" Background="Transparent" Foreground="{Binding ColorBrush}"/>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="3" Text="{Binding CountText}" FontSize="9" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="4" Text="{Binding PercentageText}" FontSize="9" FontWeight="Bold" Foreground="#00E5FF" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Footer note -->
-                            <TextBlock Grid.Row="2" Text="Updated continuously every second directly from Windows network interface statistics."
+                            <TextBlock Grid.Row="3" Text="Updated continuously every second directly from Windows network interface statistics."
                                        FontSize="11" Foreground="#5E6B87" HorizontalAlignment="Center" Margin="0,16,0,0"/>
                         </Grid>
                     </Border>
@@ -1404,6 +1503,19 @@
                                                 <Border Background="#101C2B" BorderBrush="#1B334B" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                         ToolTip="Current real-time transfer rate for this device">
                                                     <TextBlock Text="{Binding TrafficRate}" FontSize="10" FontWeight="SemiBold" Foreground="#00E676"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="STEERING &amp; SNR" Width="145">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#10253B" BorderBrush="{Binding SteeringBadgeBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                        ToolTip="{Binding SteeringStatus}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding SteeringStatus}" FontSize="10" FontWeight="Bold" Foreground="{Binding SteeringBadgeBrush}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding SnrDisplayText}" FontSize="9" Foreground="#8FA0C2"/>
+                                                    </StackPanel>
                                                 </Border>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
@@ -1990,7 +2102,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Smart Band Auto-Steering Card -->
+                            <!-- Smart Band Auto-Steering & Policy Enforcement Card -->
                             <Border Background="#10192A" BorderBrush="#1C2E4A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,14">
                                 <StackPanel>
                                     <CheckBox IsChecked="{Binding Hotspot.IsAutoSteerEnabled}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand">
@@ -2002,16 +2114,39 @@
                                             <TextBlock Text="Cross-analyzes Wi-Fi Analyzer RF congestion to steer hotspot onto the cleanest, lowest-interference frequency band." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </CheckBox>
-                                    <Border Margin="24,8,0,0" Background="#141E30" BorderBrush="#FFD54F" BorderThickness="1" CornerRadius="4" Padding="8,6"
+
+                                    <!-- Automated Band-Steering Policy Enforcement Checkbox -->
+                                    <CheckBox IsChecked="{Binding Hotspot.IsBandSteeringPolicyEnforced}" Foreground="#E2E8F0" VerticalContentAlignment="Center" Cursor="Hand" Margin="24,8,0,0">
+                                        <StackPanel Orientation="Vertical" Margin="4,0,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0" Foreground="#00E5FF"/>
+                                                <TextBlock Text="Automated Band-Steering Policy Enforcement" FontWeight="SemiBold" FontSize="11" Foreground="#00E5FF"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Actively guides dual-band clients to 5 GHz / 6 GHz based on live SNR thresholds (dynamic 2.4 GHz fallback for distant clients)." FontSize="10" Foreground="#8FA0C2" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </CheckBox>
+
+                                    <!-- Steering Threshold Dropdown -->
+                                    <DockPanel Margin="24,6,0,0" LastChildFill="False"
+                                               Visibility="{Binding Hotspot.IsBandSteeringPolicyEnforced, Converter={StaticResource BoolVisConv}}">
+                                        <TextBlock Text="SNR Steering Threshold:" FontSize="10" Foreground="#A2B1CD" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox ItemsSource="{Binding Hotspot.BandSteeringThresholdOptions}"
+                                                  SelectedItem="{Binding Hotspot.BandSteeringThresholdChoice, Mode=TwoWay}"
+                                                  Background="#181C2B" Foreground="#000000" FontSize="10" Padding="6,2" Height="24" Width="220"
+                                                  VerticalAlignment="Center" ToolTip="Threshold client link SNR required to steer to 5 GHz / 6 GHz"/>
+                                    </DockPanel>
+
+                                    <!-- Live Policy Recommendation & Status -->
+                                    <Border Margin="24,8,0,0" Background="#141E30" BorderBrush="#00E5FF" BorderThickness="1" CornerRadius="4" Padding="8,6"
                                             Visibility="{Binding Hotspot.IsAutoSteerEnabled, Converter={StaticResource BoolVisConv}}">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding Hotspot.AutoSteerRecommendation}" FontSize="10" Foreground="#FFE082" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="0" Text="{Binding Hotspot.AutoSteerRecommendation}" FontSize="10" Foreground="#80DEEA" TextWrapping="Wrap" VerticalAlignment="Center"/>
                                             <Button Grid.Column="1" Command="{Binding ApplyAutoSteerCommand}" Style="{StaticResource ModernBtn}"
-                                                    Height="26" Padding="8,2" Margin="8,0,0,0" FontSize="10" Background="#2B2510" BorderBrush="#FFD54F" Foreground="#FFD54F"
+                                                    Height="26" Padding="8,2" Margin="8,0,0,0" FontSize="10" Background="#10253B" BorderBrush="#00E5FF" Foreground="#00E5FF"
                                                     ToolTip="Switch Hotspot band and channel to match recommendation">
                                                 <TextBlock Text="&#x26A1; Apply" FontWeight="Bold"/>
                                             </Button>

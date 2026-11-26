@@ -81,9 +81,24 @@ namespace WifiAnalyzerHotspot.ViewModels
         private string _hotspotChannelChoice = "Auto (Recommended)";
         private string _bestChannelAdvice = "Channel 1 is recommended for Hotspot.";
 
-        public const string AppVersionString = "v1.7.3";
+        public const string AppVersionString = "v1.7.4";
         public string AppVersion => AppVersionString;
         public string WindowTitle => $"WiFi Analyzer & Hotspot Pro ({AppVersionString})";
+
+        // ── Real-Time Jitter Diagnostics & Packet RTT Histogram ──
+        private LiveJitterDiagnostics _liveJitter = new();
+        public LiveJitterDiagnostics LiveJitter
+        {
+            get => _liveJitter;
+            set { _liveJitter = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<RttHistogramBin> RttHistogramBins { get; } = new();
+
+        private double _accumJitter = 0.0;
+        private double _lastLiveRtt = 0.0;
+        private readonly List<double> _rttSamples = new();
+        private int _lostPingCount = 0;
 
         public ObservableCollection<WifiNetwork> Networks { get; } = new();
         public ObservableCollection<WifiNetwork> FilteredNetworks { get; } = new();
@@ -523,6 +538,22 @@ namespace WifiAnalyzerHotspot.ViewModels
             HotspotPriorityService.BufferbloatTarget = Hotspot.BufferbloatTarget;
             Hotspot.IsZeroLatencyDnsEnabled = _settings.EnableZeroLatencyDns;
             Hotspot.IsAutoSteerEnabled = _settings.EnableAutoSteer;
+            Hotspot.IsBandSteeringPolicyEnforced = _settings.IsBandSteeringPolicyEnforced;
+            Hotspot.BandSteeringSnrThreshold = _settings.BandSteeringSnrThreshold;
+            Hotspot.BandSteeringThresholdChoice = Hotspot.BandSteeringSnrThreshold switch
+            {
+                50 => "50% SNR (Aggressive 5G/6G Steering)",
+                70 => "70% SNR (Conservative 5G/6G Steering)",
+                _ => "60% SNR (Balanced - Recommended)"
+            };
+
+            // Initialize Packet RTT distribution histogram bins
+            RttHistogramBins.Add(new RttHistogramBin { Label = "< 5 ms", RangeText = "LAN / Ultra-Fast", ColorHex = "#00E676" });
+            RttHistogramBins.Add(new RttHistogramBin { Label = "5 - 15 ms", RangeText = "Optimal Wi-Fi", ColorHex = "#00E5FF" });
+            RttHistogramBins.Add(new RttHistogramBin { Label = "15 - 30 ms", RangeText = "Standard Broadband", ColorHex = "#40C4FF" });
+            RttHistogramBins.Add(new RttHistogramBin { Label = "30 - 60 ms", RangeText = "Moderate Latency", ColorHex = "#FFD54F" });
+            RttHistogramBins.Add(new RttHistogramBin { Label = "> 60 ms", RangeText = "Elevated / Bufferbloat", ColorHex = "#FF5252" });
+
             Hotspot.IsGuestIsolationEnabled = _settings.IsHotspotGuestIsolationEnabled;
             if (Hotspot.IsGuestIsolationEnabled)
             {
@@ -722,8 +753,34 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settingsService.SaveSettings(_settings);
                     if (Hotspot.IsAutoSteerEnabled && Networks.Count > 0)
                     {
-                        var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                        double avgSnr = Hotspot.Clients.Count > 0 ? Hotspot.Clients.Average(c => c.SnrEstimate) : 70.0;
+                        var rec = _analysisService.GetSmartSteeringRecommendation(
+                            Networks,
+                            Hotspot.Clients.Count,
+                            avgSnr,
+                            Hotspot.BandSteeringSnrThreshold,
+                            Hotspot.IsBandSteeringPolicyEnforced);
                         Hotspot.AutoSteerRecommendation = rec.Advice;
+                        Hotspot.BandSteeringPolicyStatus = rec.Advice;
+                    }
+                }
+                else if (e.PropertyName == nameof(Hotspot.IsBandSteeringPolicyEnforced) ||
+                         e.PropertyName == nameof(Hotspot.BandSteeringSnrThreshold))
+                {
+                    _settings.IsBandSteeringPolicyEnforced = Hotspot.IsBandSteeringPolicyEnforced;
+                    _settings.BandSteeringSnrThreshold = Hotspot.BandSteeringSnrThreshold;
+                    _settingsService.SaveSettings(_settings);
+                    if (Networks.Count > 0)
+                    {
+                        double avgSnr = Hotspot.Clients.Count > 0 ? Hotspot.Clients.Average(c => c.SnrEstimate) : 70.0;
+                        var rec = _analysisService.GetSmartSteeringRecommendation(
+                            Networks,
+                            Hotspot.Clients.Count,
+                            avgSnr,
+                            Hotspot.BandSteeringSnrThreshold,
+                            Hotspot.IsBandSteeringPolicyEnforced);
+                        Hotspot.AutoSteerRecommendation = rec.Advice;
+                        Hotspot.BandSteeringPolicyStatus = rec.Advice;
                     }
                 }
                 else if (e.PropertyName == nameof(Hotspot.IsGuestIsolationEnabled))
@@ -1196,7 +1253,13 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 try
                 {
-                    var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                    double avgSnr = Hotspot.Clients.Count > 0 ? Hotspot.Clients.Average(c => c.SnrEstimate) : 70.0;
+                    var rec = _analysisService.GetSmartSteeringRecommendation(
+                        Networks,
+                        Hotspot.Clients.Count,
+                        avgSnr,
+                        Hotspot.BandSteeringSnrThreshold,
+                        Hotspot.IsBandSteeringPolicyEnforced);
                     if (!string.IsNullOrEmpty(rec.RecommendedBand))
                     {
                         HotspotBandInput = rec.RecommendedBand;
@@ -1772,6 +1835,96 @@ namespace WifiAnalyzerHotspot.ViewModels
                     // Continuous Link Speed update for Active Reconnect & Stabilizer
                     _stabilizerService.UpdateActiveLinkSpeed(Stabilizer);
 
+                    // Continuous Live Jitter Diagnostics & Packet RTT Sampling (RFC 3550 delay variation)
+                    try
+                    {
+                        string? targetHost = ConnectedInterface?.Gateway;
+                        if (string.IsNullOrWhiteSpace(targetHost) || targetHost == "-" || targetHost == "0.0.0.0")
+                        {
+                            targetHost = "1.1.1.1";
+                            LiveJitter.TargetGateway = "1.1.1.1 (Cloudflare Anycast)";
+                        }
+                        else
+                        {
+                            LiveJitter.TargetGateway = $"Gateway ({targetHost})";
+                        }
+
+                        double sampleRtt = -1;
+                        using (var ping = new Ping())
+                        {
+                            var reply = await ping.SendPingAsync(targetHost, 150);
+                            if (reply.Status == IPStatus.Success)
+                            {
+                                sampleRtt = reply.RoundtripTime <= 0 ? 1.0 : (double)reply.RoundtripTime;
+                            }
+                        }
+
+                        if (sampleRtt > 0)
+                        {
+                            LiveJitter.CurrentRttMs = sampleRtt;
+                            if (_lastLiveRtt > 0)
+                            {
+                                // RFC 3550 delay variation: J = J + (|D(i-1, i)| - J) / 16.0
+                                double diff = Math.Abs(sampleRtt - _lastLiveRtt);
+                                _accumJitter += (diff - _accumJitter) / 16.0;
+                            }
+                            else
+                            {
+                                _accumJitter = 1.0;
+                            }
+                            _lastLiveRtt = sampleRtt;
+                            LiveJitter.JitterMs = _accumJitter;
+
+                            _rttSamples.Add(sampleRtt);
+                            while (_rttSamples.Count > 120) _rttSamples.RemoveAt(0);
+
+                            LiveJitter.MinRttMs = _rttSamples.Min();
+                            LiveJitter.MaxRttMs = _rttSamples.Max();
+                            LiveJitter.AvgRttMs = _rttSamples.Average();
+                            LiveJitter.TotalSamples++;
+
+                            // Map sample into bucketed RTT histogram (5 tiers)
+                            int binIndex = sampleRtt switch
+                            {
+                                < 5.0 => 0,
+                                < 15.0 => 1,
+                                < 30.0 => 2,
+                                < 60.0 => 3,
+                                _ => 4
+                            };
+
+                            if (binIndex >= 0 && binIndex < RttHistogramBins.Count)
+                            {
+                                RttHistogramBins[binIndex].Count++;
+                            }
+
+                            int totalBinCounts = RttHistogramBins.Sum(b => b.Count);
+                            if (totalBinCounts > 0)
+                            {
+                                foreach (var bin in RttHistogramBins)
+                                {
+                                    bin.Percentage = (bin.Count * 100.0) / totalBinCounts;
+                                }
+                            }
+
+                            LiveJitter.PacketLossPercent = LiveJitter.TotalSamples > 0
+                                ? Math.Round((_lostPingCount * 100.0) / (LiveJitter.TotalSamples + _lostPingCount), 1)
+                                : 0;
+
+                            LiveJitter.StatusDetail = $"RFC 3550 Delay Variation: {_accumJitter:F2} ms • Min/Avg/Max: {LiveJitter.MinRttMs:F0}/{LiveJitter.AvgRttMs:F0}/{LiveJitter.MaxRttMs:F0} ms";
+                            LiveJitter.UpdateQuality();
+                        }
+                        else
+                        {
+                            _lostPingCount++;
+                            LiveJitter.PacketLossPercent = LiveJitter.TotalSamples > 0
+                                ? Math.Round((_lostPingCount * 100.0) / (LiveJitter.TotalSamples + _lostPingCount), 1)
+                                : 0;
+                            LiveJitter.UpdateQuality();
+                        }
+                    }
+                    catch { }
+
                     // Hotspot auto-refresh and Anti-Idle Keep-Alive watchdog (cadence: 2s to reduce CPU & disk I/O on HDDs)
                     _hotspotRefreshCounter++;
                     int refreshThreshold = 2;
@@ -2041,10 +2194,17 @@ namespace WifiAnalyzerHotspot.ViewModels
                     BestChannelAdvice = advice;
                 }
 
-                if (Hotspot.IsAutoSteerEnabled && Networks.Count > 0)
+                if (Networks.Count > 0)
                 {
-                    var rec = _analysisService.GetSmartSteeringRecommendation(Networks);
+                    double avgSnr = Hotspot.Clients.Count > 0 ? Hotspot.Clients.Average(c => c.SnrEstimate) : 70.0;
+                    var rec = _analysisService.GetSmartSteeringRecommendation(
+                        Networks,
+                        Hotspot.Clients.Count,
+                        avgSnr,
+                        Hotspot.BandSteeringSnrThreshold,
+                        Hotspot.IsBandSteeringPolicyEnforced);
                     Hotspot.AutoSteerRecommendation = rec.Advice;
+                    Hotspot.BandSteeringPolicyStatus = rec.Advice;
                 }
 
                 ScanStatus = $"Last scan: {DateTime.Now:HH:mm:ss} ({Networks.Count} networks detected)";

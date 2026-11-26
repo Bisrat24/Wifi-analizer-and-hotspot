@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using System.Windows.Media;
 
 namespace WifiAnalyzerHotspot.Models
 {
@@ -219,6 +220,77 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _trafficRate;
             set { _trafficRate = value; OnPropertyChanged(); }
+        }
+
+        // ── Client SNR & Band-Steering ──
+        private int _snrEstimate = 65;
+        public int SnrEstimate
+        {
+            get => _snrEstimate;
+            set
+            {
+                _snrEstimate = Math.Clamp(value, 0, 100);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SnrDisplayText));
+                UpdateSteeringStatus();
+            }
+        }
+
+        public string SnrDisplayText => $"{_snrEstimate}% SNR";
+
+        private string _steeringStatus = "Guided: 5 GHz / 6 GHz (Optimal)";
+        public string SteeringStatus
+        {
+            get => _steeringStatus;
+            set { _steeringStatus = value; OnPropertyChanged(); }
+        }
+
+        private string _steeringBadgeColor = "#00E676";
+        public string SteeringBadgeColor
+        {
+            get => _steeringBadgeColor;
+            set
+            {
+                _steeringBadgeColor = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SteeringBadgeBrush));
+            }
+        }
+
+        public Brush SteeringBadgeBrush
+        {
+            get
+            {
+                try
+                {
+                    var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(_steeringBadgeColor));
+                    b.Freeze();
+                    return b;
+                }
+                catch
+                {
+                    return Brushes.LimeGreen;
+                }
+            }
+        }
+
+        public void UpdateSteeringStatus(int threshold = 60)
+        {
+            if (_snrEstimate >= threshold)
+            {
+                SteeringStatus = "Guided: 5 GHz / 6 GHz (Optimal)";
+                SteeringBadgeColor = "#00E676";
+            }
+            else if (_snrEstimate >= 45)
+            {
+                SteeringStatus = "Dual-Band Steered (Balanced)";
+                SteeringBadgeColor = "#00E5FF";
+            }
+            else
+            {
+                SteeringStatus = "Fallback: 2.4 GHz (Range Safe)";
+                SteeringBadgeColor = "#FFB300";
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -704,6 +776,71 @@ namespace WifiAnalyzerHotspot.Models
         {
             get => _autoSteerRecommendation;
             set { _autoSteerRecommendation = value; OnPropertyChanged(); }
+        }
+
+        // ── Automated Band-Steering Policy Enforcement ──
+        private bool _isBandSteeringPolicyEnforced = true;
+        public bool IsBandSteeringPolicyEnforced
+        {
+            get => _isBandSteeringPolicyEnforced;
+            set
+            {
+                _isBandSteeringPolicyEnforced = value;
+                OnPropertyChanged();
+                UpdateBandSteeringPolicyStatus();
+            }
+        }
+
+        private int _bandSteeringSnrThreshold = 60;
+        public int BandSteeringSnrThreshold
+        {
+            get => _bandSteeringSnrThreshold;
+            set
+            {
+                _bandSteeringSnrThreshold = Math.Clamp(value, 30, 90);
+                OnPropertyChanged();
+                UpdateBandSteeringPolicyStatus();
+            }
+        }
+
+        private string _bandSteeringPolicyStatus = "Active Policy: Actively guiding dual-band clients to 5 GHz / 6 GHz at ≥60% SNR";
+        public string BandSteeringPolicyStatus
+        {
+            get => _bandSteeringPolicyStatus;
+            set { _bandSteeringPolicyStatus = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<string> BandSteeringThresholdOptions { get; } = new()
+        {
+            "50% SNR (Aggressive 5G/6G Steering)",
+            "60% SNR (Balanced - Recommended)",
+            "70% SNR (Conservative 5G/6G Steering)"
+        };
+
+        private string _bandSteeringThresholdChoice = "60% SNR (Balanced - Recommended)";
+        public string BandSteeringThresholdChoice
+        {
+            get => _bandSteeringThresholdChoice;
+            set
+            {
+                _bandSteeringThresholdChoice = value;
+                OnPropertyChanged();
+                if (value.StartsWith("50")) BandSteeringSnrThreshold = 50;
+                else if (value.StartsWith("70")) BandSteeringSnrThreshold = 70;
+                else BandSteeringSnrThreshold = 60;
+            }
+        }
+
+        public void UpdateBandSteeringPolicyStatus()
+        {
+            if (!_isBandSteeringPolicyEnforced)
+            {
+                BandSteeringPolicyStatus = "Policy Disabled • Broadcast channel remains static";
+            }
+            else
+            {
+                BandSteeringPolicyStatus = $"Active Policy: Actively guiding dual-band clients to 5 GHz / 6 GHz at ≥{_bandSteeringSnrThreshold}% SNR (fallback to 2.4 GHz when <45%)";
+            }
         }
 
         // ── Join / Leave Timeline ──

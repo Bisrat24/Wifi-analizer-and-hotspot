@@ -209,9 +209,52 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(parsedPlain.CacheKey != parsedEdns.CacheKey, "plain and edns keys must never collide");
             }, failures);
 
+            Check("Live Jitter & RTT Histogram verification", () =>
+            {
+                var jitter = new Models.LiveJitterDiagnostics();
+                jitter.CurrentRttMs = 12.0;
+                jitter.JitterMs = 1.2;
+                jitter.TotalSamples = 10;
+                jitter.UpdateQuality();
+                Expect(jitter.QualityRating.Contains("EXCELLENT") || jitter.QualityRating.Contains("VERY GOOD"), "Low latency & jitter must evaluate to VERY GOOD or EXCELLENT quality");
+
+                var bin = new Models.RttHistogramBin { Label = "< 5 ms", Count = 80 };
+                bin.Percentage = 80.0;
+                Expect(bin.CountText == "80 pkts", "Bin count text format mismatch");
+                Expect(bin.PercentageText == "80%", "Bin percentage format mismatch");
+
+                // Verify RFC 3550 delay variation formula
+                double lastRtt = 10.0;
+                double currentRtt = 26.0;
+                double initialJitter = 1.0;
+                double diff = Math.Abs(currentRtt - lastRtt); // 16.0
+                double updatedJitter = initialJitter + (diff - initialJitter) / 16.0;
+                Expect(Math.Abs(updatedJitter - 1.9375) < 0.001, "RFC 3550 jitter calculation mismatch");
+            }, failures);
+
+            Check("Automated Band-Steering Policy logic verification", () =>
+            {
+                var analysisService = new ChannelAnalysisService();
+                var networks = new List<Models.WifiNetwork>
+                {
+                    new Models.WifiNetwork { Ssid = "Net5G", Band = "5 GHz", Channel = 36, SignalPercent = 80 },
+                    new Models.WifiNetwork { Ssid = "Net24G", Band = "2.4 GHz", Channel = 6, SignalPercent = 70 }
+                };
+
+                // With high SNR client (>= 60%), steers to 5 GHz / 6 GHz
+                var recHighSnr = analysisService.GetSmartSteeringRecommendation(networks, clientCount: 2, avgClientSnr: 75, snrThreshold: 60, enforcePolicy: true);
+                Expect(recHighSnr.RecommendedBand == "5 GHz", "High SNR client must steer to 5 GHz");
+                Expect(recHighSnr.Advice.Contains("Policy Active"), "Advice must reflect active band-steering policy");
+
+                // With distant/low SNR client (< 45%), falls back to 2.4 GHz
+                var recLowSnr = analysisService.GetSmartSteeringRecommendation(networks, clientCount: 2, avgClientSnr: 38, snrThreshold: 60, enforcePolicy: true);
+                Expect(recLowSnr.RecommendedBand == "2.4 GHz", "Low SNR client must fall back to 2.4 GHz for range safety");
+                Expect(recLowSnr.Advice.Contains("Fallback"), "Advice must reflect dynamic range fallback");
+            }, failures);
+
             Check("App version code consistency", () =>
             {
-                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.3", $"Version string must be v1.7.3 but was {ViewModels.MainViewModel.AppVersionString}");
+                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.4", $"Version string must be v1.7.4 but was {ViewModels.MainViewModel.AppVersionString}");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");

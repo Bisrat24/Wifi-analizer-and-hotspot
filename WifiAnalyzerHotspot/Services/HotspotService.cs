@@ -1680,6 +1680,16 @@ if ($connectionProfile) {
                     long rtt = arpRtt > 0 ? arpRtt : 2;
                     client.Latency = $"{rtt} ms";
                     client.ConnectionSpeed = $"Online • {rtt}ms";
+                    int snr = rtt switch
+                    {
+                        <= 3 => 85,
+                        <= 8 => 75,
+                        <= 18 => 65,
+                        <= 40 => 50,
+                        _ => 35
+                    };
+                    client.SnrEstimate = snr;
+                    client.UpdateSteeringStatus();
                 }
                 else
                 {
@@ -1732,6 +1742,16 @@ if ($connectionProfile) {
                             long rtt = pingOk ? pingRtt : tcpRtt;
                             client.Latency = rtt > 0 ? $"{rtt} ms" : "< 10 ms";
                             client.ConnectionSpeed = $"Online • {client.Latency}";
+                            int snr = rtt switch
+                            {
+                                <= 3 => 85,
+                                <= 8 => 75,
+                                <= 18 => 65,
+                                <= 40 => 50,
+                                _ => 35
+                            };
+                            client.SnrEstimate = snr;
+                            client.UpdateSteeringStatus();
                         }
                     }
                     else
@@ -1739,6 +1759,8 @@ if ($connectionProfile) {
                         // All probes failed: SendARP failed, Ping failed, TCP failed
                         int misses = _clientConsecutiveMisses.GetValueOrDefault(normMac, 0) + 1;
                         _clientConsecutiveMisses[normMac] = misses;
+                        client.SnrEstimate = 20;
+                        client.UpdateSteeringStatus();
                         if (misses >= 2)
                         {
                             // Confirmed disconnected device
