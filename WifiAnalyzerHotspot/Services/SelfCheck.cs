@@ -211,7 +211,7 @@ namespace WifiAnalyzerHotspot.Services
 
             Check("App version code consistency", () =>
             {
-                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.2", $"Version string must be v1.7.2 but was {ViewModels.MainViewModel.AppVersionString}");
+                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.3", $"Version string must be v1.7.3 but was {ViewModels.MainViewModel.AppVersionString}");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");

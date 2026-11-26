@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.3] - 2026-11-26
+
+### Changed
+- Promoted project release to `v1.7.3` with synchronized version display across the OS window title bar, companion mini-window title, top sidebar branding badge, application manifest, and assembly metadata.
+- Automated self-check test suite validated to assert `v1.7.3` version consistency.
+
+---
+
 ## [v1.7.2] - 2026-11-26
 
 ### Added
