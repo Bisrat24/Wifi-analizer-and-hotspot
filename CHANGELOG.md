@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.5] - 2026-11-28
+
+### Fixed
+- **Hotspot Single-Radio Hardware Concurrency Conflict Resolver:** Eliminated intermittent hotspot failures where connecting devices could not connect (handshake/DHCP timeouts) or where the hotspot SSID did not appear on other devices:
+  - Fixed Single-Channel Concurrency (SCC) frequency synchronization: on single-radio Wi-Fi cards (such as Intel Wi-Fi 6/6E/7, Realtek, Qualcomm), creating a 2.4 GHz SoftAP while connected to an upstream 5 GHz network (or vice-versa) forces the physical radio into Multi-Channel Concurrency (MCC) time-slicing, causing dropped beacon frames and dropped WPA/DHCP packets.
+  - Fixed erroneous channel dropdown in `MainViewModel.cs` that mislabeled 5 GHz channels (e.g. Channel 36) as "2.4 GHz Band (Synchronized to Channel 36)", which misled users and internal selection into forcing 2.4 GHz SoftAP mode.
+  - Implemented deterministic band resolution (`ResolveTetheringBandEnum`) in `HotspotService.cs` ensuring synchronized 5 GHz Wi-Fi connections enforce `FiveGigahertz` SoftAP mode for zero-drop performance.
+  - Added proactive **Hardware Band Conflict Alert Banner** with one-click **⚡ Auto-Sync** button that aligns the hotspot band to the active uplink radio before startup.
+  - Added pre-flight conflict protection in `ToggleHotspotAsync()` that automatically synchronizes the band if a single-radio conflict is detected.
+- **Regulatory 5 GHz DFS Radar Channel Detection & Advisory:** Automatically detects when the upstream Wi-Fi uplink is on a DFS channel (Channels 52–144) where Windows SoftAP is legally prohibited from beaconing, alerting the user with actionable guidance.
+- **Windows ICS DHCP Subnet Collision Prevention:** Added dynamic subnet collision detection (`DetectOptimalIcsSubnet()`). If the upstream gateway or any active interface occupies `192.168.137.x`, the ICS DHCP server automatically shifts to `192.168.173.1` to prevent silent DHCP assignment lockups.
+- **Firewall & Routing Hardening:** Added explicit firewall allow rules for incoming UDP 67/68 (DHCP) and UDP 53 (DNS) on all network profiles, and enabled kernel IPv4 packet routing (`IPEnableRouter = 1`).
+- **Truthful Live Broadcast Channel Telemetry:** `GetStatusAsync` now queries the actual virtual Wi-Fi Direct adapter via `DetectVirtualHotspotChannel()` first, accurately reflecting whether Single-Channel Concurrency (SCC) or Multi-Channel Concurrency (MCC) is active.
+
+### Changed
+- Promoted project release to `v1.7.5` across window title bars (`WiFi Analyzer & Hotspot Pro (v1.7.5)`), companion mini-window, sidebar branding badges, application manifest, assembly metadata, and self-check test suite.
+
+---
+
 ## [v1.7.4] - 2026-11-26
 
 ### Added

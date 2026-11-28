@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:WifiAnalyzerHotspot.ViewModels"
         xmlns:controls="clr-namespace:WifiAnalyzerHotspot.Controls"
         mc:Ignorable="d"
-        Title="Secure Connect — AnyConnect Wi-Fi Manager (v1.7.4)"
+        Title="Secure Connect — AnyConnect Wi-Fi Manager (v1.7.5)"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
         Height="580" Width="380"
         MinHeight="440" MinWidth="340"
@@ -172,7 +172,7 @@
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="SECURE CONNECT" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF"/>
                                 <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock Text="v1.7.4" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                    <TextBlock Text="v1.7.5" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                 </Border>
                             </StackPanel>
                             <TextBlock Text="AnyConnect Wi-Fi Manager" FontSize="10" Foreground="#8F9EBC"/>

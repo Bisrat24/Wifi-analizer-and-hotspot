@@ -216,12 +216,6 @@ namespace WifiAnalyzerHotspot.Services
                                 model.ActiveBand = model.Band;
                                 model.ChannelDescription = "Hotspot is stopped";
                             }
-                            else if (activeChannel > 0)
-                            {
-                                model.ActiveChannel = $"Channel {activeChannel}";
-                                model.ActiveBand = !string.IsNullOrEmpty(activeBand) ? activeBand : model.Band;
-                                model.ChannelDescription = $"Broadcasting on Channel {activeChannel} ({model.ActiveBand}) • Synced with {safeIf}";
-                            }
                             else
                             {
                                 var (virtCh, virtBand) = DetectVirtualHotspotChannel();
@@ -229,7 +223,46 @@ namespace WifiAnalyzerHotspot.Services
                                 {
                                     model.ActiveChannel = $"Channel {virtCh}";
                                     model.ActiveBand = virtBand;
-                                    model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Cable Connection (Ethernet)";
+                                    if (activeChannel > 0)
+                                    {
+                                        if (virtCh == activeChannel)
+                                        {
+                                            model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Single-Channel Concurrency (SCC) Synced with {safeIf}";
+                                        }
+                                        else
+                                        {
+                                            model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Multi-Channel Concurrency (MCC Uplink on Ch {activeChannel})";
+                                        }
+                                    }
+                                    else
+                                    {
+                                        model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Cable Connection (Ethernet)";
+                                    }
+                                }
+                                else if (activeChannel > 0)
+                                {
+                                    bool isUplink5G = activeChannel > 14;
+                                    bool isHotspot24G = model.Band == "2.4 GHz" || (configuredChoice?.Contains("2.4 GHz") == true && !configuredChoice.Contains("5 GHz"));
+                                    bool isHotspot5G = model.Band == "5 GHz" || configuredChoice?.Contains("5 GHz") == true;
+
+                                    if (isUplink5G && isHotspot24G)
+                                    {
+                                        model.ActiveChannel = "2.4 GHz (Cross-Band MCC)";
+                                        model.ActiveBand = "2.4 GHz";
+                                        model.ChannelDescription = $"Broadcasting on 2.4 GHz • Multi-Channel Concurrency (Uplink on 5 GHz Ch {activeChannel} • May drop packets)";
+                                    }
+                                    else if (!isUplink5G && isHotspot5G)
+                                    {
+                                        model.ActiveChannel = "5 GHz (Cross-Band MCC)";
+                                        model.ActiveBand = "5 GHz";
+                                        model.ChannelDescription = $"Broadcasting on 5 GHz • Multi-Channel Concurrency (Uplink on 2.4 GHz Ch {activeChannel} • May drop packets)";
+                                    }
+                                    else
+                                    {
+                                        model.ActiveChannel = $"Channel {activeChannel}";
+                                        model.ActiveBand = !string.IsNullOrEmpty(activeBand) ? activeBand : model.Band;
+                                        model.ChannelDescription = $"Broadcasting on Channel {activeChannel} ({model.ActiveBand}) • Single-Channel Concurrency Synced with {safeIf}";
+                                    }
                                 }
                                 else
                                 {
@@ -516,12 +549,6 @@ if ($connectionProfile) {{
                             model.ActiveBand = model.Band;
                             model.ChannelDescription = "Hotspot is stopped";
                         }
-                        else if (activeChannel > 0)
-                        {
-                            model.ActiveChannel = $"Channel {activeChannel}";
-                            model.ActiveBand = !string.IsNullOrEmpty(activeBand) ? activeBand : model.Band;
-                            model.ChannelDescription = $"Broadcasting on Channel {activeChannel} ({model.ActiveBand}) • Synced with {safeIf}";
-                        }
                         else
                         {
                             var (virtCh, virtBand) = DetectVirtualHotspotChannel();
@@ -529,7 +556,46 @@ if ($connectionProfile) {{
                             {
                                 model.ActiveChannel = $"Channel {virtCh}";
                                 model.ActiveBand = virtBand;
-                                model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Cable Connection (Ethernet)";
+                                if (activeChannel > 0)
+                                {
+                                    if (virtCh == activeChannel)
+                                    {
+                                        model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Single-Channel Concurrency (SCC) Synced with {safeIf}";
+                                    }
+                                    else
+                                    {
+                                        model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Multi-Channel Concurrency (MCC Uplink on Ch {activeChannel})";
+                                    }
+                                }
+                                else
+                                {
+                                    model.ChannelDescription = $"Broadcasting on Channel {virtCh} ({virtBand}) • Cable Connection (Ethernet)";
+                                }
+                            }
+                            else if (activeChannel > 0)
+                            {
+                                bool isUplink5G = activeChannel > 14;
+                                bool isHotspot24G = model.Band == "2.4 GHz" || (configuredChoice?.Contains("2.4 GHz") == true && !configuredChoice.Contains("5 GHz"));
+                                bool isHotspot5G = model.Band == "5 GHz" || configuredChoice?.Contains("5 GHz") == true;
+
+                                if (isUplink5G && isHotspot24G)
+                                {
+                                    model.ActiveChannel = "2.4 GHz (Cross-Band MCC)";
+                                    model.ActiveBand = "2.4 GHz";
+                                    model.ChannelDescription = $"Broadcasting on 2.4 GHz • Multi-Channel Concurrency (Uplink on 5 GHz Ch {activeChannel} • May drop packets)";
+                                }
+                                else if (!isUplink5G && isHotspot5G)
+                                {
+                                    model.ActiveChannel = "5 GHz (Cross-Band MCC)";
+                                    model.ActiveBand = "5 GHz";
+                                    model.ChannelDescription = $"Broadcasting on 5 GHz • Multi-Channel Concurrency (Uplink on 2.4 GHz Ch {activeChannel} • May drop packets)";
+                                }
+                                else
+                                {
+                                    model.ActiveChannel = $"Channel {activeChannel}";
+                                    model.ActiveBand = !string.IsNullOrEmpty(activeBand) ? activeBand : model.Band;
+                                    model.ChannelDescription = $"Broadcasting on Channel {activeChannel} ({model.ActiveBand}) • Single-Channel Concurrency Synced with {safeIf}";
+                                }
                             }
                             else
                             {
@@ -679,6 +745,77 @@ if ($connectionProfile) {{
         }
 
         /// <summary>
+        /// Deterministically maps user selection string into TetheringWiFiBand enum string.
+        /// When synchronized to an active Wi-Fi channel, guarantees hardware single-channel concurrency (SCC)
+        /// matching the upstream physical radio band to prevent multi-channel concurrency (MCC) packet loss and beacon drops.
+        /// </summary>
+        internal static string ResolveTetheringBandEnum(string bandOrChannel)
+        {
+            if (string.IsNullOrWhiteSpace(bandOrChannel)) return "Auto";
+
+            if (bandOrChannel.Contains("Synchronized", StringComparison.OrdinalIgnoreCase))
+            {
+                if (bandOrChannel.Contains("5 GHz", StringComparison.OrdinalIgnoreCase) ||
+                    bandOrChannel.Contains("5GHz", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "FiveGigahertz";
+                }
+                var m = Regex.Match(bandOrChannel, @"Channel\s*(\d+)", RegexOptions.IgnoreCase);
+                if (m.Success && int.TryParse(m.Groups[1].Value, out int ch) && ch > 14)
+                {
+                    return "FiveGigahertz";
+                }
+                return "TwoPointFourGigahertz";
+            }
+
+            if (bandOrChannel.Contains("5 GHz", StringComparison.OrdinalIgnoreCase) ||
+                bandOrChannel.Contains("5GHz", StringComparison.OrdinalIgnoreCase))
+            {
+                return "FiveGigahertz";
+            }
+
+            if (bandOrChannel.Contains("Auto", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Auto";
+            }
+
+            return "TwoPointFourGigahertz";
+        }
+
+        /// <summary>
+        /// Detects if an active upstream network adapter already occupies 192.168.137.x subnet.
+        /// If so, shifts ICS DHCP server to 192.168.173.1 to avoid fatal DHCP subnet collisions.
+        /// </summary>
+        internal static string DetectOptimalIcsSubnet()
+        {
+            try
+            {
+                var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(i => i.OperationalStatus == OperationalStatus.Up &&
+                                !i.Description.Contains("Direct", StringComparison.OrdinalIgnoreCase) &&
+                                !i.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
+                                !i.Name.Contains("Local Area Connection*", StringComparison.OrdinalIgnoreCase));
+                foreach (var iface in interfaces)
+                {
+                    var props = iface.GetIPProperties();
+                    foreach (var unicast in props.UnicastAddresses)
+                    {
+                        if (unicast.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        {
+                            string ipStr = unicast.Address.ToString();
+                            if (ipStr.StartsWith("192.168.137."))
+                            {
+                                return "192.168.173.1";
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return "192.168.137.1";
+        }
+
+        /// <summary>
         /// Saves custom SSID, password, and Wi-Fi band/channel configuration.
         /// </summary>
         /// <summary>
@@ -701,15 +838,7 @@ if ($connectionProfile) {{
                 if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 8 || passphrase.Length > 63)
                     return (false, "Password must be between 8 and 63 characters.");
 
-                string bandEnum = "TwoPointFourGigahertz";
-                if (bandOrChannel.Contains("5 GHz") || bandOrChannel.Contains("5GHz"))
-                {
-                    bandEnum = "FiveGigahertz";
-                }
-                else if (bandOrChannel.Contains("Auto"))
-                {
-                    bandEnum = "Auto";
-                }
+                string bandEnum = ResolveTetheringBandEnum(bandOrChannel);
 
                 string safeSsid = EscapePowerShellString(ssid);
                 string safePass = EscapePowerShellString(passphrase);
@@ -867,38 +996,50 @@ if ($connectionProfile) {{
             return await Task.Run(() =>
             {
                 StageIcsRestore();
-                string script = @"
-try {
+                string chosenSubnet = DetectOptimalIcsSubnet();
+                string script = $@"
+try {{
     # 1. Ensure SharedAccess (ICS / DHCP) service is enabled and started
     $svc = Get-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
-    if ($svc) {
-        if ($svc.StartType -eq 'Disabled') {
+    if ($svc) {{
+        if ($svc.StartType -eq 'Disabled') {{
             Set-Service -Name 'SharedAccess' -StartupType Manual -ErrorAction SilentlyContinue
-        }
-        if ($svc.Status -ne 'Running') {
+        }}
+        if ($svc.Status -ne 'Running') {{
             Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
-        }
-    }
+        }}
+    }}
 
-    # 2. Configure conflict-free standard DHCP scope (192.168.137.1/24)
+    # 2. Configure conflict-free standard DHCP scope ({chosenSubnet}/24)
     $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
-    if (Test-Path $regPath) {
-        try {
-            Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '192.168.137.1' -ErrorAction SilentlyContinue
-        } catch {}
-    }
+    if (Test-Path $regPath) {{
+        try {{
+            Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
+        }} catch {{}}
+    }}
 
-    # 3. Clear any stale ARP cache for the hotspot subnet
-    try {
+    # 3. Ensure incoming DHCP (UDP 67/68) and DNS (UDP 53) are allowed through Windows Firewall
+    try {{
+        netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DHCP' dir=in action=allow protocol=UDP localport=67,68 profile=any | Out-Null
+        netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DNS' dir=in action=allow protocol=UDP localport=53 profile=any | Out-Null
+    }} catch {{}}
+
+    # 4. Enable IPv4 packet routing / forwarding in kernel
+    try {{
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'IPEnableRouter' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+    }} catch {{}}
+
+    # 5. Clear any stale ARP cache for the hotspot subnet
+    try {{
         netsh interface ip delete arpcache | Out-Null
-    } catch {}
+    }} catch {{}}
 
-    @{ Result = 'Success' } | ConvertTo-Json -Compress
-} catch {
-    @{ Result = 'Error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress
-}
+    @{{ Result = 'Success' }} | ConvertTo-Json -Compress
+}} catch {{
+    @{{ Result = 'Error'; Error = $_.Exception.Message }} | ConvertTo-Json -Compress
+}}
 ";
                 string json = RunPowerShell(script);
                 try
@@ -906,7 +1047,8 @@ try {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
-                        return (true, "DHCP scope (192.168.137.1) & SharedAccess service verified and optimized!");
+                        string note = chosenSubnet != "192.168.137.1" ? " (Subnet collision resolved -> 192.168.173.1)" : "";
+                        return (true, $"DHCP scope ({chosenSubnet}){note}, firewall rules & SharedAccess verified!");
                     }
                     return (false, res?.Error ?? "DHCP optimization check finished.");
                 }
@@ -940,15 +1082,8 @@ try {
                 if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 8 || passphrase.Length > 63)
                     return (false, "Password must be between 8 and 63 characters.");
 
-                string bandEnum = "TwoPointFourGigahertz";
-                if (bandOrChannel.Contains("5 GHz") || bandOrChannel.Contains("5GHz"))
-                {
-                    bandEnum = "FiveGigahertz";
-                }
-                else if (bandOrChannel.Contains("Auto"))
-                {
-                    bandEnum = "Auto";
-                }
+                string bandEnum = ResolveTetheringBandEnum(bandOrChannel);
+                string chosenSubnet = DetectOptimalIcsSubnet();
 
                 string safeSsid = EscapePowerShellString(ssid);
                 string safePass = EscapePowerShellString(passphrase);
@@ -999,10 +1134,15 @@ try {{
 
     $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
     if (Test-Path $regPath) {{
-        Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
-        Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '192.168.137.1' -ErrorAction SilentlyContinue
-        Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '192.168.137.1' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'ScopeAddress' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'StandaloneDhcpAddress' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'ScopeAddressBackup' -Value '{chosenSubnet}' -ErrorAction SilentlyContinue
     }}
+
+    # Ensure firewall allows incoming DHCP and DNS
+    netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DHCP' dir=in action=allow protocol=UDP localport=67,68 profile=any | Out-Null
+    netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DNS' dir=in action=allow protocol=UDP localport=53 profile=any | Out-Null
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'IPEnableRouter' -Value 1 -Type DWord -ErrorAction SilentlyContinue
 
     Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500

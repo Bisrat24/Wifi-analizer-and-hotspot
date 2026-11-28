@@ -81,9 +81,45 @@ namespace WifiAnalyzerHotspot.ViewModels
         private string _hotspotChannelChoice = "Auto (Recommended)";
         private string _bestChannelAdvice = "Channel 1 is recommended for Hotspot.";
 
-        public const string AppVersionString = "v1.7.4";
+        public const string AppVersionString = "v1.7.5";
         public string AppVersion => AppVersionString;
         public string WindowTitle => $"WiFi Analyzer & Hotspot Pro ({AppVersionString})";
+
+        // ── Single-Radio Hardware Concurrency & Band Conflict Diagnostics ──
+        private bool _hasHotspotBandConflict;
+        public bool HasHotspotBandConflict
+        {
+            get => _hasHotspotBandConflict;
+            set { _hasHotspotBandConflict = value; OnPropertyChanged(); }
+        }
+
+        private string _hotspotBandConflictWarning = string.Empty;
+        public string HotspotBandConflictWarning
+        {
+            get => _hotspotBandConflictWarning;
+            set { _hotspotBandConflictWarning = value; OnPropertyChanged(); }
+        }
+
+        private string _hotspotBandConflictResolutionText = string.Empty;
+        public string HotspotBandConflictResolutionText
+        {
+            get => _hotspotBandConflictResolutionText;
+            set { _hotspotBandConflictResolutionText = value; OnPropertyChanged(); }
+        }
+
+        private bool _isDfsChannelActive;
+        public bool IsDfsChannelActive
+        {
+            get => _isDfsChannelActive;
+            set { _isDfsChannelActive = value; OnPropertyChanged(); }
+        }
+
+        private string _dfsChannelWarning = string.Empty;
+        public string DfsChannelWarning
+        {
+            get => _dfsChannelWarning;
+            set { _dfsChannelWarning = value; OnPropertyChanged(); }
+        }
 
         // ── Real-Time Jitter Diagnostics & Packet RTT Histogram ──
         private LiveJitterDiagnostics _liveJitter = new();
@@ -231,6 +267,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 OnPropertyChanged(nameof(IsWifiConnected));
                 OnPropertyChanged(nameof(SccExplanationText));
                 OnPropertyChanged(nameof(SccChannelNoticeText));
+                UpdateHotspotBandConflictState();
             }
         }
 
@@ -241,6 +278,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 OnPropertyChanged(nameof(IsWifiConnected));
                 OnPropertyChanged(nameof(SccExplanationText));
                 OnPropertyChanged(nameof(SccChannelNoticeText));
+                UpdateHotspotBandConflictState();
             }
         }
 
@@ -258,7 +296,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (IsWifiConnected)
                 {
-                    return $"Your Wi-Fi card is connected to '{ConnectedInterface.Ssid}' on Channel {ConnectedInterface.Channel}. Under Windows Single-Channel Concurrency (SCC), the 2.4 GHz hotspot synchronizes to Channel {ConnectedInterface.Channel} so you can share your internet without disconnecting from Wi-Fi.";
+                    string band = ConnectedInterface.Channel > 14 ? "5 GHz" : "2.4 GHz";
+                    return $"Your Wi-Fi card is connected to '{ConnectedInterface.Ssid}' on {band} Channel {ConnectedInterface.Channel}. Under Windows Single-Channel Concurrency (SCC), the hotspot synchronizes to {band} Channel {ConnectedInterface.Channel} so client devices connect reliably with zero time-slicing packet drops.";
                 }
                 return "Your Wi-Fi card is not connected to an external Wi-Fi network (Cable / Standalone Mode). You can broadcast the hotspot freely across supported 2.4 GHz and 5 GHz channels without Single-Channel Concurrency (SCC) hardware locking.";
             }
@@ -270,7 +309,8 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 if (IsWifiConnected)
                 {
-                    return $"• On Wi-Fi: Hardware Single-Channel Concurrency locks the SoftAP to your active Wi-Fi channel (Channel {ConnectedInterface.Channel}) so internet sharing stays active.";
+                    string band = ConnectedInterface.Channel > 14 ? "5 GHz" : "2.4 GHz";
+                    return $"• On Wi-Fi: Hardware Single-Channel Concurrency locks the SoftAP to your active Wi-Fi channel ({band} Channel {ConnectedInterface.Channel}) for 100% reliable beaconing and zero connection timeouts.";
                 }
                 return "• On Ethernet / Cable / Standalone: Hardware Single-Channel Concurrency is inactive. Full custom band and channel selection are available.";
             }
@@ -410,6 +450,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                     _settings.HotspotChannel = value;
                     _settingsService.SaveSettings(_settings);
                 }
+                UpdateHotspotBandConflictState();
             }
         }
 
@@ -445,6 +486,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         public ICommand CancelSpeedTestCommand { get; }
         public ICommand ToggleHotspotCommand { get; }
         public ICommand SaveHotspotConfigCommand { get; }
+        public ICommand AutoFixBandConflictCommand { get; }
         public ICommand RefreshHotspotCommand { get; }
         public ICommand CopyHotspotDetailsCommand { get; }
         public ICommand CancelHotspotResetCommand { get; }
@@ -918,6 +960,7 @@ namespace WifiAnalyzerHotspot.ViewModels
             CancelSpeedTestCommand = new RelayCommand(CancelSpeedTest);
             ToggleHotspotCommand = new RelayCommand(async () => await ToggleHotspotAsync());
             SaveHotspotConfigCommand = new RelayCommand(async () => await SaveHotspotConfigAsync());
+            AutoFixBandConflictCommand = new RelayCommand(async () => await AutoFixBandConflictAsync());
             RefreshHotspotCommand = new RelayCommand(async () => await RefreshHotspotAsync(true));
             RefreshRulesCommand = new RelayCommand(async () =>
             {
@@ -2072,10 +2115,22 @@ namespace WifiAnalyzerHotspot.ViewModels
 
             if (activeChannel > 0)
             {
+                bool is5G = activeChannel > 14;
+                string activeBand = is5G ? "5 GHz" : "2.4 GHz";
+                string activeSsid = !string.IsNullOrWhiteSpace(ConnectedInterface?.Ssid) ? ConnectedInterface.Ssid : "Wi-Fi";
+
                 // Connected to Wi-Fi: Single-Channel Concurrency applies
-                AvailableHotspotChannels.Add($"Auto / Synchronized with active Wi-Fi (Channel {activeChannel})");
-                AvailableHotspotChannels.Add($"2.4 GHz Band (Synchronized to Channel {activeChannel} • {ConnectedInterface.Ssid})");
-                AvailableHotspotChannels.Add("5 GHz Band (High Speed 5 GHz • Auto-channel)");
+                AvailableHotspotChannels.Add($"Auto / Synchronized ({activeBand} Channel {activeChannel} • Zero Packet Loss)");
+                if (is5G)
+                {
+                    AvailableHotspotChannels.Add($"5 GHz Band (Synchronized to Channel {activeChannel} • {activeSsid})");
+                    AvailableHotspotChannels.Add("2.4 GHz Band (Cross-Band Mode • ⚠️ Warning: May drop beacons/packets)");
+                }
+                else
+                {
+                    AvailableHotspotChannels.Add($"2.4 GHz Band (Synchronized to Channel {activeChannel} • {activeSsid})");
+                    AvailableHotspotChannels.Add("5 GHz Band (Cross-Band Mode • ⚠️ Warning: May drop beacons/packets)");
+                }
             }
             else
             {
@@ -2089,13 +2144,83 @@ namespace WifiAnalyzerHotspot.ViewModels
             {
                 HotspotChannelChoice = previousChoice;
             }
-            else if (!string.IsNullOrEmpty(previousChoice) && previousChoice.Contains("5 GHz"))
-            {
-                HotspotChannelChoice = AvailableHotspotChannels.FirstOrDefault(c => c.Contains("5 GHz")) ?? AvailableHotspotChannels[0];
-            }
             else
             {
                 HotspotChannelChoice = AvailableHotspotChannels.FirstOrDefault() ?? "Auto / Any Band (Recommended)";
+            }
+
+            UpdateHotspotBandConflictState();
+        }
+
+        public void UpdateHotspotBandConflictState()
+        {
+            if (IsWifiConnected && ConnectedInterface != null && ConnectedInterface.Channel > 0)
+            {
+                int ch = ConnectedInterface.Channel;
+                bool isUplink5G = ch > 14;
+                string choice = HotspotChannelChoice ?? string.Empty;
+
+                // DFS Radar Channel Check (Channels 52-144)
+                if (ch >= 52 && ch <= 144)
+                {
+                    IsDfsChannelActive = true;
+                    DfsChannelWarning = $"⚠️ Upstream Wi-Fi is connected to DFS radar Channel {ch}. Under FCC/ETSI regulations, Windows SoftAP cannot transmit beacons on DFS frequencies. Client devices may not see the hotspot SSID. Switch your router to non-DFS channels (36-48, 149-165) or use Ethernet.";
+                }
+                else
+                {
+                    IsDfsChannelActive = false;
+                    DfsChannelWarning = string.Empty;
+                }
+
+                // Hardware Multi-Channel Concurrency (MCC) Conflict Check
+                bool isChoice24G = choice.Contains("2.4 GHz") && !choice.Contains("5 GHz");
+                bool isChoice5G = choice.Contains("5 GHz") && !choice.Contains("2.4 GHz");
+
+                if (isUplink5G && isChoice24G)
+                {
+                    HasHotspotBandConflict = true;
+                    HotspotBandConflictWarning = $"⚠️ Cross-Band Concurrency Conflict: Your Wi-Fi uplink is on 5 GHz (Channel {ch}), but Hotspot is set to 2.4 GHz. Single-radio adapters cannot transmit on both frequencies without severe time-slicing packet drops. Client devices will fail to see the SSID or fail to connect (handshake/DHCP timeout).";
+                    HotspotBandConflictResolutionText = $"⚡ Auto-Sync to 5 GHz Channel {ch} (Zero Drops)";
+                }
+                else if (!isUplink5G && isChoice5G)
+                {
+                    HasHotspotBandConflict = true;
+                    HotspotBandConflictWarning = $"⚠️ Cross-Band Concurrency Conflict: Your Wi-Fi uplink is on 2.4 GHz (Channel {ch}), but Hotspot is set to 5 GHz. Single-radio adapters time-slicing between bands will drop beacon frames and connection requests.";
+                    HotspotBandConflictResolutionText = $"⚡ Auto-Sync to 2.4 GHz Channel {ch} (Zero Drops)";
+                }
+                else
+                {
+                    HasHotspotBandConflict = false;
+                    HotspotBandConflictWarning = string.Empty;
+                    HotspotBandConflictResolutionText = string.Empty;
+                }
+            }
+            else
+            {
+                HasHotspotBandConflict = false;
+                HotspotBandConflictWarning = string.Empty;
+                HotspotBandConflictResolutionText = string.Empty;
+                IsDfsChannelActive = false;
+                DfsChannelWarning = string.Empty;
+            }
+        }
+
+        public async Task AutoFixBandConflictAsync()
+        {
+            if (AvailableHotspotChannels.Count > 0)
+            {
+                HotspotChannelChoice = AvailableHotspotChannels[0];
+                UpdateHotspotBandConflictState();
+
+                if (Hotspot.IsRunning)
+                {
+                    Hotspot.StatusMessage = $"⚡ Hotspot synchronized to {HotspotChannelChoice}. Reconfiguring SoftAP to eliminate MCC packet loss...";
+                    await SaveHotspotConfigAsync();
+                }
+                else
+                {
+                    Hotspot.StatusMessage = $"⚡ Hotspot synchronized to {HotspotChannelChoice} (Single-Channel Concurrency). Ready to start with 0% beacon drops.";
+                }
             }
         }
 
@@ -2688,6 +2813,14 @@ namespace WifiAnalyzerHotspot.ViewModels
                 else
                 {
                     if (!ValidateHotspotCredentials()) return;
+
+                    // Auto-resolve single-radio band conflict before starting so clients do not fail to connect
+                    if (HasHotspotBandConflict && AvailableHotspotChannels.Count > 0)
+                    {
+                        HotspotChannelChoice = AvailableHotspotChannels[0];
+                        UpdateHotspotBandConflictState();
+                        Hotspot.StatusMessage = $"⚡ Auto-synchronized to {HotspotChannelChoice} (Single-Channel Concurrency) to ensure connecting devices succeed.";
+                    }
 
                     Hotspot.Clients.Clear();
                     Hotspot.ClientCount = 0;

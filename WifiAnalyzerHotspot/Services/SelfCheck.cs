@@ -252,9 +252,55 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(recLowSnr.Advice.Contains("Fallback"), "Advice must reflect dynamic range fallback");
             }, failures);
 
+            Check("Single-Radio Band Enum resolution & SCC verification", () =>
+            {
+                Expect(HotspotService.ResolveTetheringBandEnum("Auto / Synchronized (5 GHz Channel 36 • Zero Packet Loss)") == "FiveGigahertz", "5 GHz synchronized channel must resolve to FiveGigahertz");
+                Expect(HotspotService.ResolveTetheringBandEnum("Auto / Synchronized (2.4 GHz Channel 6 • Zero Packet Loss)") == "TwoPointFourGigahertz", "2.4 GHz synchronized channel must resolve to TwoPointFourGigahertz");
+                Expect(HotspotService.ResolveTetheringBandEnum("5 GHz Band (Synchronized to Channel 36 • TestSSID)") == "FiveGigahertz", "5 GHz band must resolve to FiveGigahertz");
+                Expect(HotspotService.ResolveTetheringBandEnum("2.4 GHz Band (Cross-Band Mode • ⚠️ Warning: May drop beacons/packets)") == "TwoPointFourGigahertz", "2.4 GHz cross-band must resolve to TwoPointFourGigahertz");
+                Expect(HotspotService.ResolveTetheringBandEnum("Auto / Any Band (Recommended)") == "Auto", "Auto band must resolve to Auto");
+            }, failures);
+
+            Check("Optimal ICS Subnet detection", () =>
+            {
+                string subnet = HotspotService.DetectOptimalIcsSubnet();
+                Expect(subnet == "192.168.137.1" || subnet == "192.168.173.1", $"Subnet must be 192.168.137.1 or 192.168.173.1, got {subnet}");
+            }, failures);
+
+            Check("Hotspot hardware band conflict & DFS detection logic", () =>
+            {
+                var vm = new ViewModels.MainViewModel();
+                var ci = new Models.ConnectedInterfaceInfo
+                {
+                    Ssid = "Test5G",
+                    Channel = 36,
+                    Band = "5 GHz"
+                };
+                vm.ConnectedInterface = ci;
+                vm.UpdateAvailableHotspotChannels(36);
+
+                // Option 0 is 5 GHz Synchronized -> no conflict
+                vm.HotspotChannelChoice = vm.AvailableHotspotChannels[0];
+                vm.UpdateHotspotBandConflictState();
+                Expect(!vm.HasHotspotBandConflict, "Synchronized 5 GHz must not have band conflict");
+                Expect(!vm.IsDfsChannelActive, "Channel 36 is non-DFS");
+
+                // Selecting 2.4 GHz on 5 GHz uplink -> conflict detected!
+                vm.HotspotChannelChoice = vm.AvailableHotspotChannels.FirstOrDefault(c => c.Contains("2.4 GHz")) ?? "2.4 GHz Band";
+                vm.UpdateHotspotBandConflictState();
+                Expect(vm.HasHotspotBandConflict, "2.4 GHz Hotspot on 5 GHz uplink must trigger band conflict");
+                Expect(vm.HotspotBandConflictWarning.Contains("Cross-Band Concurrency Conflict"), "Warning must explain cross-band conflict");
+
+                // DFS Channel 52 -> DFS detected
+                ci.Channel = 52;
+                vm.UpdateHotspotBandConflictState();
+                Expect(vm.IsDfsChannelActive, "Channel 52 must be flagged as DFS radar channel");
+                Expect(vm.DfsChannelWarning.Contains("DFS"), "DFS warning must be populated");
+            }, failures);
+
             Check("App version code consistency", () =>
             {
-                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.4", $"Version string must be v1.7.4 but was {ViewModels.MainViewModel.AppVersionString}");
+                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.5", $"Version string must be v1.7.5 but was {ViewModels.MainViewModel.AppVersionString}");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");

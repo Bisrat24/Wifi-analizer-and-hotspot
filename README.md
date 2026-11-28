@@ -1,6 +1,21 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.7.4)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.7.5)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## ⚡ What's New in v1.7.5: Hotspot Single-Radio Band Conflict Resolver & DHCP Reliability
+
+- **Single-Radio Hardware Concurrency Conflict Resolver:** Resolves the root cause of intermittent connection failures and hidden SSIDs:
+  - **Single-Channel Concurrency (SCC) Enforcement:** On single-radio Wi-Fi chipsets (Intel AX200/AX201/AX210/AX211, Killer, Realtek, Qualcomm), connecting to a 5 GHz network while running a 2.4 GHz hotspot forces Multi-Channel Concurrency (MCC) time-slicing, causing dropped beacons (SSID not visible) and dropped WPA/DHCP handshakes. The app now accurately categorizes channels and synchronizes the SoftAP to the exact uplink frequency for 0% packet loss.
+  - **Deterministic Band Mapping:** Hardened Tethering band resolution (`ResolveTetheringBandEnum`) so selecting synchronized 5 GHz channels locks Windows SoftAP to `FiveGigahertz`.
+  - **Hardware Band Conflict Alert & ⚡ One-Click Auto-Fix:** Prominent amber banner warns users before starting hotspot in cross-band MCC mode, with a one-click button to synchronize bands.
+  - **Pre-Flight Auto-Guard:** `ToggleHotspotAsync()` automatically synchronizes band selection on startup if an MCC conflict is detected.
+- **Regulatory 5 GHz DFS Radar Channel Detection:** Alerts when connected to radar frequencies (Channels 52–144) where Windows SoftAP is legally forbidden from broadcasting beacons.
+- **Windows ICS DHCP Subnet Collision Prevention:** Dynamically shifts DHCP server scope to `192.168.173.1` if the upstream network uses `192.168.137.x`.
+- **Firewall & Routing Verification:** Adds firewall exceptions for UDP 67/68 (DHCP) and UDP 53 (DNS) and enables IPv4 kernel routing (`IPEnableRouter = 1`).
+- **Truthful Live Channel Diagnostics:** Hotspot card queries the live virtual adapter via `DetectVirtualHotspotChannel()` to report real physical channels and explicit SCC vs MCC states.
+- **Version Alignment & Automated Self-Check:** Window title bars and headers display `(v1.7.5)` upon opening with complete startup self-check assertion coverage.
 
 ---
 

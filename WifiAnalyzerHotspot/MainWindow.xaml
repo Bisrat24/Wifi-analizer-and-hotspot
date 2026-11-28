@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:WifiAnalyzerHotspot.ViewModels"
         xmlns:controls="clr-namespace:WifiAnalyzerHotspot.Controls"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle, FallbackValue='WiFi Analyzer &amp; Hotspot Pro (v1.7.4)'}"
+        Title="{Binding WindowTitle, FallbackValue='WiFi Analyzer &amp; Hotspot Pro (v1.7.5)'}"
         Icon="pack://application:,,,/WifiAnalyzerHotspot;component/app.ico"
         Height="720" Width="1180"
         MinHeight="480" MinWidth="720"
@@ -177,7 +177,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="&amp; HOTSPOT" FontSize="9" FontWeight="Bold" Foreground="#00E5FF"/>
                                     <Border Background="#1C2338" CornerRadius="3" Padding="4,1" Margin="5,0,0,0">
-                                        <TextBlock Text="v1.7.4" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
+                                        <TextBlock Text="v1.7.5" FontSize="8" FontWeight="SemiBold" Foreground="#94A3B8"/>
                                     </Border>
                                 </StackPanel>
                             </StackPanel>
@@ -195,7 +195,7 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BoolVisConv}}">
                         <Border Width="32" Height="32" CornerRadius="8" Background="#1E2742" Margin="0,0,0,6" ClipToBounds="True"
-                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.7.4">
+                                ToolTip="WiFi Analyzer &amp; Hotspot Pro v1.7.5">
                             <Image Source="pack://application:,,,/WifiAnalyzerHotspot;component/app.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <Button Command="{Binding ToggleSidebarCommand}"
@@ -1271,6 +1271,48 @@
                                     </Grid>
                                 </Grid>
                             </Border>
+
+                <!-- Hardware Band Conflict Alert Banner (Single-Radio MCC Protection) -->
+                <Border Background="#2B1408" BorderBrush="#FF9100" BorderThickness="1.5" CornerRadius="8" Padding="12,10" Margin="0,0,0,12"
+                        Visibility="{Binding HasHotspotBandConflict, Converter={StaticResource BoolVisConv}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="&#x26A0;&#xFE0F;" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="SINGLE-RADIO HARDWARE BAND CONFLICT DETECTED" FontSize="11" FontWeight="Bold" Foreground="#FF9100"/>
+                            <TextBlock Text="{Binding HotspotBandConflictWarning}" FontSize="11" Foreground="#FFCC80" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource ModernBtn}" Command="{Binding AutoFixBandConflictCommand}"
+                                Background="#E65100" BorderBrush="#FF9100" Foreground="#FFFFFF" FontWeight="Bold" FontSize="11"
+                                Padding="12,6" Height="34" Margin="10,0,0,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,5,0"/>
+                                <TextBlock Text="{Binding HotspotBandConflictResolutionText}"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <!-- 5 GHz DFS Radar Channel Advisory Banner -->
+                <Border Background="#101C2B" BorderBrush="#00B0FF" BorderThickness="1.5" CornerRadius="8" Padding="12,10" Margin="0,0,0,12"
+                        Visibility="{Binding IsDfsChannelActive, Converter={StaticResource BoolVisConv}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="&#x1F4E1;" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="REGULATORY 5 GHz DFS RADAR CHANNEL ACTIVE" FontSize="11" FontWeight="Bold" Foreground="#00E5FF"/>
+                            <TextBlock Text="{Binding DfsChannelWarning}" FontSize="11" Foreground="#90CAF9" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- Hotspot Control Banner -->
                 <Border Style="{StaticResource CardBorder}" Padding="12,10" Margin="0,0,0,12">
                     <StackPanel HorizontalAlignment="Center">
@@ -1825,6 +1867,24 @@
                                         </ToolTip>
                                     </ComboBox.ToolTip>
                                 </ComboBox>
+
+                                <!-- Settings In-Flyout Band Conflict Callout -->
+                                <Border Background="#2B1408" BorderBrush="#FF9100" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,10"
+                                        Visibility="{Binding HasHotspotBandConflict, Converter={StaticResource BoolVisConv}}">
+                                    <StackPanel>
+                                        <TextBlock Text="&#x26A0;&#xFE0F; HARDWARE CONCURRENCY CONFLICT" FontSize="10" FontWeight="Bold" Foreground="#FF9100"/>
+                                        <TextBlock Text="{Binding HotspotBandConflictWarning}" FontSize="10" Foreground="#FFCC80" TextWrapping="Wrap" Margin="0,2,0,6"/>
+                                        <Button Style="{StaticResource ModernBtn}" Command="{Binding AutoFixBandConflictCommand}"
+                                                Background="#E65100" BorderBrush="#FF9100" Foreground="#FFFFFF" FontWeight="Bold" FontSize="10"
+                                                Padding="8,4" Height="26" HorizontalAlignment="Left">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#x26A1;" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
+                                                <TextBlock Text="{Binding HotspotBandConflictResolutionText}"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+
                             <!-- Live Active Broadcast Channel Card -->
                             <Border Background="#101D2D" BorderBrush="#00B0FF" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,10,0,0">
                                 <Grid>
