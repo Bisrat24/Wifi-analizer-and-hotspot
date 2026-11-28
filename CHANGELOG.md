@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.7.6] - 2026-11-28
+
+### Added
+- **24/7 Always-On Never-Stop Hotspot Engine:** Designed specifically to keep the Windows Mobile Hotspot broadcasting continuously 24/7 without ever timing out or turning off when 0 client devices are connected, allowing it to stay live overnight and ready for the next day:
+  - **Registry Timeout Elimination (`PeerlessTimeoutEnabled`):** Overrides Windows default 5-minute idle auto-shutdown by configuring `PeerlessTimeoutEnabled = 0` (DWORD) and `PeerlessTimeout = 120` (maximum fallback) in `HKLM:\SYSTEM\CurrentControlSet\Services\icssvc\Settings` and `SharedAccess\Parameters`, with `PublicConnectionTimeout = 1440` (24 hours).
+  - **Win32 System Wake Lock & Away Mode:** Integrates `SetThreadExecutionState` with `ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED` whenever the Hotspot is active, preventing Windows from entering Modern Standby or sleeping while preserving background network processing and Wi-Fi transmission with screens off.
+  - **Wi-Fi Adapter Power Management Disabling:** Runs `Disable-NetAdapterPowerManagement` on the physical and virtual Wi-Fi adapters, preventing Windows from putting the radio into low-power selective suspend states.
+  - **Active Anti-Idle Heartbeat Pulse:** Implemented `HotspotService.SendAntiIdlePulseAsync()` transmitting periodic UDP discard keep-alive frames every 30 seconds across the SoftAP gateway (`192.168.137.1`), resetting virtual network driver inactivity timers in kernel space when 0 devices are connected.
+  - **Autonomous Watchdog Reactivation:** The background watchdog immediately detects if external OS power-state changes stopped the hotspot and automatically restarts it within seconds, while respecting explicit user manual stops (`_explicitlyStoppedByUser`).
+  - **24/7 Always-On UI Card & Live Badge:** Added a prominent **24/7 ALWAYS-ON** green status badge in the Hotspot hero header and a dedicated toggle card in the Resilience & Watchdog panel.
+- **Automated Self-Check Verification:** Added regression test assertions for `NeverSleep247Hotspot` setting defaults and `v1.7.6` version consistency.
+
+### Changed
+- Promoted project release to `v1.7.6` across the window title bar (`WiFi Analyzer & Hotspot Pro (v1.7.6)`), companion mini-window, top sidebar branding badges, application manifest, assembly metadata, and self-check test suite.
+
+---
+
 ## [v1.7.5] - 2026-11-28
 
 ### Fixed

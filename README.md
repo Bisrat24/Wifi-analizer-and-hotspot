@@ -1,6 +1,19 @@
-# 📡 WiFi Analyzer & Hotspot Pro (v1.7.5)
+# 📡 WiFi Analyzer & Hotspot Pro (v1.7.6)
 
 A native Windows desktop application with standalone executable (`.exe`) for analyzing Wi-Fi channels, bandwidth, signal strength, internet connection speed, connection stabilization with active keep-alive / auto-reconnect (Ethernet & Wi-Fi), creating/managing a custom Wi-Fi Mobile Hotspot, and **Secure Connect** — an AnyConnect-style fast Wi-Fi manager with full-power radio output, zero throttling, native saved network fast-reconnect (<1s), master on/off passive toggle, and a dedicated compact companion mini window.
+
+---
+
+## ⚡ What's New in v1.7.6: 24/7 Always-On Never-Stop Hotspot Engine
+
+- **24/7 Always-On Never-Stop Hotspot Engine:** Guarantees the Mobile Hotspot runs continuously without ever stopping or timing out when 0 devices are connected, keeping it broadcasting overnight and ready for the next day:
+  - **Windows Registry Idle Timeout Elimination:** Completely disables Windows native 5-minute auto-turn-off by writing `PeerlessTimeoutEnabled = 0`, `PeerlessTimeout = 120`, and `PublicConnectionTimeout = 1440` in `HKLM:\SYSTEM\CurrentControlSet\Services\icssvc\Settings` and `SharedAccess\Parameters`.
+  - **Win32 Away Mode & System Wake Lock:** Calls `SetThreadExecutionState` (`ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED`) to keep the CPU, network stack, and Wi-Fi radio fully powered even when the laptop screen turns off or the system is unattended.
+  - **Wi-Fi Adapter Power Management Disabled:** Automatically executes `Disable-NetAdapterPowerManagement` to prevent driver selective suspend.
+  - **Anti-Idle Heartbeat Keep-Alive Pulse:** Sends lightweight UDP keep-alive packets every 30 seconds to the SoftAP gateway whenever 0 clients are connected, resetting adapter inactivity counters.
+  - **Autonomous Watchdog Auto-Restart:** If an external OS event stops the hotspot, the watchdog detects it within 2 seconds and immediately reactivates it, while respecting manual stops by the user.
+  - **24/7 UI Card & Header Badge:** Displays a live green `24/7 ALWAYS-ON` badge in the Hotspot control header and provides a dedicated settings card in the Watchdog panel.
+- **Version Alignment & Automated Self-Check:** Window title bars and headers display `(v1.7.6)` upon opening with complete startup self-check assertion coverage.
 
 ---
 

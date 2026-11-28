@@ -47,6 +47,8 @@ namespace WifiAnalyzerHotspot.ViewModels
         private bool _isFirstHotspotRefresh = true;
         private int _hotspotRefreshCounter = 0;
         private bool _wasExplicitlyStarted = false;
+        private bool _explicitlyStoppedByUser = false;
+        private int _antiIdlePulseCounter = 0;
         private bool _isResettingInProgress = false;
         private bool _isUserActionInProgress = false;
         private int _inTransitionCountSeconds = 0;
@@ -81,7 +83,7 @@ namespace WifiAnalyzerHotspot.ViewModels
         private string _hotspotChannelChoice = "Auto (Recommended)";
         private string _bestChannelAdvice = "Channel 1 is recommended for Hotspot.";
 
-        public const string AppVersionString = "v1.7.5";
+        public const string AppVersionString = "v1.7.6";
         public string AppVersion => AppVersionString;
         public string WindowTitle => $"WiFi Analyzer & Hotspot Pro ({AppVersionString})";
 
@@ -565,6 +567,11 @@ namespace WifiAnalyzerHotspot.ViewModels
             Hotspot.WatchdogIntervalSeconds = _settings.HotspotWatchdogIntervalSeconds > 0 ? _settings.HotspotWatchdogIntervalSeconds : 5;
             Hotspot.IsHealthCheckEnabled = _settings.IsHealthCheckEnabled;
             Hotspot.KeepHotspotAlive = _settings.KeepHotspotAlive;
+            Hotspot.NeverSleep247Hotspot = _settings.NeverSleep247Hotspot;
+            if (Hotspot.NeverSleep247Hotspot)
+            {
+                App.AcquireSystemWakeLock();
+            }
             Hotspot.TimelineEvents = _timelineService.Events;
             Hotspot.IsGamingTuningEnabled = _settings.EnableTcpGamingTuning;
             Hotspot.IsAntiBufferbloatEnabled = _settings.EnableAntiBufferbloat;
@@ -712,6 +719,18 @@ namespace WifiAnalyzerHotspot.ViewModels
                 {
                     _settings.KeepHotspotAlive = Hotspot.KeepHotspotAlive;
                     _settingsService.SaveSettings(_settings);
+                }
+                else if (e.PropertyName == nameof(Hotspot.NeverSleep247Hotspot))
+                {
+                    _settings.NeverSleep247Hotspot = Hotspot.NeverSleep247Hotspot;
+                    _settingsService.SaveSettings(_settings);
+                    if (Hotspot.NeverSleep247Hotspot)
+                    {
+                        App.AcquireSystemWakeLock();
+                        _explicitlyStoppedByUser = false;
+                        Hotspot.StatusMessage = "🛡️ 24/7 Always-On Active: Windows idle timeout and PC sleep disabled.";
+                        Hotspot.AddResetLog("🛡️ 24/7 Always-On Mode enabled. Hotspot will broadcast continuously for the next day.");
+                    }
                 }
                 else if (e.PropertyName == nameof(Hotspot.IsGamingTuningEnabled))
                 {
@@ -1975,10 +1994,27 @@ namespace WifiAnalyzerHotspot.ViewModels
                     {
                         _hotspotRefreshCounter = 0;
 
-                        // Anti-Idle Keep-Alive: if Windows auto-stopped the hotspot while user intended it to run
-                        if (Hotspot.KeepHotspotAlive && _wasExplicitlyStarted && !Hotspot.IsBusy && Hotspot.State == HotspotState.Off)
+                        // 1. Anti-Idle Heartbeat Pulse: while Hotspot is running with 0 clients, send UDP pulse every 30s
+                        if (Hotspot.IsRunning && Hotspot.Clients.Count == 0 && (Hotspot.NeverSleep247Hotspot || Hotspot.KeepHotspotAlive))
                         {
-                            Hotspot.StatusMessage = "⚡ Reactivating Hotspot (Prevented Windows Idle Shutdown)...";
+                            _antiIdlePulseCounter++;
+                            if (_antiIdlePulseCounter >= 15) // 15 * 2s = 30 seconds
+                            {
+                                _antiIdlePulseCounter = 0;
+                                _ = Task.Run(async () => await HotspotService.SendAntiIdlePulseAsync(HotspotService.DetectOptimalIcsSubnet()));
+                            }
+                        }
+                        else
+                        {
+                            _antiIdlePulseCounter = 0;
+                        }
+
+                        // 2. Anti-Idle Keep-Alive / 24/7 Always-On: if Windows auto-stopped the hotspot while user intended it to run
+                        bool shouldBeRunning = !_explicitlyStoppedByUser && (_wasExplicitlyStarted || Hotspot.NeverSleep247Hotspot);
+                        if (shouldBeRunning && (Hotspot.NeverSleep247Hotspot || Hotspot.KeepHotspotAlive) && !Hotspot.IsBusy && Hotspot.State == HotspotState.Off && _wasExplicitlyStarted)
+                        {
+                            Hotspot.StatusMessage = "⚡ 24/7 Always-On Guard: Reactivating Hotspot (Prevented Windows Idle Shutdown)...";
+                            Hotspot.AddResetLog($"⚡ 24/7 Always-On: Reactivated Hotspot at {DateTime.Now:HH:mm:ss} (0 connected clients). Hotspot remains active for the next day.");
                             await _hotspotService.StartHotspotAsync();
                             await RefreshHotspotAsync(false);
                         }
@@ -2588,6 +2624,15 @@ namespace WifiAnalyzerHotspot.ViewModels
                 Hotspot.ChannelDescription = current.ChannelDescription;
                 Hotspot.StatusMessage = current.StatusMessage;
 
+                if (current.State == HotspotState.On && !_explicitlyStoppedByUser)
+                {
+                    _wasExplicitlyStarted = true;
+                    if (Hotspot.NeverSleep247Hotspot)
+                    {
+                        App.AcquireSystemWakeLock();
+                    }
+                }
+
                 // Sync DNS Cache service lifecycle with live Hotspot state
                 if (Hotspot.State == HotspotState.On && Hotspot.IsZeroLatencyDnsEnabled && !_dnsCacheService.IsRunning)
                 {
@@ -2805,6 +2850,8 @@ namespace WifiAnalyzerHotspot.ViewModels
                 if (Hotspot.IsRunning)
                 {
                     _wasExplicitlyStarted = false;
+                    _explicitlyStoppedByUser = true;
+                    App.ReleaseSystemWakeLock();
                     Hotspot.StartedAt = null;
                     Hotspot.StatusMessage = "Stopping Hotspot...";
                     var res = await _hotspotService.StopHotspotAsync();
@@ -2812,6 +2859,7 @@ namespace WifiAnalyzerHotspot.ViewModels
                 }
                 else
                 {
+                    _explicitlyStoppedByUser = false;
                     if (!ValidateHotspotCredentials()) return;
 
                     // Auto-resolve single-radio band conflict before starting so clients do not fail to connect
@@ -2844,7 +2892,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                     if (res.success)
                     {
                         _wasExplicitlyStarted = true;
+                        _explicitlyStoppedByUser = false;
                         Hotspot.StartedAt = DateTime.Now;
+                        if (Hotspot.NeverSleep247Hotspot)
+                        {
+                            App.AcquireSystemWakeLock();
+                        }
                     }
                 }
                 await RefreshHotspotAsync();
@@ -2907,7 +2960,12 @@ namespace WifiAnalyzerHotspot.ViewModels
                 _wasExplicitlyStarted = res.success;
                 if (res.success)
                 {
+                    _explicitlyStoppedByUser = false;
                     Hotspot.StartedAt = DateTime.Now;
+                    if (Hotspot.NeverSleep247Hotspot)
+                    {
+                        App.AcquireSystemWakeLock();
+                    }
                     Hotspot.AddResetLog($"✅ Auto-Reset restored broadcast on {Hotspot.ActiveChannel} ({Hotspot.ActiveBand})");
                 }
                 else

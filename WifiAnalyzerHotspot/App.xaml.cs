@@ -28,6 +28,26 @@ namespace WifiAnalyzerHotspot
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
 
+        public static void AcquireSystemWakeLock()
+        {
+            try
+            {
+                SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS |
+                                        EXECUTION_STATE.ES_SYSTEM_REQUIRED |
+                                        EXECUTION_STATE.ES_AWAYMODE_REQUIRED);
+            }
+            catch { }
+        }
+
+        public static void ReleaseSystemWakeLock()
+        {
+            try
+            {
+                SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
+            }
+            catch { }
+        }
+
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern int RegisterWindowMessage(string lpString);
 

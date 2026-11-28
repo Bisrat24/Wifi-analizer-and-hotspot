@@ -405,6 +405,17 @@ namespace WifiAnalyzerHotspot.Models
             set { _keepHotspotAlive = value; OnPropertyChanged(); }
         }
 
+        private bool _neverSleep247Hotspot = true;
+        /// <summary>
+        /// 24/7 Always-On Hotspot Mode: prevents Windows idle timeout, disables PeerlessTimeout,
+        /// engages Away Mode wake lock, and keeps SoftAP broadcasting indefinitely for the next day.
+        /// </summary>
+        public bool NeverSleep247Hotspot
+        {
+            get => _neverSleep247Hotspot;
+            set { _neverSleep247Hotspot = value; OnPropertyChanged(); }
+        }
+
         private bool _isGuestIsolationEnabled = false;
         public bool IsGuestIsolationEnabled
         {

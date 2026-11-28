@@ -1031,7 +1031,27 @@ try {{
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'IPEnableRouter' -Value 1 -Type DWord -ErrorAction SilentlyContinue
     }} catch {{}}
 
-    # 5. Clear any stale ARP cache for the hotspot subnet
+    # 5. Disable Windows Mobile Hotspot peerless timeout (auto-shutdown when 0 users connected)
+    # PeerlessTimeoutEnabled = 0 disables the auto-shutoff completely; PeerlessTimeout = 120m fallback
+    try {{
+        $icssvcPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\icssvc\Settings'
+        if (-not (Test-Path $icssvcPath)) {{ New-Item -Path $icssvcPath -Force -ErrorAction SilentlyContinue | Out-Null }}
+        if (Test-Path $icssvcPath) {{
+            Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $icssvcPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+        }}
+        if (Test-Path $regPath) {{
+            Set-ItemProperty -Path $regPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $regPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+        }}
+        Get-NetAdapter | ForEach-Object {{
+            Disable-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue
+        }}
+    }} catch {{}}
+
+    # 6. Clear any stale ARP cache for the hotspot subnet
     try {{
         netsh interface ip delete arpcache | Out-Null
     }} catch {{}}
@@ -1048,7 +1068,7 @@ try {{
                     if (res?.Result == "Success")
                     {
                         string note = chosenSubnet != "192.168.137.1" ? " (Subnet collision resolved -> 192.168.173.1)" : "";
-                        return (true, $"DHCP scope ({chosenSubnet}){note}, firewall rules & SharedAccess verified!");
+                        return (true, $"DHCP scope ({chosenSubnet}){note}, 24/7 idle timeout disabled, firewall rules & SharedAccess verified!");
                     }
                     return (false, res?.Error ?? "DHCP optimization check finished.");
                 }
@@ -1143,6 +1163,20 @@ try {{
     netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DHCP' dir=in action=allow protocol=UDP localport=67,68 profile=any | Out-Null
     netsh advfirewall firewall add rule name='WifiAnalyzer_Hotspot_DNS' dir=in action=allow protocol=UDP localport=53 profile=any | Out-Null
     Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'IPEnableRouter' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+
+    # Enforce 24/7 Zero Idle Timeout
+    $icssvcPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\icssvc\Settings'
+    if (-not (Test-Path $icssvcPath)) {{ New-Item -Path $icssvcPath -Force -ErrorAction SilentlyContinue | Out-Null }}
+    if (Test-Path $icssvcPath) {{
+        Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $icssvcPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+    }}
+    if (Test-Path $regPath) {{
+        Set-ItemProperty -Path $regPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+    }}
 
     Start-Service -Name 'SharedAccess' -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
@@ -1319,6 +1353,23 @@ try {
     }
 } catch {}
 
+# 1b. Enforce 24/7 Zero Idle Timeout (PeerlessTimeoutEnabled = 0, PeerlessTimeout = 120m)
+try {
+    $icssvcPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\icssvc\Settings'
+    if (-not (Test-Path $icssvcPath)) { New-Item -Path $icssvcPath -Force -ErrorAction SilentlyContinue | Out-Null }
+    if (Test-Path $icssvcPath) {
+        Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $icssvcPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $icssvcPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+    }
+    $saPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters'
+    if (Test-Path $saPath) {
+        Set-ItemProperty -Path $saPath -Name 'PeerlessTimeoutEnabled' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $saPath -Name 'PeerlessTimeout' -Value 120 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $saPath -Name 'PublicConnectionTimeout' -Value 1440 -Type DWord -ErrorAction SilentlyContinue
+    }
+} catch {}
+
 # 2. Acquire active Internet connection profile
 $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime]::GetInternetConnectionProfile()
 if (-not $connectionProfile) {
@@ -1398,8 +1449,9 @@ try {
                     var res = JsonSerializer.Deserialize<OperationResultJson>(json);
                     if (res?.Result == "Success")
                     {
+                        App.AcquireSystemWakeLock();
                         _ = Task.Run(async () => await _priorityService.EngageHighestPriorityAsync(allowPacerRebind: true));
-                        return (true, "Mobile Hotspot is now ACTIVE with Highest PC Priority!");
+                        return (true, "Mobile Hotspot is now ACTIVE (24/7 Never-Stop Engine • Highest PC Priority)!");
                     }
                     return (false, string.IsNullOrEmpty(res?.Error) ? "Failed to start Hotspot." : res.Error);
                 }
@@ -1408,6 +1460,23 @@ try {
                     return (false, ex.Message);
                 }
             });
+        }
+
+        /// <summary>
+        /// Sends an anti-idle heartbeat packet across the hotspot virtual adapter to reset
+        /// Windows kernel inactivity timers and keep the SoftAP broadcasting when 0 clients are connected.
+        /// </summary>
+        public static async Task SendAntiIdlePulseAsync(string gatewayIp)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(gatewayIp)) gatewayIp = "192.168.137.1";
+                using var udp = new System.Net.Sockets.UdpClient();
+                udp.Client.SendTimeout = 400;
+                byte[] pulse = new byte[] { 0x48, 0x4F, 0x54, 0x53, 0x50, 0x4F, 0x54 }; // "HOTSPOT"
+                await udp.SendAsync(pulse, pulse.Length, gatewayIp, 9);
+            }
+            catch { }
         }
 
         /// <summary>

@@ -298,9 +298,17 @@ namespace WifiAnalyzerHotspot.Services
                 Expect(vm.DfsChannelWarning.Contains("DFS"), "DFS warning must be populated");
             }, failures);
 
+            Check("Hotspot 24/7 Always-On Never-Stop configuration defaults", () =>
+            {
+                var settings = new Models.AppSettingsModel();
+                Expect(settings.NeverSleep247Hotspot == true, "NeverSleep247Hotspot must default to true in settings");
+                var model = new Models.HotspotModel();
+                Expect(model.NeverSleep247Hotspot == true, "NeverSleep247Hotspot must default to true in model");
+            }, failures);
+
             Check("App version code consistency", () =>
             {
-                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.5", $"Version string must be v1.7.5 but was {ViewModels.MainViewModel.AppVersionString}");
+                Expect(ViewModels.MainViewModel.AppVersionString == "v1.7.6", $"Version string must be v1.7.6 but was {ViewModels.MainViewModel.AppVersionString}");
             }, failures);
 
             string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WifiAnalyzerHotspot_selfcheck.log");
